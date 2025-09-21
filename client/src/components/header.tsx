@@ -49,6 +49,13 @@ export default function Header() {
                   Services
                 </button>
                 <button
+                  onClick={() => scrollToSection("gallery")}
+                  className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                  data-testid="button-gallery"
+                >
+                  Gallery
+                </button>
+                <button
                   onClick={() => scrollToSection("quote")}
                   className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
                   data-testid="button-quote"
@@ -92,6 +99,13 @@ export default function Header() {
                 data-testid="button-mobile-services"
               >
                 Services
+              </button>
+              <button
+                onClick={() => scrollToSection("gallery")}
+                className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                data-testid="button-mobile-gallery"
+              >
+                Gallery
               </button>
               <button
                 onClick={() => scrollToSection("quote")}

@@ -4,6 +4,14 @@ import { Phone, Mail, MapPin, Clock, Shield, Users, DollarSign, Home, Building, 
 import QuoteForm from "@/components/quote-form";
 import ContactForm from "@/components/contact-form";
 
+// Gallery images
+import movingTruck1 from "@assets/stock_images/professional_moving__5a83198e.jpg";
+import movingTruck2 from "@assets/stock_images/professional_moving__3cea5ab5.jpg";
+import movers1 from "@assets/stock_images/professional_movers__c6318594.jpg";
+import movers2 from "@assets/stock_images/professional_movers__e4414897.jpg";
+import happyFamily1 from "@assets/stock_images/happy_family_in_new__7de85855.jpg";
+import happyFamily2 from "@assets/stock_images/happy_family_in_new__32e2c8cf.jpg";
+
 export default function HomePage() {
   const scrollToQuote = () => {
     const element = document.getElementById("quote");
@@ -149,6 +157,104 @@ export default function HomePage() {
                     No hidden fees
                   </li>
                 </ul>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      {/* Gallery Section */}
+      <section id="gallery" className="py-20 bg-background">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold text-foreground mb-4">Our Work</h2>
+            <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
+              See our professional team in action and the quality service we provide to families and businesses.
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <Card className="overflow-hidden group hover:shadow-lg transition-shadow duration-300" data-testid="gallery-item-1">
+              <div className="aspect-video overflow-hidden">
+                <img 
+                  src={movingTruck1} 
+                  alt="Professional moving truck loaded with furniture" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+              <CardContent className="p-4">
+                <h3 className="font-semibold text-lg mb-2">Professional Equipment</h3>
+                <p className="text-muted-foreground text-sm">Our modern fleet of moving trucks ensures your belongings are transported safely.</p>
+              </CardContent>
+            </Card>
+
+            <Card className="overflow-hidden group hover:shadow-lg transition-shadow duration-300" data-testid="gallery-item-2">
+              <div className="aspect-video overflow-hidden">
+                <img 
+                  src={movers1} 
+                  alt="Professional movers carrying furniture" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+              <CardContent className="p-4">
+                <h3 className="font-semibold text-lg mb-2">Expert Team</h3>
+                <p className="text-muted-foreground text-sm">Our experienced movers handle your items with care and professionalism.</p>
+              </CardContent>
+            </Card>
+
+            <Card className="overflow-hidden group hover:shadow-lg transition-shadow duration-300" data-testid="gallery-item-3">
+              <div className="aspect-video overflow-hidden">
+                <img 
+                  src={happyFamily1} 
+                  alt="Happy family in new home" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+              <CardContent className="p-4">
+                <h3 className="font-semibold text-lg mb-2">Happy Customers</h3>
+                <p className="text-muted-foreground text-sm">We make moving day a positive experience for families across the region.</p>
+              </CardContent>
+            </Card>
+
+            <Card className="overflow-hidden group hover:shadow-lg transition-shadow duration-300" data-testid="gallery-item-4">
+              <div className="aspect-video overflow-hidden">
+                <img 
+                  src={movingTruck2} 
+                  alt="Moving truck with professional loading" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+              <CardContent className="p-4">
+                <h3 className="font-semibold text-lg mb-2">Reliable Service</h3>
+                <p className="text-muted-foreground text-sm">On-time delivery and careful handling of your precious belongings.</p>
+              </CardContent>
+            </Card>
+
+            <Card className="overflow-hidden group hover:shadow-lg transition-shadow duration-300" data-testid="gallery-item-5">
+              <div className="aspect-video overflow-hidden">
+                <img 
+                  src={movers2} 
+                  alt="Professional movers with moving boxes" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+              <CardContent className="p-4">
+                <h3 className="font-semibold text-lg mb-2">Careful Packing</h3>
+                <p className="text-muted-foreground text-sm">We use quality materials and techniques to protect your items during transit.</p>
+              </CardContent>
+            </Card>
+
+            <Card className="overflow-hidden group hover:shadow-lg transition-shadow duration-300" data-testid="gallery-item-6">
+              <div className="aspect-video overflow-hidden">
+                <img 
+                  src={happyFamily2} 
+                  alt="Satisfied customers in new home" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+              <CardContent className="p-4">
+                <h3 className="font-semibold text-lg mb-2">Stress-Free Moving</h3>
+                <p className="text-muted-foreground text-sm">Making your transition to a new home smooth and enjoyable.</p>
               </CardContent>
             </Card>
           </div>
