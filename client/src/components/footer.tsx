@@ -37,7 +37,7 @@ export default function Footer() {
           <div>
             <h4 className="text-lg font-semibold mb-4">Contact</h4>
             <ul className="space-y-2 text-background/80">
-              <li data-testid="text-phone">(555) 123-MOVE</li>
+              <li data-testid="text-phone">(906) 285-9312</li>
               <li data-testid="text-email">info@jconthemove.com</li>
               <li data-testid="text-hours-weekday">Mon-Sat: 7AM-7PM</li>
               <li data-testid="text-hours-weekend">Sun: 9AM-5PM</li>
