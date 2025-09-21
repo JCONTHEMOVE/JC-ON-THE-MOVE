@@ -39,12 +39,20 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
+    // Log the error for debugging and monitoring
+    console.error(`Error ${status} on ${req.method} ${req.path}:`, err);
+
     res.status(status).json({ message });
-    throw err;
+    
+    // In production, don't throw errors after sending response
+    // In development, we can be more aggressive for debugging
+    if (process.env.NODE_ENV === "development") {
+      console.error("Full error stack:", err.stack);
+    }
   });
 
   // importantly only setup vite in development and after
