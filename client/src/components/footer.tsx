@@ -38,7 +38,10 @@ export default function Footer() {
             <h4 className="text-lg font-semibold mb-4">Contact</h4>
             <ul className="space-y-2 text-background/80">
               <li data-testid="text-phone">(906) 285-9312</li>
-              <li data-testid="text-email">upmichiganstatemovers@gmail.com</li>
+              <li data-testid="text-email">
+                upmichiganstatemovers<br />
+                @gmail.com
+              </li>
               <li data-testid="text-hours-weekday">Mon-Sat: 7AM-7PM</li>
               <li data-testid="text-hours-weekend">Sun: 9AM-5PM</li>
             </ul>
