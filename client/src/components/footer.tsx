@@ -43,7 +43,7 @@ export default function Footer() {
                 @gmail.com
               </li>
               <li data-testid="text-hours-weekday">Mon-Sat: 7AM-7PM</li>
-              <li data-testid="text-hours-weekend">Sun: 9AM-5PM</li>
+              <li data-testid="text-hours-weekend">Sun: CLOSED</li>
             </ul>
           </div>
         </div>
