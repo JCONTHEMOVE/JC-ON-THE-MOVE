@@ -13,8 +13,8 @@ import { ArrowLeft, Users, ClipboardList, CheckCircle, DollarSign, Eye, Mail, Ph
 export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [serviceFilter, setServiceFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [serviceFilter, setServiceFilter] = useState<string>("all");
 
   const { data: leads = [], isLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads"],
@@ -42,8 +42,8 @@ export default function Dashboard() {
   });
 
   const filteredLeads = leads.filter((lead) => {
-    if (statusFilter && lead.status !== statusFilter) return false;
-    if (serviceFilter && lead.serviceType !== serviceFilter) return false;
+    if (statusFilter && statusFilter !== "all" && lead.status !== statusFilter) return false;
+    if (serviceFilter && serviceFilter !== "all" && lead.serviceType !== serviceFilter) return false;
     return true;
   });
 
@@ -180,7 +180,7 @@ export default function Dashboard() {
                       <SelectValue placeholder="All Services" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Services</SelectItem>
+                      <SelectItem value="all">All Services</SelectItem>
                       <SelectItem value="residential">Residential Moving</SelectItem>
                       <SelectItem value="commercial">Commercial Moving</SelectItem>
                       <SelectItem value="junk">Junk Removal</SelectItem>
@@ -191,7 +191,7 @@ export default function Dashboard() {
                       <SelectValue placeholder="All Statuses" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Statuses</SelectItem>
+                      <SelectItem value="all">All Statuses</SelectItem>
                       <SelectItem value="new">New</SelectItem>
                       <SelectItem value="contacted">Contacted</SelectItem>
                       <SelectItem value="quoted">Quoted</SelectItem>
