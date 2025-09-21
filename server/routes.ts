@@ -75,8 +75,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Protected routes - Get all leads (dashboard only)
-  app.get("/api/leads", isAuthenticated, async (req, res) => {
+  // Protected routes - Get all leads (business owner only)
+  app.get("/api/leads", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
       const leads = await storage.getLeads();
       res.json(leads);
@@ -86,13 +86,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Protected routes - Update lead status (dashboard only)
-  app.patch("/api/leads/:id/status", isAuthenticated, async (req, res) => {
+  // Protected routes - Update lead status (dashboard only - business owner only)
+  app.patch("/api/leads/:id/status", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
       const { id } = req.params;
       const { status } = req.body;
       
-      if (!status || !["new", "contacted", "quoted", "confirmed"].includes(status)) {
+      if (!status || !["new", "contacted", "quoted", "confirmed", "available", "accepted"].includes(status)) {
         return res.status(400).json({ error: "Invalid status" });
       }
 
@@ -104,6 +104,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updatedLead);
     } catch (error) {
       console.error("Error updating lead status:", error);
+      if (error.message && error.message.includes("Cannot set status to 'accepted'")) {
+        return res.status(400).json({ error: error.message });
+      }
       res.status(500).json({ error: "Failed to update lead status" });
     }
   });
@@ -133,8 +136,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Protected routes - Get all contacts (dashboard only)
-  app.get("/api/contacts", isAuthenticated, async (req, res) => {
+  // Protected routes - Get all contacts (business owner only)
+  app.get("/api/contacts", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
       const contacts = await storage.getContacts();
       res.json(contacts);
@@ -203,19 +206,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const employeeId = req.currentUser.id;
       
-      // Check if lead exists and is available
-      const existingLead = await storage.getLead(id);
-      if (!existingLead) {
-        return res.status(404).json({ error: "Job not found" });
-      }
-      
-      if (existingLead.assignedToUserId) {
-        return res.status(400).json({ error: "Job already assigned to another employee" });
-      }
-
+      // Atomic assignment attempt - will fail if already assigned
       const updatedLead = await storage.assignLeadToEmployee(id, employeeId);
       if (!updatedLead) {
-        return res.status(500).json({ error: "Failed to assign job" });
+        // Check if lead exists at all
+        const existingLead = await storage.getLead(id);
+        if (!existingLead) {
+          return res.status(404).json({ error: "Job not found" });
+        }
+        // Lead exists but wasn't updated, meaning it was already assigned
+        return res.status(409).json({ error: "Job already assigned to another employee" });
       }
 
       res.json(updatedLead);

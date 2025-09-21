@@ -448,13 +448,14 @@ function BusinessOwnerDashboard() {
                         <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Service</th>
                         <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Date</th>
                         <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                        <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Assigned To</th>
                         <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="bg-card divide-y divide-border">
                       {filteredLeads.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground" data-testid="no-leads">
+                          <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground" data-testid="no-leads">
                             No leads found matching the current filters.
                           </td>
                         </tr>

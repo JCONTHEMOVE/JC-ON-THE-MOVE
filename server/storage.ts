@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, leads, contacts, users } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, isNull } from "drizzle-orm";
+import { eq, desc, isNull, and } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -71,9 +71,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateLeadStatus(id: string, status: string): Promise<Lead | undefined> {
+    let updateData: any = { status };
+    
+    // Coordinate status with assignment state to maintain consistency
+    if (status === 'available') {
+      // If setting to available, clear any existing assignment
+      updateData.assignedToUserId = null;
+    } else if (status === 'accepted') {
+      // Don't allow manual setting to accepted without assignment - this should only be done via job acceptance
+      const [currentLead] = await db.select().from(leads).where(eq(leads.id, id));
+      if (!currentLead?.assignedToUserId) {
+        throw new Error("Cannot set status to 'accepted' without an assigned employee. Use the job acceptance workflow instead.");
+      }
+    }
+    
     const [lead] = await db
       .update(leads)
-      .set({ status })
+      .set(updateData)
       .where(eq(leads.id, id))
       .returning();
     return lead || undefined;
@@ -99,13 +113,17 @@ export class DatabaseStorage implements IStorage {
 
   // Job assignment operations
   async assignLeadToEmployee(leadId: string, employeeId: string): Promise<Lead | undefined> {
+    // Atomic update - only assign if not already assigned
     const [lead] = await db
       .update(leads)
       .set({ 
         assignedToUserId: employeeId,
         status: 'accepted'
       })
-      .where(eq(leads.id, leadId))
+      .where(and(
+        eq(leads.id, leadId),
+        isNull(leads.assignedToUserId)
+      ))
       .returning();
     return lead || undefined;
   }
