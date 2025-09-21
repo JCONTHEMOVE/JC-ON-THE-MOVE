@@ -3,8 +3,11 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertLeadSchema, insertContactSchema } from "@shared/schema";
 import { sendEmail, generateLeadNotificationEmail, generateContactNotificationEmail } from "./services/email";
+import { setupAuth, isAuthenticated } from "./replitAuth";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Auth middleware
+  await setupAuth(app);
   
   // Submit quote request
   app.post("/api/leads", async (req, res) => {
@@ -31,8 +34,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get all leads
-  app.get("/api/leads", async (req, res) => {
+  // Auth routes
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Protected routes - Get all leads (dashboard only)
+  app.get("/api/leads", isAuthenticated, async (req, res) => {
     try {
       const leads = await storage.getLeads();
       res.json(leads);
@@ -42,8 +57,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update lead status
-  app.patch("/api/leads/:id/status", async (req, res) => {
+  // Protected routes - Update lead status (dashboard only)
+  app.patch("/api/leads/:id/status", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params;
       const { status } = req.body;
@@ -89,8 +104,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get all contacts
-  app.get("/api/contacts", async (req, res) => {
+  // Protected routes - Get all contacts (dashboard only)
+  app.get("/api/contacts", isAuthenticated, async (req, res) => {
     try {
       const contacts = await storage.getContacts();
       res.json(contacts);
