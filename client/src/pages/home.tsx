@@ -46,9 +46,12 @@ export default function HomePage() {
                   variant="outline"
                   className="border-2 border-gray-400 text-gray-400 hover:bg-gray-400 hover:text-white px-8 py-4 text-lg font-semibold"
                   data-testid="button-call-now"
+                  asChild
                 >
-                  <Phone className="mr-2 h-5 w-5" />
-                  Call Now
+                  <a href="tel:(906) 285-9312">
+                    <Phone className="mr-2 h-5 w-5" />
+                    Call Now
+                  </a>
                 </Button>
               </div>
             </div>
