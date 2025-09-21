@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import path from "path";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
@@ -38,6 +39,9 @@ app.use((req, res, next) => {
 
 (async () => {
   const server = await registerRoutes(app);
+
+  // Serve static files from attached_assets directory
+  app.use('/attached_assets', express.static(path.resolve(process.cwd(), 'attached_assets')));
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route

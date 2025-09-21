@@ -53,15 +53,12 @@ export default function HomePage() {
               </div>
             </div>
             <div className="relative">
-              <video
-                src="/attached_assets/VID_1758380217257.mp4"
+              <img
+                src="/attached_assets/stock_images/professional_moving__96dea4c1.jpg"
+                alt="Professional movers loading a truck with furniture and boxes"
                 className="rounded-xl shadow-2xl w-full h-auto"
-                controls
-                data-testid="video-hero"
-                preload="metadata"
-              >
-                Your browser does not support the video tag.
-              </video>
+                data-testid="image-hero"
+              />
             </div>
           </div>
         </div>
