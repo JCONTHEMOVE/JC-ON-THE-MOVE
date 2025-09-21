@@ -36,7 +36,7 @@ export default function HomePage() {
                 </Button>
                 <Button
                   variant="outline"
-                  className="border-2 border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary px-8 py-4 text-lg font-semibold"
+                  className="border-2 border-gray-400 text-gray-400 hover:bg-gray-400 hover:text-white px-8 py-4 text-lg font-semibold"
                   data-testid="button-call-now"
                 >
                   <Phone className="mr-2 h-5 w-5" />
