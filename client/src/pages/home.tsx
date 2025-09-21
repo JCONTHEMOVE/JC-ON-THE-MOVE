@@ -45,12 +45,15 @@ export default function HomePage() {
               </div>
             </div>
             <div className="relative">
-              <img
-                src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
-                alt="Professional moving truck with workers"
+              <video
+                src="/attached_assets/VID_1758380217257.mp4"
                 className="rounded-xl shadow-2xl w-full h-auto"
-                data-testid="img-hero"
-              />
+                controls
+                data-testid="video-hero"
+                preload="metadata"
+              >
+                Your browser does not support the video tag.
+              </video>
             </div>
           </div>
         </div>
