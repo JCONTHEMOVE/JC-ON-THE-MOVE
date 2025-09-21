@@ -15,7 +15,8 @@ export const leads = pgTable("leads", {
   moveDate: text("move_date"),
   propertySize: text("property_size"),
   details: text("details"),
-  status: text("status").notNull().default("new"), // 'new', 'contacted', 'quoted', 'confirmed'
+  status: text("status").notNull().default("new"), // 'new', 'contacted', 'quoted', 'accepted', 'in_progress', 'completed'
+  assignedToUserId: varchar("assigned_to_user_id").references(() => users.id),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
 
@@ -48,6 +49,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
+  role: text("role").notNull().default("employee"), // 'business_owner', 'employee'
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -55,6 +57,7 @@ export const users = pgTable("users", {
 export const insertLeadSchema = createInsertSchema(leads).omit({
   id: true,
   status: true,
+  assignedToUserId: true, // Assigned internally when employee accepts job
   createdAt: true,
 });
 
@@ -64,6 +67,7 @@ export const insertContactSchema = createInsertSchema(contacts).omit({
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({
+  role: true, // Role set during user creation/management
   createdAt: true,
   updatedAt: true,
 });
