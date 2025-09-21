@@ -54,8 +54,8 @@ export default function HomePage() {
             </div>
             <div className="relative">
               <img
-                src="/attached_assets/stock_images/professional_moving__96dea4c1.jpg"
-                alt="Professional movers loading a truck with furniture and boxes"
+                src="/attached_assets/FB_IMG_5937718007297288444_1758496258755.jpg"
+                alt="JC ON THE MOVE LLC promotional image - Moving Soon? Special offer: Save 10% Today"
                 className="rounded-xl shadow-2xl w-full h-auto"
                 data-testid="image-hero"
               />
