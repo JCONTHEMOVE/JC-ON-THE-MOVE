@@ -7,7 +7,7 @@ import ContactForm from "@/components/contact-form";
 // Gallery images
 import movingTruck1 from "@assets/stock_images/professional_moving__5a83198e.jpg";
 import movingTruck2 from "@assets/stock_images/professional_moving__3cea5ab5.jpg";
-import movers1 from "@assets/stock_images/professional_movers__c6318594.jpg";
+import movers1 from "@assets/stock_images/professional_moving__96dea4c1.jpg";
 import movers2 from "@assets/stock_images/professional_movers__e4414897.jpg";
 import happyFamily1 from "@assets/stock_images/happy_family_in_new__7de85855.jpg";
 import happyFamily2 from "@assets/stock_images/happy_family_in_new__32e2c8cf.jpg";
