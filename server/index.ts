@@ -39,22 +39,6 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
-  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    // Log the error for debugging and monitoring
-    console.error(`Error ${status} on ${req.method} ${req.path}:`, err);
-
-    res.status(status).json({ message });
-    
-    // In production, don't throw errors after sending response
-    // In development, we can be more aggressive for debugging
-    if (process.env.NODE_ENV === "development") {
-      console.error("Full error stack:", err.stack);
-    }
-  });
-
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
@@ -63,6 +47,34 @@ app.use((req, res, next) => {
   } else {
     serveStatic(app);
   }
+
+  // Error handling middleware should be last to catch all errors
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+    // If headers are already sent, pass to default Express error handler
+    if (res.headersSent) {
+      return next(err);
+    }
+
+    const status = err.status || err.statusCode || 500;
+    
+    // Sanitize error messages for production 5xx errors
+    let message: string;
+    if (status >= 500 && process.env.NODE_ENV === "production") {
+      message = "Internal Server Error";
+    } else {
+      message = err.message || "Internal Server Error";
+    }
+
+    // Log the error for debugging and monitoring
+    console.error(`Error ${status} on ${req.method} ${req.path}:`, err.message);
+    
+    // In development, log the full stack trace
+    if (process.env.NODE_ENV === "development") {
+      console.error("Full error stack:", err.stack);
+    }
+
+    res.status(status).json({ message });
+  });
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
