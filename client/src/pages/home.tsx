@@ -226,7 +226,7 @@ export default function HomePage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-foreground">Email</h3>
-                    <p className="text-muted-foreground">info@jconthemove.com</p>
+                    <p className="text-muted-foreground">upmichiganstatemovers@gmail.com</p>
                   </div>
                 </div>
                 

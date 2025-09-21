@@ -14,7 +14,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Send email notification
       const emailContent = generateLeadNotificationEmail(lead);
-      const companyEmail = process.env.COMPANY_EMAIL || "info@jconthemove.com";
+      const companyEmail = process.env.COMPANY_EMAIL || "upmichiganstatemovers@gmail.com";
       
       await sendEmail({
         to: companyEmail,
@@ -72,7 +72,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Send email notification
       const emailContent = generateContactNotificationEmail(contact);
-      const companyEmail = process.env.COMPANY_EMAIL || "info@jconthemove.com";
+      const companyEmail = process.env.COMPANY_EMAIL || "upmichiganstatemovers@gmail.com";
       
       await sendEmail({
         to: companyEmail,
