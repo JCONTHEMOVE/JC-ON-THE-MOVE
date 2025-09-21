@@ -24,7 +24,7 @@ export default function HomePage() {
               </h1>
               <p className="text-xl md:text-2xl mb-8 text-primary-foreground/90">
                 Reliable, efficient, and stress-free moving services for your home or business. 
-                Licensed, insured, and locally owned.
+                Licensed, insured, and locally owned with offices in Ironwood Michigan, Iron River Michigan, and Green Bay Wisconsin.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button
