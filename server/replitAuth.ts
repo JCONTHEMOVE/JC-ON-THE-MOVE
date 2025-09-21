@@ -27,7 +27,7 @@ export function getSession() {
   const pgStore = connectPg(session);
   const sessionStore = new pgStore({
     conString: process.env.DATABASE_URL,
-    createTableIfMissing: false,
+    createTableIfMissing: true, // Allow auto-creation for production safety
     ttl: sessionTtl,
     tableName: "sessions",
   });
@@ -38,7 +38,8 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production', // Conditional secure for dev/prod
+      sameSite: 'lax', // CSRF protection
       maxAge: sessionTtl,
     },
   });
@@ -149,7 +150,15 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     const config = await getOidcConfig();
     const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
     updateUserSession(user, tokenResponse);
-    return next();
+    
+    // Explicitly save session after token refresh to persist changes
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error after token refresh:', err);
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      return next();
+    });
   } catch (error) {
     res.status(401).json({ message: "Unauthorized" });
     return;
