@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, leads, contacts, users } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, isNull } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -8,10 +8,19 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   
+  // User role management
+  updateUserRole(userId: string, role: string): Promise<User | undefined>;
+  getEmployees(): Promise<User[]>;
+  
   createLead(lead: InsertLead): Promise<Lead>;
   getLeads(): Promise<Lead[]>;
   getLead(id: string): Promise<Lead | undefined>;
   updateLeadStatus(id: string, status: string): Promise<Lead | undefined>;
+  
+  // Job assignment operations
+  assignLeadToEmployee(leadId: string, employeeId: string): Promise<Lead | undefined>;
+  getAvailableLeads(): Promise<Lead[]>; // Leads not assigned to any employee
+  getAssignedLeads(employeeId: string): Promise<Lead[]>; // Leads assigned to specific employee
   
   createContact(contact: InsertContact): Promise<Contact>;
   getContacts(): Promise<Contact[]>;
@@ -68,6 +77,53 @@ export class DatabaseStorage implements IStorage {
       .where(eq(leads.id, id))
       .returning();
     return lead || undefined;
+  }
+
+  // User role management
+  async updateUserRole(userId: string, role: string): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({ role, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return user || undefined;
+  }
+
+  async getEmployees(): Promise<User[]> {
+    return await db
+      .select()
+      .from(users)
+      .where(eq(users.role, 'employee'))
+      .orderBy(users.firstName, users.lastName);
+  }
+
+  // Job assignment operations
+  async assignLeadToEmployee(leadId: string, employeeId: string): Promise<Lead | undefined> {
+    const [lead] = await db
+      .update(leads)
+      .set({ 
+        assignedToUserId: employeeId,
+        status: 'accepted'
+      })
+      .where(eq(leads.id, leadId))
+      .returning();
+    return lead || undefined;
+  }
+
+  async getAvailableLeads(): Promise<Lead[]> {
+    return await db
+      .select()
+      .from(leads)
+      .where(isNull(leads.assignedToUserId))
+      .orderBy(desc(leads.createdAt));
+  }
+
+  async getAssignedLeads(employeeId: string): Promise<Lead[]> {
+    return await db
+      .select()
+      .from(leads)
+      .where(eq(leads.assignedToUserId, employeeId))
+      .orderBy(desc(leads.createdAt));
   }
 
   async createContact(insertContact: InsertContact): Promise<Contact> {
