@@ -216,7 +216,7 @@ export default function HomePage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-foreground">Phone</h3>
-                    <p className="text-muted-foreground">(555) 123-MOVE</p>
+                    <p className="text-muted-foreground">(906) 285-9312</p>
                   </div>
                 </div>
                 
