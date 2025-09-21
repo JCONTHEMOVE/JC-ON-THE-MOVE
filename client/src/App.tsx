@@ -59,13 +59,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <div className="min-h-screen bg-background text-foreground font-sans">
-          <Header />
-          <main>
-            <Router />
-          </main>
-          <Route path="/" component={Footer} />
-        </div>
+        <Router />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
