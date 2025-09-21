@@ -7,7 +7,7 @@ import ContactForm from "@/components/contact-form";
 // Gallery images
 import movingTruck1 from "@assets/stock_images/professional_moving__5a83198e.jpg";
 import movingTruck2 from "@assets/stock_images/professional_moving__3cea5ab5.jpg";
-import movers1 from "@assets/stock_images/professional_moving__96dea4c1.jpg";
+import movers1 from "@assets/IMG_20250920_152516884.jpg";
 import movers2 from "@assets/stock_images/professional_movers__e4414897.jpg";
 import happyFamily1 from "@assets/stock_images/happy_family_in_new__7de85855.jpg";
 import happyFamily2 from "@assets/stock_images/happy_family_in_new__32e2c8cf.jpg";
@@ -192,13 +192,13 @@ export default function HomePage() {
               <div className="aspect-video overflow-hidden">
                 <img 
                   src={movers1} 
-                  alt="Professional movers carrying furniture" 
+                  alt="JC ON THE MOVE crew after a successful safe move" 
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
               </div>
               <CardContent className="p-4">
-                <h3 className="font-semibold text-lg mb-2">Expert Team</h3>
-                <p className="text-muted-foreground text-sm">Our experienced movers handle your items with care and professionalism.</p>
+                <h3 className="font-semibold text-lg mb-2">Successful Safe Moves</h3>
+                <p className="text-muted-foreground text-sm">We move anything so you don't have to. Our crew celebrates every successful move.</p>
               </CardContent>
             </Card>
 
