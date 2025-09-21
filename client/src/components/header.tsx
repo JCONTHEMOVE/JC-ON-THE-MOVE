@@ -36,35 +36,56 @@ export default function Header() {
           {!isMobile ? (
             <div className="hidden md:block">
               <div className="ml-10 flex items-baseline space-x-4">
-                <button
-                  onClick={() => scrollToSection("home")}
-                  className="text-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                  data-testid="button-home"
-                >
-                  Home
-                </button>
-                <button
-                  onClick={() => scrollToSection("services")}
-                  className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                  data-testid="button-services"
-                >
-                  Services
-                </button>
-                <button
-                  onClick={() => scrollToSection("gallery")}
-                  className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                  data-testid="button-gallery"
-                >
-                  Gallery
-                </button>
-                {!isAuthenticated && (
-                  <button
-                    onClick={() => scrollToSection("quote")}
-                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                    data-testid="button-quote"
-                  >
-                    Get Quote
-                  </button>
+                {isAuthenticated ? (
+                  // Navigation for authenticated users (dashboard)
+                  <>
+                    <Link
+                      href="/"
+                      className="text-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-dashboard"
+                    >
+                      Dashboard
+                    </Link>
+                    <a
+                      href="/#home"
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-view-public"
+                    >
+                      View Public Site
+                    </a>
+                  </>
+                ) : (
+                  // Navigation for unauthenticated users (landing page)
+                  <>
+                    <button
+                      onClick={() => scrollToSection("home")}
+                      className="text-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-home"
+                    >
+                      Home
+                    </button>
+                    <button
+                      onClick={() => scrollToSection("services")}
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-services"
+                    >
+                      Services
+                    </button>
+                    <button
+                      onClick={() => scrollToSection("gallery")}
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-gallery"
+                    >
+                      Gallery
+                    </button>
+                    <button
+                      onClick={() => scrollToSection("quote")}
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-quote"
+                    >
+                      Get Quote
+                    </button>
+                  </>
                 )}
                 
                 {isAuthenticated ? (
@@ -120,35 +141,58 @@ export default function Header() {
         {isMobile && mobileMenuOpen && (
           <div className="md:hidden border-t border-border py-4">
             <div className="flex flex-col space-y-2">
-              <button
-                onClick={() => scrollToSection("home")}
-                className="text-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                data-testid="button-mobile-home"
-              >
-                Home
-              </button>
-              <button
-                onClick={() => scrollToSection("services")}
-                className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                data-testid="button-mobile-services"
-              >
-                Services
-              </button>
-              <button
-                onClick={() => scrollToSection("gallery")}
-                className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                data-testid="button-mobile-gallery"
-              >
-                Gallery
-              </button>
-              {!isAuthenticated && (
-                <button
-                  onClick={() => scrollToSection("quote")}
-                  className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                  data-testid="button-mobile-quote"
-                >
-                  Get Quote
-                </button>
+              {isAuthenticated ? (
+                // Mobile navigation for authenticated users (dashboard)
+                <>
+                  <Link
+                    href="/"
+                    className="text-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                    data-testid="button-mobile-dashboard"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Dashboard
+                  </Link>
+                  <a
+                    href="/#home"
+                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                    data-testid="button-mobile-view-public"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    View Public Site
+                  </a>
+                </>
+              ) : (
+                // Mobile navigation for unauthenticated users (landing page)
+                <>
+                  <button
+                    onClick={() => scrollToSection("home")}
+                    className="text-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                    data-testid="button-mobile-home"
+                  >
+                    Home
+                  </button>
+                  <button
+                    onClick={() => scrollToSection("services")}
+                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                    data-testid="button-mobile-services"
+                  >
+                    Services
+                  </button>
+                  <button
+                    onClick={() => scrollToSection("gallery")}
+                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                    data-testid="button-mobile-gallery"
+                  >
+                    Gallery
+                  </button>
+                  <button
+                    onClick={() => scrollToSection("quote")}
+                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                    data-testid="button-mobile-quote"
+                  >
+                    Get Quote
+                  </button>
+                </>
               )}
               
               {isAuthenticated ? (
