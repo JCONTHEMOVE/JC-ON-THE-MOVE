@@ -5,7 +5,7 @@ import QuoteForm from "@/components/quote-form";
 import ContactForm from "@/components/contact-form";
 
 // Gallery images
-import movingTruck1 from "@assets/stock_images/professional_moving__5a83198e.jpg";
+import movingTruck1 from "@assets/IMG_20220919_091701403_HDR_1758497194325.jpg";
 import movingTruck2 from "@assets/stock_images/professional_moving__3cea5ab5.jpg";
 import movers1 from "@assets/IMG_20250920_152516884.jpg";
 import movers2 from "@assets/IMG_20250827_103204519_HDR_1758496567144.jpg";
@@ -175,7 +175,7 @@ export default function HomePage() {
               <div className="aspect-video overflow-hidden">
                 <img 
                   src={movingTruck1} 
-                  alt="Professional moving truck loaded with furniture" 
+                  alt="Professional mover using hand truck and loading ramp to safely transport heavy boxes" 
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
               </div>
