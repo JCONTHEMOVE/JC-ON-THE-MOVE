@@ -1,6 +1,6 @@
 # Overview
 
-This is a full-stack moving and junk removal service website built with React, TypeScript, Express.js, and Drizzle ORM. The application allows customers to request quotes for residential moving, commercial moving, and junk removal services, while providing a dashboard for business owners to manage leads and contacts. The system includes automated email notifications for new inquiries and features a modern, responsive design using shadcn/ui components.
+This is a full-stack moving and junk removal service website built with React, TypeScript, Express.js, and Drizzle ORM. The application allows customers to request quotes for residential moving, commercial moving, and junk removal services, while providing a comprehensive dashboard system for business operations. The system includes automated email notifications, role-based authentication, employee job assignment capabilities, and features a modern, responsive design using shadcn/ui components.
 
 # User Preferences
 
@@ -24,10 +24,11 @@ Preferred communication style: Simple, everyday language.
 - **Build System**: ESBuild for production bundling
 
 ## Database Schema
-- **leads**: Stores quote requests with customer info, service type, addresses, and status tracking
+- **leads**: Stores quote requests with customer info, service type, addresses, status tracking, and employee assignments
 - **contacts**: Stores general contact form submissions
-- **users**: Basic user authentication system (for dashboard access)
-- **Status Management**: Lead progression through states (new → contacted → quoted → confirmed)
+- **users**: Role-based user authentication system with business_owner and employee roles
+- **Status Management**: Lead progression through states (new → contacted → quoted → confirmed → available → accepted → in_progress → completed)
+- **Job Assignment**: Employee assignment tracking with assignedToUserId field for job delegation
 
 ## Email Integration
 - **Service**: SendGrid for transactional email delivery
@@ -42,10 +43,13 @@ Preferred communication style: Simple, everyday language.
 - **Path Aliases**: TypeScript path mapping for clean imports (@/, @shared/, @assets/)
 
 ## Authentication & Security
-- **Session-based**: Traditional session authentication (no JWT implementation visible)
+- **Replit Auth**: OIDC-based authentication system with automatic session management
+- **Role-Based Access Control**: Business owner and employee roles with distinct permissions
+- **Route Protection**: Role-specific middleware (requireBusinessOwner, requireEmployee) for secure endpoints
+- **Data Isolation**: Employees can only access available jobs and their own assignments
 - **CORS**: Express CORS middleware for cross-origin requests
 - **Input Validation**: Zod schemas for runtime type checking and validation
-- **Database Security**: Parameterized queries through Drizzle ORM
+- **Database Security**: Parameterized queries through Drizzle ORM with atomic job assignment to prevent race conditions
 
 ## Deployment Architecture
 - **Production Build**: Static asset generation with Express serving SPA
