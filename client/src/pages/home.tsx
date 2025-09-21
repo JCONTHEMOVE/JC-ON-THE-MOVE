@@ -8,7 +8,7 @@ import ContactForm from "@/components/contact-form";
 import movingTruck1 from "@assets/stock_images/professional_moving__5a83198e.jpg";
 import movingTruck2 from "@assets/stock_images/professional_moving__3cea5ab5.jpg";
 import movers1 from "@assets/IMG_20250920_152516884.jpg";
-import movers2 from "@assets/stock_images/professional_movers__e4414897.jpg";
+import movers2 from "@assets/IMG_20250827_103204519_HDR_1758496567144.jpg";
 import happyFamily1 from "@assets/stock_images/happy_family_in_new__7de85855.jpg";
 import happyFamily2 from "@assets/stock_images/happy_family_in_new__32e2c8cf.jpg";
 
@@ -231,7 +231,7 @@ export default function HomePage() {
               <div className="aspect-video overflow-hidden">
                 <img 
                   src={movers2} 
-                  alt="Professional movers with moving boxes" 
+                  alt="Professional packing service - neatly organized and labeled moving boxes in storage" 
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
               </div>
