@@ -71,22 +71,22 @@ export class DatabaseStorage implements IStorage {
           // Create wallet account for new user (use onConflictDoNothing for idempotency)
           await tx.insert(walletAccounts).values({
             userId: user.id,
-            tokenBalance: '10000.0', // 10,000 JCMOVE signup bonus
-            totalEarned: '10000.0'
+            tokenBalance: '1000.0', // 1,000 JCMOVE signup bonus
+            totalEarned: '1000.0'
           }).onConflictDoNothing();
 
           // Create signup bonus reward (onConflictDoNothing prevents duplicates via unique constraint)
           await tx.insert(rewards).values({
             userId: user.id,
             rewardType: 'signup_bonus',
-            tokenAmount: '10000.0',
-            cashValue: '10.00', // 10,000 tokens * $0.001 price
+            tokenAmount: '1000.0',
+            cashValue: '1.00', // 1,000 tokens * $0.001 price
             status: 'earned',
             metadata: { signupBonus: true, automaticReward: true }
           }).onConflictDoNothing();
         });
 
-        console.log(`New user registered: ${user.email || user.id} - Awarded 10,000 JCMOVE signup bonus`);
+        console.log(`New user registered: ${user.email || user.id} - Awarded 1,000 JCMOVE signup bonus`);
       } catch (error) {
         console.error(`Failed to create signup bonus for user ${user.id}:`, error);
         // Don't fail the user creation if bonus fails - user is already created
