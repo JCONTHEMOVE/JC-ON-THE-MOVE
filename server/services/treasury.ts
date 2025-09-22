@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import type { TreasuryAccount, FundingDeposit, ReserveTransaction, InsertFundingDeposit } from "@shared/schema";
 import { TREASURY_CONFIG } from "../constants";
+import { cryptoService, type TokenMarketData, type TokenBalance } from "./crypto";
 
 export interface TreasuryStats {
   totalFunding: number;
@@ -28,13 +29,60 @@ export interface TokenDistributionResult {
 }
 
 export class TreasuryService {
-  // Use centralized constants
-  private static readonly TOKEN_PRICE = TREASURY_CONFIG.TOKEN_PRICE;
+  // Use centralized constants (removed TOKEN_PRICE - now dynamic)
   private static readonly MINIMUM_BALANCE = TREASURY_CONFIG.MINIMUM_BALANCE;
   private static readonly WARNING_THRESHOLD = TREASURY_CONFIG.WARNING_THRESHOLD;
+  private static readonly CRITICAL_THRESHOLD = TREASURY_CONFIG.CRITICAL_THRESHOLD;
 
   /**
-   * Get comprehensive treasury statistics
+   * Get current JCMOVES token price
+   */
+  async getCurrentTokenPrice(): Promise<{ price: number; source: string; marketData?: TokenMarketData }> {
+    return await cryptoService.getCurrentPrice();
+  }
+
+  /**
+   * Get comprehensive market data for JCMOVES
+   */
+  async getMarketData(): Promise<TokenMarketData | null> {
+    return await cryptoService.getMarketData();
+  }
+
+  /**
+   * Check for price volatility and get recommendations
+   */
+  async checkVolatility(): Promise<{
+    isVolatile: boolean;
+    changePercent: number;
+    recommendation: string;
+  }> {
+    return await cryptoService.checkPriceVolatility();
+  }
+
+  /**
+   * Convert USD amount to JCMOVES tokens at current price
+   */
+  async convertUsdToTokens(usdAmount: number): Promise<{
+    tokenAmount: string;
+    price: number;
+    source: string;
+  }> {
+    return await cryptoService.usdToTokens(usdAmount);
+  }
+
+  /**
+   * Convert JCMOVES tokens to USD at current price
+   */
+  async convertTokensToUsd(tokenAmount: string): Promise<{
+    usdValue: number;
+    price: number;
+    source: string;
+  }> {
+    return await cryptoService.tokensToUsd(tokenAmount);
+  }
+
+  /**
+   * Get comprehensive treasury statistics with real-time crypto data
    */
   async getTreasuryStats(): Promise<TreasuryStats> {
     const treasury = await storage.getMainTreasuryAccount();
@@ -72,32 +120,41 @@ export class TreasuryService {
   }
 
   /**
-   * Check if specific token amount can be distributed
+   * Check if specific token amount can be distributed using real-time crypto pricing
    */
-  async canDistributeTokens(tokenAmount: number): Promise<{ canDistribute: boolean; reason?: string }> {
-    const fundingCheck = await storage.checkFundingAvailability(tokenAmount);
+  async canDistributeTokens(tokenAmount: number): Promise<{ canDistribute: boolean; reason?: string; currentPrice?: number }> {
+    // Get current JCMOVES price
+    const priceData = await this.getCurrentTokenPrice();
+    const currentPrice = priceData.price;
+    const requiredUsdValue = tokenAmount * currentPrice;
     
-    if (!fundingCheck.available) {
+    // Check current treasury balance
+    const treasury = await storage.getMainTreasuryAccount();
+    const availableBalance = parseFloat(treasury.availableFunding);
+    
+    if (availableBalance < requiredUsdValue) {
       return {
         canDistribute: false,
-        reason: `Insufficient funding. Required: $${fundingCheck.requiredValue.toFixed(2)}, Available: $${fundingCheck.currentBalance.toFixed(2)}`
+        reason: `Insufficient funding. Required: $${requiredUsdValue.toFixed(2)} (${tokenAmount.toLocaleString()} JCMOVES @ $${currentPrice.toFixed(6)}), Available: $${availableBalance.toFixed(2)}`,
+        currentPrice
       };
     }
 
     // Check if distribution would leave us below minimum balance
-    const remainingBalance = fundingCheck.currentBalance - fundingCheck.requiredValue;
+    const remainingBalance = availableBalance - requiredUsdValue;
     if (remainingBalance < TreasuryService.MINIMUM_BALANCE) {
       return {
         canDistribute: false,
-        reason: `Distribution would leave balance below minimum threshold ($${TreasuryService.MINIMUM_BALANCE}). Remaining would be: $${remainingBalance.toFixed(2)}`
+        reason: `Distribution would leave balance below minimum threshold ($${TreasuryService.MINIMUM_BALANCE}). Remaining would be: $${remainingBalance.toFixed(2)}`,
+        currentPrice
       };
     }
 
-    return { canDistribute: true };
+    return { canDistribute: true, currentPrice };
   }
 
   /**
-   * Safely distribute tokens with comprehensive checks
+   * Safely distribute JCMOVES tokens with real-time pricing and comprehensive checks
    */
   async distributeTokens(
     tokenAmount: number, 
@@ -106,7 +163,7 @@ export class TreasuryService {
     relatedEntityId?: string
   ): Promise<TokenDistributionResult> {
     try {
-      // Pre-distribution checks
+      // Pre-distribution checks with real-time pricing
       const canDistribute = await this.canDistributeTokens(tokenAmount);
       if (!canDistribute.canDistribute) {
         return {
@@ -119,10 +176,15 @@ export class TreasuryService {
         };
       }
 
-      // Execute the distribution
+      // Calculate cash value using real-time JCMOVES price
+      const currentPrice = canDistribute.currentPrice || 0;
+      const cashValue = tokenAmount * currentPrice;
+
+      // Execute the distribution with crypto pricing
       const transaction = await storage.deductFromReserve(
         tokenAmount,
         description,
+        currentPrice, // Pass the real-time JCMOVES price
         relatedEntityType,
         relatedEntityId
       );

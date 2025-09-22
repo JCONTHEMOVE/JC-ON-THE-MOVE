@@ -33,8 +33,8 @@ export interface IStorage {
   getFundingDeposits(treasuryAccountId?: string): Promise<FundingDeposit[]>;
   createReserveTransaction(transaction: InsertReserveTransaction): Promise<ReserveTransaction>;
   getReserveTransactions(treasuryAccountId?: string, limit?: number): Promise<ReserveTransaction[]>;
-  checkFundingAvailability(tokenAmount: number): Promise<{ available: boolean; currentBalance: number; requiredValue: number }>;
-  deductFromReserve(tokenAmount: number, description: string, relatedEntityType?: string, relatedEntityId?: string): Promise<ReserveTransaction>;
+  checkFundingAvailability(tokenAmount: number, tokenPrice?: number): Promise<{ available: boolean; currentBalance: number; requiredValue: number }>;
+  deductFromReserve(tokenAmount: number, description: string, tokenPrice: number, relatedEntityType?: string, relatedEntityId?: string): Promise<ReserveTransaction>;
   addToReserve(tokenAmount: number, cashValue: number, description: string): Promise<ReserveTransaction>;
   atomicDepositFunds(depositedBy: string, usdAmount: number, depositMethod?: string, notes?: string): Promise<FundingDeposit>;
 }
@@ -101,7 +101,7 @@ export class DatabaseStorage implements IStorage {
 
             const currentBalance = parseFloat(treasury.availableFunding);
             const currentTokenReserve = parseFloat(treasury.tokenReserve);
-            const cashValue = signupTokens * TREASURY_CONFIG.TOKEN_PRICE;
+            const cashValue = signupTokens * TREASURY_CONFIG.FALLBACK_TOKEN_PRICE;
             const minimumBalance = TREASURY_CONFIG.MINIMUM_BALANCE;
 
             // Verify funding availability within transaction
@@ -407,10 +407,12 @@ export class DatabaseStorage implements IStorage {
     return await query;
   }
 
-  async checkFundingAvailability(tokenAmount: number): Promise<{ available: boolean; currentBalance: number; requiredValue: number }> {
+  async checkFundingAvailability(tokenAmount: number, tokenPrice?: number): Promise<{ available: boolean; currentBalance: number; requiredValue: number }> {
     const treasury = await this.getMainTreasuryAccount();
     const currentBalance = parseFloat(treasury.availableFunding);
-    const requiredValue = tokenAmount * TREASURY_CONFIG.TOKEN_PRICE;
+    // Use provided crypto price or fallback to fixed price
+    const price = tokenPrice ?? TREASURY_CONFIG.FALLBACK_TOKEN_PRICE;
+    const requiredValue = tokenAmount * price;
 
     return {
       available: currentBalance >= requiredValue,
@@ -419,8 +421,8 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async deductFromReserve(tokenAmount: number, description: string, relatedEntityType?: string, relatedEntityId?: string): Promise<ReserveTransaction> {
-    const cashValue = tokenAmount * TREASURY_CONFIG.TOKEN_PRICE;
+  async deductFromReserve(tokenAmount: number, description: string, tokenPrice: number, relatedEntityType?: string, relatedEntityId?: string): Promise<ReserveTransaction> {
+    const cashValue = tokenAmount * tokenPrice;
 
     return await db.transaction(async (tx) => {
       // Lock and get current treasury state
@@ -538,7 +540,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async atomicDepositFunds(depositedBy: string, usdAmount: number, depositMethod: string = 'manual', notes?: string): Promise<FundingDeposit> {
-    const tokensPurchased = usdAmount / TREASURY_CONFIG.TOKEN_PRICE;
+    const tokensPurchased = usdAmount / TREASURY_CONFIG.FALLBACK_TOKEN_PRICE;
     
     return await db.transaction(async (tx) => {
       // Lock treasury account for update
@@ -562,7 +564,7 @@ export class DatabaseStorage implements IStorage {
           depositedBy,
           depositAmount: usdAmount.toFixed(2),
           tokensPurchased: tokensPurchased.toFixed(8),
-          tokenPrice: TREASURY_CONFIG.TOKEN_PRICE.toFixed(8),
+          tokenPrice: TREASURY_CONFIG.FALLBACK_TOKEN_PRICE.toFixed(8),
           depositMethod,
           status: 'completed',
           notes
