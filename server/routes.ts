@@ -8,6 +8,8 @@ import { dailyCheckinService } from "./services/daily-checkin";
 import { rewardsService } from "./services/rewards";
 import { cryptoCashoutService } from "./services/crypto-cashout";
 import { moonshotService } from "./services/moonshot";
+import { z } from "zod";
+import { EncryptionService } from "./services/encryption";
 import { eq, desc } from 'drizzle-orm';
 import { db } from './db';
 import { rewards, walletAccounts, dailyCheckins, cashoutRequests } from '@shared/schema';
@@ -15,6 +17,27 @@ import { rewards, walletAccounts, dailyCheckins, cashoutRequests } from '@shared
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
+  
+  // Validation schemas for rewards endpoints
+  const checkinSchema = z.object({
+    deviceFingerprint: z.object({
+      userAgent: z.string(),
+      screenResolution: z.string(),
+      timezone: z.string(),
+      language: z.string(),
+      platform: z.string()
+    })
+  });
+
+  const cashoutSchema = z.object({
+    tokenAmount: z.number().positive().min(0.01),
+    bankDetails: z.object({
+      accountNumber: z.string().min(4),
+      routingNumber: z.string().length(9),
+      accountHolderName: z.string().min(2),
+      bankName: z.string().min(2)
+    })
+  });
   
   // Submit quote request
   app.post("/api/leads", async (req, res) => {
@@ -238,9 +261,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/rewards/checkin", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
+      
+      // Validate request body
+      const validatedData = checkinSchema.parse(req.body);
+      const { deviceFingerprint } = validatedData;
+      
       const ipAddress = req.ip || req.connection.remoteAddress || 'unknown';
       const userAgent = req.get('User-Agent') || 'unknown';
-      const deviceFingerprint = req.body.deviceFingerprint;
 
       const result = await dailyCheckinService.processCheckin({
         userId,
@@ -358,11 +385,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/rewards/cashout", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { tokenAmount, bankDetails } = req.body;
-
-      if (!tokenAmount || tokenAmount <= 0) {
-        return res.status(400).json({ error: "Invalid token amount" });
-      }
+      
+      // Validate request body with Zod
+      const validatedData = cashoutSchema.parse(req.body);
+      const { tokenAmount, bankDetails } = validatedData;
 
       // Validate bank details
       const validation = cryptoCashoutService.validateBankDetails(bankDetails);
@@ -395,13 +421,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cashAmount = await moonshotService.calculateCashValue(tokenAmount);
       const conversionRate = await moonshotService.getTokenPrice();
 
-      // Create cashout request
+      // Encrypt bank details for secure storage
+      const encryptedBankDetails = await EncryptionService.encryptBankDetails(bankDetails);
+
+      // Create cashout request with encrypted bank details
       const cashoutRequest = await db.insert(cashoutRequests).values({
         userId,
         tokenAmount: tokenAmount.toString(),
         cashAmount: cashAmount.toString(),
         conversionRate: conversionRate.toString(),
-        bankDetails
+        bankDetails: encryptedBankDetails
       }).returning();
 
       // Initiate external cashout

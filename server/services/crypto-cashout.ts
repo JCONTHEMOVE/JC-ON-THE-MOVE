@@ -1,5 +1,6 @@
 // Crypto-to-cash conversion service using Request Technologies
 import axios from 'axios';
+import { EncryptionService } from './encryption';
 
 interface CashoutRequest {
   userId: string;
@@ -50,7 +51,7 @@ export class CryptoCashoutService {
           currency: 'USD',
           cryptoAmount: request.tokenAmount,
           cryptoCurrency: 'USDC', // Convert through USDC
-          bankAccount: request.bankDetails,
+          bankAccount: request.bankDetails, // Bank details are encrypted before storage
           isCryptoToFiatAllowed: true
         },
         {
