@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, leads, contacts, users } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, leads, contacts, users, walletAccounts, rewards } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, isNull, and } from "drizzle-orm";
 
@@ -36,6 +36,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
+    // Check if this is a new user (first time registration)
+    const existingUser = userData.id ? await this.getUser(userData.id) : null;
+    const isNewUser = !existingUser;
+
     const [user] = await db
       .insert(users)
       .values(userData)
@@ -47,6 +51,34 @@ export class DatabaseStorage implements IStorage {
         },
       })
       .returning();
+
+    // If this is a new user, give them 1 JCMOVE token as signup bonus
+    if (isNewUser) {
+      try {
+        // Create wallet account for new user
+        await db.insert(walletAccounts).values({
+          userId: user.id,
+          tokenBalance: '1.0', // 1 JCMOVE signup bonus
+          totalEarned: '1.0'
+        });
+
+        // Create reward record for signup bonus
+        await db.insert(rewards).values({
+          userId: user.id,
+          rewardType: 'signup_bonus',
+          tokenAmount: '1.0',
+          cashValue: '0.001', // 1 token * $0.001 price
+          status: 'earned',
+          metadata: { signupBonus: true, automaticReward: true }
+        });
+
+        console.log(`New user registered: ${user.email || user.id} - Awarded 1 JCMOVE signup bonus`);
+      } catch (error) {
+        console.error(`Failed to create signup bonus for user ${user.id}:`, error);
+        // Don't fail the user creation if bonus fails - user is already created
+      }
+    }
+
     return user;
   }
 
