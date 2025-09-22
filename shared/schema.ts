@@ -127,6 +127,48 @@ export const fraudLogs = pgTable("fraud_logs", {
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
 
+// Treasury management system
+export const treasuryAccounts = pgTable("treasury_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  accountName: text("account_name").notNull().default("Main Treasury"), // Allow multiple treasury accounts
+  totalFunding: decimal("total_funding", { precision: 10, scale: 2 }).notNull().default("0.00"), // Total USD deposited
+  totalDistributed: decimal("total_distributed", { precision: 10, scale: 2 }).notNull().default("0.00"), // Total USD value of distributed tokens
+  availableFunding: decimal("available_funding", { precision: 10, scale: 2 }).notNull().default("0.00"), // Remaining balance
+  tokenReserve: decimal("token_reserve", { precision: 18, scale: 8 }).notNull().default("0.00000000"), // Tokens available for distribution
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const fundingDeposits = pgTable("funding_deposits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  treasuryAccountId: varchar("treasury_account_id").notNull().references(() => treasuryAccounts.id),
+  depositedBy: varchar("deposited_by").notNull().references(() => users.id),
+  depositAmount: decimal("deposit_amount", { precision: 10, scale: 2 }).notNull(), // USD amount deposited
+  tokensPurchased: decimal("tokens_purchased", { precision: 18, scale: 8 }).notNull(), // Tokens acquired with deposit
+  tokenPrice: decimal("token_price", { precision: 10, scale: 8 }).notNull(), // Price per token at time of deposit
+  depositMethod: text("deposit_method").notNull().default("manual"), // 'manual', 'stripe', 'bank_transfer'
+  status: text("status").notNull().default("completed"), // 'pending', 'completed', 'failed'
+  notes: text("notes"), // Optional notes about the deposit
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const reserveTransactions = pgTable("reserve_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  treasuryAccountId: varchar("treasury_account_id").notNull().references(() => treasuryAccounts.id),
+  transactionType: text("transaction_type").notNull(), // 'deposit', 'distribution', 'refund', 'adjustment'
+  relatedEntityType: text("related_entity_type"), // 'reward', 'signup_bonus', 'cashout'
+  relatedEntityId: varchar("related_entity_id"), // ID of related record
+  tokenAmount: decimal("token_amount", { precision: 18, scale: 8 }).notNull(),
+  cashValue: decimal("cash_value", { precision: 10, scale: 2 }).notNull(),
+  balanceAfter: decimal("balance_after", { precision: 10, scale: 2 }).notNull(), // Available funding after transaction
+  tokenReserveAfter: decimal("token_reserve_after", { precision: 18, scale: 8 }).notNull(), // Token reserve after transaction
+  description: text("description").notNull(),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_treasury_transactions").on(table.treasuryAccountId, table.transactionType),
+]);
+
 export const insertLeadSchema = createInsertSchema(leads).omit({
   id: true,
   status: true,
@@ -204,3 +246,32 @@ export type InsertCashoutRequest = z.infer<typeof insertCashoutRequestSchema>;
 export type CashoutRequest = typeof cashoutRequests.$inferSelect;
 export type InsertFraudLog = z.infer<typeof insertFraudLogSchema>;
 export type FraudLog = typeof fraudLogs.$inferSelect;
+
+// Treasury system schemas
+export const insertTreasuryAccountSchema = createInsertSchema(treasuryAccounts).omit({
+  id: true,
+  totalFunding: true,
+  totalDistributed: true,
+  availableFunding: true,
+  tokenReserve: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertFundingDepositSchema = createInsertSchema(fundingDeposits).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertReserveTransactionSchema = createInsertSchema(reserveTransactions).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Treasury system types
+export type InsertTreasuryAccount = z.infer<typeof insertTreasuryAccountSchema>;
+export type TreasuryAccount = typeof treasuryAccounts.$inferSelect;
+export type InsertFundingDeposit = z.infer<typeof insertFundingDepositSchema>;
+export type FundingDeposit = typeof fundingDeposits.$inferSelect;
+export type InsertReserveTransaction = z.infer<typeof insertReserveTransactionSchema>;
+export type ReserveTransaction = typeof reserveTransactions.$inferSelect;
