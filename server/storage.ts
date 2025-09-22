@@ -98,11 +98,13 @@ export class DatabaseStorage implements IStorage {
           return user; // Return user without signup bonus
         }
         
-        const signupTokens = TREASURY_CONFIG.SIGNUP_BONUS_TOKENS;
+        // Convert $5.00 USD reward to JCMOVES tokens using real-time pricing
+        const signupUsdValue = TREASURY_CONFIG.SIGNUP_BONUS_USD;
+        const signupTokens = signupUsdValue / currentPrice; // Calculate tokens from USD value
         
         // Enforce safe distribution limits based on volatility
         if (riskLimits && signupTokens > riskLimits.maxSafeTokens) {
-          console.warn(`Signup bonus (${signupTokens} tokens) exceeds safe limit (${riskLimits.maxSafeTokens} tokens) due to ${riskLimits.riskLevel} volatility for user ${userData.email || userData.id}`);
+          console.warn(`Signup bonus (${signupTokens.toFixed(0)} tokens ≈ $${signupUsdValue}) exceeds safe limit (${riskLimits.maxSafeTokens} tokens) due to ${riskLimits.riskLevel} volatility for user ${userData.email || userData.id}`);
           return user; // Return user without signup bonus
         }
         
@@ -195,7 +197,7 @@ export class DatabaseStorage implements IStorage {
             }).onConflictDoNothing();
           });
 
-          console.log(`New user registered: ${user.email || user.id} - Awarded ${signupTokens} JCMOVE signup bonus (treasury funded)`);
+          console.log(`New user registered: ${user.email || user.id} - Awarded $${signupUsdValue} (${signupTokens.toFixed(8)} JCMOVES) signup bonus (treasury funded)`);
         } else {
           // Treasury insufficient - create wallet but no bonus tokens
           await db.insert(walletAccounts).values({

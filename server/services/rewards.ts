@@ -1,14 +1,14 @@
 // Rewards calculation and distribution service
-import { moonshotService } from './moonshot';
-import { cryptoCashoutService } from './crypto-cashout';
+import { cryptoService } from './crypto';
+import { TREASURY_CONFIG } from '../constants';
 
 export interface RewardConfig {
-  dailyCheckinTokens: number; // Base amount for daily check-in
+  dailyCheckinUSD: number;    // USD value for daily check-in
   streakMultiplier: number;   // Multiplier for consecutive days
   maxStreakBonus: number;     // Cap on streak bonus
   bookingRewardPercentage: number; // Percentage of job value as reward
-  referralTokens: number;     // Fixed amount for successful referrals
-  jobCompletionTokens: number; // Base amount for job completion
+  referralBonusUSD: number;   // Fixed USD value for successful referrals
+  jobCompletionUSD: number;   // USD value for job completion per mover
 }
 
 export class RewardsService {
@@ -16,36 +16,41 @@ export class RewardsService {
 
   constructor() {
     this.config = {
-      dailyCheckinTokens: 0.01,    // 0.01 tokens per check-in
+      dailyCheckinUSD: TREASURY_CONFIG.DAILY_CHECKIN_USD,    // $0.25 worth of JCMOVES
       streakMultiplier: 1.1,       // 10% bonus per consecutive day
       maxStreakBonus: 3.0,         // Max 3x bonus (at 30 day streak)
       bookingRewardPercentage: 0.02, // 2% of booking value
-      referralTokens: 0.5,         // 0.5 tokens per referral
-      jobCompletionTokens: 0.1,    // 0.1 tokens base completion bonus
+      referralBonusUSD: TREASURY_CONFIG.REFERRAL_BONUS_USD, // $10.00 worth of JCMOVES
+      jobCompletionUSD: TREASURY_CONFIG.JOB_COMPLETION_USD, // $2.50 worth of JCMOVES
     };
   }
 
   // Calculate daily check-in reward with streak bonus
   async calculateDailyReward(streakCount: number): Promise<{ tokenAmount: number; cashValue: number }> {
-    let tokenAmount = this.config.dailyCheckinTokens;
+    let cashValue = this.config.dailyCheckinUSD; // Start with $0.25 USD value
     
-    // Apply streak bonus (capped)
+    // Apply streak bonus (capped) to USD value
     const streakMultiplier = Math.min(
       Math.pow(this.config.streakMultiplier, streakCount - 1),
       this.config.maxStreakBonus
     );
     
-    tokenAmount *= streakMultiplier;
+    cashValue *= streakMultiplier;
     
-    const cashValue = await moonshotService.calculateCashValue(tokenAmount);
+    // Convert USD value to JCMOVES tokens using real-time pricing
+    const currentPrice = await cryptoService.getCurrentPrice();
+    const tokenAmount = cashValue / currentPrice.price;
     
     return { tokenAmount, cashValue };
   }
 
-  // Calculate booking reward based on job value
+  // Calculate booking reward based on job value (2% of booking value)
   async calculateBookingReward(jobValueUSD: number): Promise<{ tokenAmount: number; cashValue: number }> {
-    const rewardCashValue = jobValueUSD * this.config.bookingRewardPercentage;
-    const tokenAmount = await moonshotService.calculateTokenAmount(rewardCashValue);
+    const rewardCashValue = jobValueUSD * this.config.bookingRewardPercentage; // 2% of booking value in USD
+    
+    // Convert USD value to JCMOVES tokens using real-time pricing
+    const currentPrice = await cryptoService.getCurrentPrice();
+    const tokenAmount = rewardCashValue / currentPrice.price;
     
     return { 
       tokenAmount, 
@@ -53,28 +58,29 @@ export class RewardsService {
     };
   }
 
-  // Calculate referral reward
+  // Calculate referral reward - $10.00 worth of JCMOVES
   async calculateReferralReward(): Promise<{ tokenAmount: number; cashValue: number }> {
-    const tokenAmount = this.config.referralTokens;
-    const cashValue = await moonshotService.calculateCashValue(tokenAmount);
+    const cashValue = this.config.referralBonusUSD; // $10.00 USD value
+    
+    // Convert USD value to JCMOVES tokens using real-time pricing
+    const currentPrice = await cryptoService.getCurrentPrice();
+    const tokenAmount = cashValue / currentPrice.price;
     
     return { tokenAmount, cashValue };
   }
 
-  // Calculate job completion reward for employees
-  async calculateJobCompletionReward(jobValueUSD: number, performanceRating?: number): Promise<{ tokenAmount: number; cashValue: number }> {
-    let tokenAmount = this.config.jobCompletionTokens;
-    
-    // Base reward plus percentage of job value
-    const valueBonus = await moonshotService.calculateTokenAmount(jobValueUSD * 0.01); // 1% of job value
-    tokenAmount += valueBonus;
+  // Calculate job completion reward for employees - $2.50 per mover
+  async calculateJobCompletionReward(numMovers: number = 1, performanceRating?: number): Promise<{ tokenAmount: number; cashValue: number }> {
+    let cashValue = this.config.jobCompletionUSD * numMovers; // $2.50 per mover
     
     // Performance bonus (if rated 5 stars, get 50% more)
     if (performanceRating && performanceRating >= 5) {
-      tokenAmount *= 1.5;
+      cashValue *= 1.5;
     }
     
-    const cashValue = await moonshotService.calculateCashValue(tokenAmount);
+    // Convert USD value to JCMOVES tokens using real-time pricing
+    const currentPrice = await cryptoService.getCurrentPrice();
+    const tokenAmount = cashValue / currentPrice.price;
     
     return { tokenAmount, cashValue };
   }

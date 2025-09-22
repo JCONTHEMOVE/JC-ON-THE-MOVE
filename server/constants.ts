@@ -14,9 +14,11 @@ export const TREASURY_CONFIG = {
   WARNING_THRESHOLD: 100.0, // Warn when below $100 (increased for crypto volatility)
   CRITICAL_THRESHOLD: 25.0, // Critical alert when below $25
   
-  // Reward amounts (fixed token amounts - real JCMOVES)
-  SIGNUP_BONUS_TOKENS: 1000, // 1,000 JCMOVES for new users
-  DAILY_CHECKIN_TOKENS: 10, // 10 JCMOVES per daily check-in
+  // Reward amounts (USD values converted to current JCMOVES tokens)
+  SIGNUP_BONUS_USD: 5.00, // $5.00 worth of JCMOVES for new users
+  DAILY_CHECKIN_USD: 0.25, // $0.25 worth of JCMOVES per daily check-in
+  REFERRAL_BONUS_USD: 10.00, // $10.00 worth of JCMOVES per successful referral
+  JOB_COMPLETION_USD: 2.50, // $2.50 worth of JCMOVES per job completed per mover
   
   // Volatility management
   MAX_PRICE_VOLATILITY: 25, // Maximum 25% price change before adjusting operations
