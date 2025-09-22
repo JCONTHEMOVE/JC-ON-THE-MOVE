@@ -2,12 +2,13 @@ import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead
 import { db } from "./db";
 import { eq, desc, isNull, and } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
+import { cryptoService } from "./services/crypto";
 
 export interface IStorage {
   // User operations
   // (IMPORTANT) these user operations are mandatory for Replit Auth.
   getUser(id: string): Promise<User | undefined>;
-  upsertUser(user: UpsertUser, tokenPrice?: number): Promise<User>;
+  upsertUser(user: UpsertUser, tokenPrice?: number, riskLimits?: { shouldHaltDistributions: boolean; maxSafeTokens: number; riskLevel: string }): Promise<User>;
   
   // User role management
   updateUserRole(userId: string, role: string): Promise<User | undefined>;
@@ -48,7 +49,7 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
-  async upsertUser(userData: UpsertUser, tokenPrice?: number): Promise<User> {
+  async upsertUser(userData: UpsertUser, tokenPrice?: number, riskLimits?: { shouldHaltDistributions: boolean; maxSafeTokens: number; riskLevel: string }): Promise<User> {
     // Check if this is a new user (first time registration)
     // Look up by ID first, then by email if ID is not provided
     let existingUser = null;
@@ -76,11 +77,36 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
 
-    // If this is a new user, attempt to give them signup bonus from treasury
+    // If this is a new user, create wallet and attempt signup bonus from treasury
     if (isNewUser) {
+      // CRITICAL: Always create wallet first, regardless of signup bonus
       try {
-        // Check if treasury has sufficient funding for signup bonus using real-time pricing
+        await db.insert(walletAccounts).values({
+          userId: user.id,
+          tokenBalance: '0.0',
+          totalEarned: '0.0'
+        }).onConflictDoNothing();
+      } catch (walletError) {
+        console.error(`Failed to create wallet for user ${userData.email || userData.id}:`, walletError);
+      }
+
+      // Then attempt to give them signup bonus from treasury
+      try {
+        // CRITICAL: Check circuit breakers before signup bonus distribution
+        if (riskLimits?.shouldHaltDistributions) {
+          console.warn(`Signup bonus halted for user ${userData.email || userData.id} due to extreme market volatility (${riskLimits.riskLevel})`);
+          return user; // Return user without signup bonus
+        }
+        
         const signupTokens = TREASURY_CONFIG.SIGNUP_BONUS_TOKENS;
+        
+        // Enforce safe distribution limits based on volatility
+        if (riskLimits && signupTokens > riskLimits.maxSafeTokens) {
+          console.warn(`Signup bonus (${signupTokens} tokens) exceeds safe limit (${riskLimits.maxSafeTokens} tokens) due to ${riskLimits.riskLevel} volatility for user ${userData.email || userData.id}`);
+          return user; // Return user without signup bonus
+        }
+        
+        // Check if treasury has sufficient funding for signup bonus using real-time pricing
         const currentPrice = tokenPrice ?? TREASURY_CONFIG.FALLBACK_TOKEN_PRICE;
         const fundingCheck = await this.checkFundingAvailability(signupTokens, currentPrice);
         
@@ -144,12 +170,14 @@ export class DatabaseStorage implements IStorage {
               })
               .returning();
 
-            // Create wallet account for new user
-            await tx.insert(walletAccounts).values({
-              userId: user.id,
-              tokenBalance: signupTokens.toFixed(1),
-              totalEarned: signupTokens.toFixed(1)
-            }).onConflictDoNothing();
+            // Update existing wallet with signup bonus tokens
+            await tx
+              .update(walletAccounts)
+              .set({
+                tokenBalance: signupTokens.toFixed(8),
+                totalEarned: signupTokens.toFixed(8)
+              })
+              .where(eq(walletAccounts.userId, user.id));
 
             // Create signup bonus reward record
             await tx.insert(rewards).values({
@@ -423,6 +451,40 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deductFromReserve(tokenAmount: number, description: string, tokenPrice: number, relatedEntityType?: string, relatedEntityId?: string): Promise<ReserveTransaction> {
+    // CRITICAL: Universal circuit breaker enforcement - NO distribution can bypass this
+    try {
+      const volatilityCheck = await cryptoService.checkPriceVolatility();
+      
+      // Extreme volatility halt (>20% price change)
+      if (Math.abs(volatilityCheck.changePercent) > 20) {
+        throw new Error(`Distribution HALTED due to extreme market volatility: ${volatilityCheck.changePercent.toFixed(2)}% price change detected. Distribution blocked for safety.`);
+      }
+      
+      // High volatility limits (>10% price change) 
+      if (Math.abs(volatilityCheck.changePercent) > 10) {
+        const maxSafeTokens = 500; // Conservative limit for high volatility
+        if (tokenAmount > maxSafeTokens) {
+          throw new Error(`Distribution amount (${tokenAmount.toLocaleString()} tokens) exceeds safe limit (${maxSafeTokens.toLocaleString()} tokens) due to high market volatility (${volatilityCheck.changePercent.toFixed(2)}%).`);
+        }
+      }
+      
+      // Medium volatility limits (>5% price change)
+      else if (Math.abs(volatilityCheck.changePercent) > 5) {
+        const maxSafeTokens = 1000; // Moderate limit for medium volatility
+        if (tokenAmount > maxSafeTokens) {
+          throw new Error(`Distribution amount (${tokenAmount.toLocaleString()} tokens) exceeds safe limit (${maxSafeTokens.toLocaleString()} tokens) due to medium market volatility (${volatilityCheck.changePercent.toFixed(2)}%).`);
+        }
+      }
+      
+    } catch (volatilityError) {
+      // CRITICAL: Fail-safe behavior - if volatility check fails, HALT all distributions
+      if (volatilityError.message && volatilityError.message.includes('Distribution HALTED')) {
+        throw volatilityError; // Re-throw volatility halt errors
+      }
+      console.error('Volatility check failed for treasury distribution - HALTING as safety measure:', volatilityError);
+      throw new Error('Distribution HALTED due to market data unavailability. This is a safety measure to prevent distributions during uncertain market conditions.');
+    }
+
     const cashValue = tokenAmount * tokenPrice;
 
     return await db.transaction(async (tx) => {
