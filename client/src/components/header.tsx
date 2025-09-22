@@ -46,6 +46,13 @@ export default function Header() {
                     >
                       Dashboard
                     </Link>
+                    <Link
+                      href="/rewards"
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-rewards"
+                    >
+                      Rewards
+                    </Link>
                     <a
                       href="/#home"
                       className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
@@ -151,6 +158,14 @@ export default function Header() {
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Dashboard
+                  </Link>
+                  <Link
+                    href="/rewards"
+                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                    data-testid="button-mobile-rewards"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Rewards
                   </Link>
                   <a
                     href="/#home"

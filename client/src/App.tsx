@@ -8,6 +8,7 @@ import Header from "@/components/header";
 import Footer from "@/components/footer";
 import HomePage from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
+import RewardsPage from "@/pages/rewards";
 import NotFound from "@/pages/not-found";
 
 // Landing page for unauthenticated users
@@ -32,6 +33,7 @@ function AuthenticatedApp() {
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />
+          <Route path="/rewards" component={RewardsPage} />
           <Route component={NotFound} />
         </Switch>
       </main>

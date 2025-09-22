@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, index, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, index, jsonb, decimal, integer, date, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -54,6 +54,74 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Rewards system tables
+export const rewards = pgTable("rewards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  rewardType: text("reward_type").notNull(), // 'daily_checkin', 'booking', 'referral', 'job_completion'
+  tokenAmount: decimal("token_amount", { precision: 18, scale: 8 }).notNull(),
+  cashValue: decimal("cash_value", { precision: 10, scale: 2 }).notNull(),
+  status: text("status").notNull().default("pending"), // 'pending', 'confirmed', 'redeemed'
+  earnedDate: timestamp("earned_date").notNull().default(sql`now()`),
+  redeemedDate: timestamp("redeemed_date"),
+  referenceId: varchar("reference_id"), // Link to lead/booking ID that generated reward
+  metadata: jsonb("metadata"), // Additional data like streak count, job details, etc.
+});
+
+export const dailyCheckins = pgTable("daily_checkins", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  checkinDate: date("checkin_date").notNull(),
+  deviceFingerprint: text("device_fingerprint"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  rewardClaimed: boolean("reward_claimed").default(false),
+  streakCount: integer("streak_count").default(1),
+  riskScore: integer("risk_score").default(0), // 0-100 fraud risk assessment
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_user_checkin_date").on(table.userId, table.checkinDate),
+]);
+
+export const walletAccounts = pgTable("wallet_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id).unique(),
+  walletAddress: text("wallet_address"),
+  tokenBalance: decimal("token_balance", { precision: 18, scale: 8 }).default("0.00000000"),
+  cashBalance: decimal("cash_balance", { precision: 10, scale: 2 }).default("0.00"),
+  totalEarned: decimal("total_earned", { precision: 18, scale: 8 }).default("0.00000000"),
+  totalRedeemed: decimal("total_redeemed", { precision: 18, scale: 8 }).default("0.00000000"),
+  totalCashedOut: decimal("total_cashed_out", { precision: 10, scale: 2 }).default("0.00"),
+  lastActivity: timestamp("last_activity").default(sql`now()`),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const cashoutRequests = pgTable("cashout_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  tokenAmount: decimal("token_amount", { precision: 18, scale: 8 }).notNull(),
+  cashAmount: decimal("cash_amount", { precision: 10, scale: 2 }).notNull(),
+  conversionRate: decimal("conversion_rate", { precision: 18, scale: 8 }).notNull(), // tokens per USD
+  status: text("status").notNull().default("pending"), // 'pending', 'processing', 'completed', 'failed', 'cancelled'
+  bankDetails: jsonb("bank_details"), // Encrypted bank account info
+  externalTransactionId: text("external_transaction_id"), // Reference from payment processor
+  processedDate: timestamp("processed_date"),
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const fraudLogs = pgTable("fraud_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
+  eventType: text("event_type").notNull(), // 'suspicious_checkin', 'multiple_devices', 'impossible_travel', etc.
+  riskScore: integer("risk_score").notNull(),
+  details: jsonb("details").notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  actionTaken: text("action_taken"), // 'blocked', 'flagged', 'requires_verification', etc.
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
 export const insertLeadSchema = createInsertSchema(leads).omit({
   id: true,
   status: true,
@@ -79,3 +147,55 @@ export type Contact = typeof contacts.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type UpsertUser = typeof users.$inferInsert;
+
+// Rewards system schemas
+export const insertRewardSchema = createInsertSchema(rewards).omit({
+  id: true,
+  status: true,
+  earnedDate: true,
+  redeemedDate: true,
+});
+
+export const insertDailyCheckinSchema = createInsertSchema(dailyCheckins).omit({
+  id: true,
+  rewardClaimed: true,
+  streakCount: true,
+  riskScore: true,
+  createdAt: true,
+});
+
+export const insertWalletAccountSchema = createInsertSchema(walletAccounts).omit({
+  id: true,
+  tokenBalance: true,
+  cashBalance: true,
+  totalEarned: true,
+  totalRedeemed: true,
+  totalCashedOut: true,
+  lastActivity: true,
+  createdAt: true,
+});
+
+export const insertCashoutRequestSchema = createInsertSchema(cashoutRequests).omit({
+  id: true,
+  status: true,
+  processedDate: true,
+  failureReason: true,
+  createdAt: true,
+});
+
+export const insertFraudLogSchema = createInsertSchema(fraudLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Rewards system types
+export type InsertReward = z.infer<typeof insertRewardSchema>;
+export type Reward = typeof rewards.$inferSelect;
+export type InsertDailyCheckin = z.infer<typeof insertDailyCheckinSchema>;
+export type DailyCheckin = typeof dailyCheckins.$inferSelect;
+export type InsertWalletAccount = z.infer<typeof insertWalletAccountSchema>;
+export type WalletAccount = typeof walletAccounts.$inferSelect;
+export type InsertCashoutRequest = z.infer<typeof insertCashoutRequestSchema>;
+export type CashoutRequest = typeof cashoutRequests.$inferSelect;
+export type InsertFraudLog = z.infer<typeof insertFraudLogSchema>;
+export type FraudLog = typeof fraudLogs.$inferSelect;

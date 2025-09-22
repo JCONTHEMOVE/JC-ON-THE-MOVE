@@ -1,9 +1,16 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertLeadSchema, insertContactSchema } from "@shared/schema";
+import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema } from "@shared/schema";
 import { sendEmail, generateLeadNotificationEmail, generateContactNotificationEmail } from "./services/email";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+import { dailyCheckinService } from "./services/daily-checkin";
+import { rewardsService } from "./services/rewards";
+import { cryptoCashoutService } from "./services/crypto-cashout";
+import { moonshotService } from "./services/moonshot";
+import { eq, desc } from 'drizzle-orm';
+import { db } from './db';
+import { rewards, walletAccounts, dailyCheckins, cashoutRequests } from '@shared/schema';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -104,7 +111,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updatedLead);
     } catch (error) {
       console.error("Error updating lead status:", error);
-      if (error.message && error.message.includes("Cannot set status to 'accepted'")) {
+      if (error instanceof Error && error.message.includes("Cannot set status to 'accepted'")) {
         return res.status(400).json({ error: error.message });
       }
       res.status(500).json({ error: "Failed to update lead status" });
@@ -222,6 +229,287 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error accepting job:", error);
       res.status(500).json({ error: "Failed to accept job" });
+    }
+  });
+
+  // Rewards system routes
+  
+  // Daily check-in
+  app.post("/api/rewards/checkin", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const ipAddress = req.ip || req.connection.remoteAddress || 'unknown';
+      const userAgent = req.get('User-Agent') || 'unknown';
+      const deviceFingerprint = req.body.deviceFingerprint;
+
+      const result = await dailyCheckinService.processCheckin({
+        userId,
+        ipAddress,
+        userAgent,
+        deviceFingerprint
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error("Daily check-in error:", error);
+      res.status(500).json({ error: "Check-in failed" });
+    }
+  });
+
+  // Get check-in status
+  app.get("/api/rewards/checkin/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const status = await dailyCheckinService.getCheckinStatus(userId);
+      res.json(status);
+    } catch (error) {
+      console.error("Error getting check-in status:", error);
+      res.status(500).json({ error: "Failed to get check-in status" });
+    }
+  });
+
+  // Get check-in history
+  app.get("/api/rewards/checkin/history", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const limit = parseInt(req.query.limit as string) || 30;
+      const history = await dailyCheckinService.getCheckinHistory(userId, limit);
+      res.json(history);
+    } catch (error) {
+      console.error("Error getting check-in history:", error);
+      res.status(500).json({ error: "Failed to get check-in history" });
+    }
+  });
+
+  // Get wallet balance
+  app.get("/api/rewards/wallet", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      const wallet = await db
+        .select()
+        .from(walletAccounts)
+        .where(eq(walletAccounts.userId, userId))
+        .limit(1);
+
+      if (wallet.length === 0) {
+        // Create wallet if it doesn't exist
+        const newWallet = await db.insert(walletAccounts).values({
+          userId
+        }).returning();
+        return res.json(newWallet[0]);
+      }
+
+      res.json(wallet[0]);
+    } catch (error) {
+      console.error("Error getting wallet:", error);
+      res.status(500).json({ error: "Failed to get wallet" });
+    }
+  });
+
+  // Get rewards history
+  app.get("/api/rewards/history", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const limit = parseInt(req.query.limit as string) || 50;
+      
+      const rewardsHistory = await db
+        .select({
+          id: rewards.id,
+          rewardType: rewards.rewardType,
+          tokenAmount: rewards.tokenAmount,
+          cashValue: rewards.cashValue,
+          status: rewards.status,
+          earnedDate: rewards.earnedDate,
+          redeemedDate: rewards.redeemedDate,
+          metadata: rewards.metadata
+        })
+        .from(rewards)
+        .where(eq(rewards.userId, userId))
+        .orderBy(desc(rewards.earnedDate))
+        .limit(limit);
+
+      res.json(rewardsHistory);
+    } catch (error) {
+      console.error("Error getting rewards history:", error);
+      res.status(500).json({ error: "Failed to get rewards history" });
+    }
+  });
+
+  // Get token price and info
+  app.get("/api/rewards/token-info", async (req, res) => {
+    try {
+      const tokenData = await moonshotService.getTokenData();
+      const price = await moonshotService.getTokenPrice();
+      
+      res.json({
+        price,
+        tokenData,
+        symbol: tokenData?.baseToken?.symbol || 'JCMOVE',
+        name: tokenData?.baseToken?.name || 'JC ON THE MOVE Token'
+      });
+    } catch (error) {
+      console.error("Error getting token info:", error);
+      res.status(500).json({ error: "Failed to get token information" });
+    }
+  });
+
+  // Cashout request
+  app.post("/api/rewards/cashout", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { tokenAmount, bankDetails } = req.body;
+
+      if (!tokenAmount || tokenAmount <= 0) {
+        return res.status(400).json({ error: "Invalid token amount" });
+      }
+
+      // Validate bank details
+      const validation = cryptoCashoutService.validateBankDetails(bankDetails);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.errors.join(', ') });
+      }
+
+      // Get current wallet balance
+      const wallet = await db
+        .select()
+        .from(walletAccounts)
+        .where(eq(walletAccounts.userId, userId))
+        .limit(1);
+
+      if (wallet.length === 0 || parseFloat(wallet[0].tokenBalance || '0') < tokenAmount) {
+        return res.status(400).json({ error: "Insufficient balance" });
+      }
+
+      // Check eligibility
+      const eligibility = await rewardsService.validateCashoutEligibility(
+        parseFloat(wallet[0].tokenBalance || '0'),
+        tokenAmount
+      );
+
+      if (!eligibility.eligible) {
+        return res.status(400).json({ error: eligibility.reason });
+      }
+
+      // Calculate cash amount
+      const cashAmount = await moonshotService.calculateCashValue(tokenAmount);
+      const conversionRate = await moonshotService.getTokenPrice();
+
+      // Create cashout request
+      const cashoutRequest = await db.insert(cashoutRequests).values({
+        userId,
+        tokenAmount: tokenAmount.toString(),
+        cashAmount: cashAmount.toString(),
+        conversionRate: conversionRate.toString(),
+        bankDetails
+      }).returning();
+
+      // Initiate external cashout
+      const externalResult = await cryptoCashoutService.initiateCashout({
+        userId,
+        tokenAmount,
+        cashAmount,
+        bankDetails
+      });
+
+      // Update request with external transaction ID
+      await db
+        .update(cashoutRequests)
+        .set({
+          externalTransactionId: externalResult.id,
+          status: externalResult.status,
+          failureReason: externalResult.failureReason
+        })
+        .where(eq(cashoutRequests.id, cashoutRequest[0].id));
+
+      if (externalResult.status !== 'failed') {
+        // Deduct from wallet balance (reserve tokens)
+        await db
+          .update(walletAccounts)
+          .set({
+            tokenBalance: (parseFloat(wallet[0].tokenBalance || '0') - tokenAmount).toString(),
+            lastActivity: new Date()
+          })
+          .where(eq(walletAccounts.userId, userId));
+      }
+
+      res.json({
+        success: true,
+        cashoutId: cashoutRequest[0].id,
+        externalId: externalResult.id,
+        status: externalResult.status,
+        cashAmount,
+        estimatedCompletion: "1-3 business days"
+      });
+
+    } catch (error) {
+      console.error("Cashout error:", error);
+      res.status(500).json({ error: "Cashout request failed" });
+    }
+  });
+
+  // Get cashout history
+  app.get("/api/rewards/cashouts", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      const cashouts = await db
+        .select({
+          id: cashoutRequests.id,
+          tokenAmount: cashoutRequests.tokenAmount,
+          cashAmount: cashoutRequests.cashAmount,
+          status: cashoutRequests.status,
+          createdAt: cashoutRequests.createdAt,
+          processedDate: cashoutRequests.processedDate,
+          failureReason: cashoutRequests.failureReason
+        })
+        .from(cashoutRequests)
+        .where(eq(cashoutRequests.userId, userId))
+        .orderBy(desc(cashoutRequests.createdAt))
+        .limit(50);
+
+      res.json(cashouts);
+    } catch (error) {
+      console.error("Error getting cashout history:", error);
+      res.status(500).json({ error: "Failed to get cashout history" });
+    }
+  });
+
+  // Admin/Business owner routes for rewards management
+  app.get("/api/admin/rewards/stats", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      // Get rewards statistics
+      const totalRewardsIssued = await db
+        .select()
+        .from(rewards)
+        .then(rows => rows.reduce((sum, reward) => sum + parseFloat(reward.tokenAmount), 0));
+
+      const totalCashouts = await db
+        .select()
+        .from(cashoutRequests)
+        .where(eq(cashoutRequests.status, 'completed'))
+        .then(rows => rows.reduce((sum, cashout) => sum + parseFloat(cashout.cashAmount), 0));
+
+      const activeUsers = await db
+        .select()
+        .from(walletAccounts)
+        .then(rows => rows.filter(w => parseFloat(w.tokenBalance || '0') > 0).length);
+
+      const recentCheckins = await db
+        .select()
+        .from(dailyCheckins)
+        .where(eq(dailyCheckins.checkinDate, new Date().toISOString().split('T')[0]))
+        .then(rows => rows.length);
+
+      res.json({
+        totalRewardsIssued,
+        totalCashouts,
+        activeUsers,
+        recentCheckins
+      });
+    } catch (error) {
+      console.error("Error getting reward stats:", error);
+      res.status(500).json({ error: "Failed to get reward statistics" });
     }
   });
 
