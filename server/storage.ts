@@ -37,14 +37,25 @@ export class DatabaseStorage implements IStorage {
 
   async upsertUser(userData: UpsertUser): Promise<User> {
     // Check if this is a new user (first time registration)
-    const existingUser = userData.id ? await this.getUser(userData.id) : null;
+    // Look up by ID first, then by email if ID is not provided
+    let existingUser = null;
+    if (userData.id) {
+      existingUser = await this.getUser(userData.id);
+    } else if (userData.email) {
+      const [userByEmail] = await db.select().from(users).where(eq(users.email, userData.email));
+      existingUser = userByEmail || null;
+    }
+    
     const isNewUser = !existingUser;
 
+    // Update conflict target based on available data
+    const conflictTarget = userData.id ? users.id : users.email;
+    
     const [user] = await db
       .insert(users)
       .values(userData)
       .onConflictDoUpdate({
-        target: users.id,
+        target: conflictTarget,
         set: {
           ...userData,
           updatedAt: new Date(),
@@ -55,21 +66,24 @@ export class DatabaseStorage implements IStorage {
     // If this is a new user, give them 1 JCMOVE token as signup bonus
     if (isNewUser) {
       try {
-        // Create wallet account for new user
-        await db.insert(walletAccounts).values({
-          userId: user.id,
-          tokenBalance: '1.0', // 1 JCMOVE signup bonus
-          totalEarned: '1.0'
-        });
+        // Use transaction to ensure atomic creation of wallet and reward
+        await db.transaction(async (tx) => {
+          // Create wallet account for new user (use onConflictDoNothing for idempotency)
+          await tx.insert(walletAccounts).values({
+            userId: user.id,
+            tokenBalance: '1.0', // 1 JCMOVE signup bonus
+            totalEarned: '1.0'
+          }).onConflictDoNothing();
 
-        // Create reward record for signup bonus
-        await db.insert(rewards).values({
-          userId: user.id,
-          rewardType: 'signup_bonus',
-          tokenAmount: '1.0',
-          cashValue: '0.001', // 1 token * $0.001 price
-          status: 'earned',
-          metadata: { signupBonus: true, automaticReward: true }
+          // Create signup bonus reward (onConflictDoNothing prevents duplicates via unique constraint)
+          await tx.insert(rewards).values({
+            userId: user.id,
+            rewardType: 'signup_bonus',
+            tokenAmount: '1.0',
+            cashValue: '0.001', // 1 token * $0.001 price
+            status: 'earned',
+            metadata: { signupBonus: true, automaticReward: true }
+          }).onConflictDoNothing();
         });
 
         console.log(`New user registered: ${user.email || user.id} - Awarded 1 JCMOVE signup bonus`);

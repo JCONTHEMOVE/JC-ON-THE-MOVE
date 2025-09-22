@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, index, jsonb, decimal, integer, date, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, index, jsonb, decimal, integer, date, boolean, uniqueIndex, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -66,7 +66,12 @@ export const rewards = pgTable("rewards", {
   redeemedDate: timestamp("redeemed_date"),
   referenceId: varchar("reference_id"), // Link to lead/booking ID that generated reward
   metadata: jsonb("metadata"), // Additional data like streak count, job details, etc.
-});
+}, (table) => [
+  // General index for user rewards
+  index("idx_rewards_user_type").on(table.userId, table.rewardType),
+  // Partial unique index: only one signup_bonus per user (allows multiple of other types)
+  uniqueIndex("uq_signup_bonus_per_user").on(table.userId, table.rewardType).where(sql`${table.rewardType} = 'signup_bonus'`),
+]);
 
 export const dailyCheckins = pgTable("daily_checkins", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
