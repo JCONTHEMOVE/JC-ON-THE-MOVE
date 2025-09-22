@@ -47,6 +47,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     notes: z.string().optional()
   });
 
+  // Referral validation schemas
+  const referralCodeSchema = z.object({
+    referralCode: z.string().min(1).max(20)
+  });
+
   // Crypto conversion validation schemas
   const usdToTokensSchema = z.object({
     usdAmount: z.coerce.number().positive().min(0.01).max(10000).finite() // $0.01 - $10K conversion
@@ -709,6 +714,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting reward stats:", error);
       res.status(500).json({ error: "Failed to get reward statistics" });
+    }
+  });
+
+  // Referral System Routes
+  
+  // Get user's referral code (generate if needed)
+  app.get("/api/referrals/my-code", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const referralCode = await storage.generateReferralCode(userId);
+      res.json({ referralCode });
+    } catch (error) {
+      console.error("Error getting referral code:", error);
+      res.status(500).json({ error: "Failed to get referral code" });
+    }
+  });
+
+  // Apply a referral code
+  app.post("/api/referrals/apply", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { referralCode } = referralCodeSchema.parse(req.body);
+      
+      const result = await storage.applyReferralCode(userId, referralCode);
+      
+      if (result.success && result.referrerId) {
+        // Process referral bonus for the referrer
+        const bonusResult = await storage.processReferralBonus(result.referrerId, userId);
+        
+        if (bonusResult.success) {
+          res.json({
+            success: true,
+            message: "Referral code applied successfully! Your referrer has been rewarded."
+          });
+        } else {
+          res.json({
+            success: true,
+            message: "Referral code applied successfully, but there was an issue processing the bonus.",
+            warning: bonusResult.error
+          });
+        }
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error
+        });
+      }
+    } catch (error) {
+      console.error("Error applying referral code:", error);
+      res.status(500).json({ error: "Failed to apply referral code" });
+    }
+  });
+
+  // Get referral stats
+  app.get("/api/referrals/stats", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const stats = await storage.getReferralStats(userId);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting referral stats:", error);
+      res.status(500).json({ error: "Failed to get referral stats" });
     }
   });
 

@@ -50,6 +50,9 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   role: text("role").notNull().default("employee"), // 'business_owner', 'employee'
+  referralCode: varchar("referral_code").unique(), // Unique code for users to share
+  referredByUserId: varchar("referred_by_user_id").references(() => users.id), // Who referred this user
+  referralCount: integer("referral_count").default(0), // Number of successful referrals made
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

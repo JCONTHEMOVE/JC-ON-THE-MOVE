@@ -18,7 +18,11 @@ import {
   Calendar,
   CreditCard,
   Zap,
-  Award
+  Award,
+  Share2,
+  Users,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 
@@ -68,6 +72,18 @@ interface TokenInfo {
   name: string;
 }
 
+interface ReferralStats {
+  referralCount: number;
+  totalEarned: number;
+  referredUsers: Array<{
+    id: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    createdAt: string;
+  }>;
+}
+
 export default function RewardsDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -79,6 +95,7 @@ export default function RewardsDashboard() {
     accountHolderName: '',
     bankName: ''
   });
+  const [referralCodeInput, setReferralCodeInput] = useState('');
 
   // Fetch wallet data
   const { data: wallet, isLoading: walletLoading } = useQuery<WalletAccount>({
@@ -103,6 +120,16 @@ export default function RewardsDashboard() {
   // Fetch token info
   const { data: tokenInfo } = useQuery<TokenInfo>({
     queryKey: ['/api/rewards/token-info'],
+  });
+
+  // Fetch referral code
+  const { data: referralCode } = useQuery<{ referralCode: string }>({
+    queryKey: ['/api/referrals/my-code'],
+  });
+
+  // Fetch referral stats
+  const { data: referralStats } = useQuery<ReferralStats>({
+    queryKey: ['/api/referrals/stats'],
   });
 
   // Generate device fingerprint
@@ -188,6 +215,58 @@ export default function RewardsDashboard() {
       });
     }
   });
+
+  // Apply referral code mutation
+  const applyReferralMutation = useMutation({
+    mutationFn: async (referralCode: string) => {
+      const response = await apiRequest('POST', '/api/referrals/apply', {
+        referralCode
+      });
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({
+          title: "Referral applied!",
+          description: data.message,
+        });
+        setReferralCodeInput('');
+        queryClient.invalidateQueries({ queryKey: ['/api/referrals/stats'] });
+      } else {
+        toast({
+          title: "Failed to apply referral code",
+          description: data.error,
+          variant: "destructive"
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error applying referral code",
+        description: error.message || "Something went wrong. Please try again.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  // Copy referral code to clipboard
+  const copyReferralCode = async () => {
+    if (referralCode?.referralCode) {
+      try {
+        await navigator.clipboard.writeText(referralCode.referralCode);
+        toast({
+          title: "Copied!",
+          description: "Referral code copied to clipboard",
+        });
+      } catch (error) {
+        toast({
+          title: "Copy failed",
+          description: "Could not copy referral code",
+          variant: "destructive"
+        });
+      }
+    }
+  };
 
   const handleCashout = () => {
     if (!cashoutAmount || parseFloat(cashoutAmount) <= 0) {
@@ -373,8 +452,9 @@ export default function RewardsDashboard() {
 
       {/* Main Tabs */}
       <Tabs defaultValue="history" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="history" data-testid="tab-history">Rewards History</TabsTrigger>
+          <TabsTrigger value="referrals" data-testid="tab-referrals">Referrals</TabsTrigger>
           <TabsTrigger value="cashout" data-testid="tab-cashout">Cash Out</TabsTrigger>
           <TabsTrigger value="transactions" data-testid="tab-transactions">Transactions</TabsTrigger>
         </TabsList>
@@ -422,6 +502,131 @@ export default function RewardsDashboard() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Referrals */}
+        <TabsContent value="referrals" className="space-y-4">
+          <div className="grid gap-6">
+            {/* My Referral Code */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Share2 className="h-5 w-5" />
+                  Your Referral Code
+                </CardTitle>
+                <CardDescription>
+                  Share your code and earn $10.00 worth of {tokenInfo?.symbol || 'tokens'} for each friend who signs up!
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {referralCode?.referralCode ? (
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 p-3 bg-muted rounded-lg font-mono text-lg text-center">
+                      {referralCode.referralCode}
+                    </div>
+                    <Button onClick={copyReferralCode} variant="outline" data-testid="copy-referral-code">
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-muted-foreground">Loading your referral code...</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Apply Referral Code */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Gift className="h-5 w-5" />
+                  Have a Referral Code?
+                </CardTitle>
+                <CardDescription>
+                  Enter a friend's referral code to help them earn rewards!
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-3">
+                  <Input
+                    value={referralCodeInput}
+                    onChange={(e) => setReferralCodeInput(e.target.value.toUpperCase())}
+                    placeholder="Enter referral code"
+                    className="font-mono"
+                    data-testid="input-referral-code"
+                  />
+                  <Button 
+                    onClick={() => applyReferralMutation.mutate(referralCodeInput)}
+                    disabled={!referralCodeInput || applyReferralMutation.isPending}
+                    data-testid="apply-referral-code"
+                  >
+                    {applyReferralMutation.isPending ? 'Applying...' : 'Apply'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Referral Stats */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Your Referral Stats
+                </CardTitle>
+                <CardDescription>
+                  Track your referral earnings and see who you've referred
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {referralStats ? (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="text-center p-4 bg-muted rounded-lg">
+                        <p className="text-2xl font-bold">{referralStats.referralCount}</p>
+                        <p className="text-sm text-muted-foreground">Friends Referred</p>
+                      </div>
+                      <div className="text-center p-4 bg-muted rounded-lg">
+                        <p className="text-2xl font-bold">${referralStats.totalEarned.toFixed(2)}</p>
+                        <p className="text-sm text-muted-foreground">Total Earned</p>
+                      </div>
+                    </div>
+
+                    {referralStats.referredUsers.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold mb-3">Recent Referrals</h4>
+                        <div className="space-y-2">
+                          {referralStats.referredUsers.slice(0, 5).map((user) => (
+                            <div key={user.id} className="flex items-center justify-between p-3 border rounded-lg">
+                              <div>
+                                <p className="font-medium">
+                                  {user.firstName && user.lastName 
+                                    ? `${user.firstName} ${user.lastName}` 
+                                    : user.email || 'Anonymous User'}
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                  Joined {new Date(user.createdAt).toLocaleDateString()}
+                                </p>
+                              </div>
+                              <Badge variant="secondary">
+                                <Award className="h-3 w-3 mr-1" />
+                                $10.00
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">Loading referral stats...</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* Cash Out */}

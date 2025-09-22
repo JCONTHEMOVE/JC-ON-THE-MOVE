@@ -14,6 +14,13 @@ export interface IStorage {
   updateUserRole(userId: string, role: string): Promise<User | undefined>;
   getEmployees(): Promise<User[]>;
   
+  // Referral operations
+  generateReferralCode(userId: string): Promise<string>;
+  getReferralCode(userId: string): Promise<string | null>;
+  applyReferralCode(userId: string, referralCode: string): Promise<{ success: boolean; referrerId?: string; error?: string }>;
+  getReferralStats(userId: string): Promise<{ referralCount: number; totalEarned: number; referredUsers: User[] }>;
+  processReferralBonus(referrerId: string, newUserId: string): Promise<{ success: boolean; error?: string }>;
+  
   createLead(lead: InsertLead): Promise<Lead>;
   getLeads(): Promise<Lead[]>;
   getLead(id: string): Promise<Lead | undefined>;
@@ -286,6 +293,164 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(eq(users.role, 'employee'))
       .orderBy(users.firstName, users.lastName);
+  }
+
+  // Referral operations
+  async generateReferralCode(userId: string): Promise<string> {
+    // Check if user already has a referral code
+    const existingCode = await this.getReferralCode(userId);
+    if (existingCode) {
+      return existingCode;
+    }
+
+    // Generate a unique referral code
+    let referralCode: string;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    do {
+      // Generate 8-character alphanumeric code
+      referralCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+      attempts++;
+
+      // Check if code is unique
+      const [existingUser] = await db.select().from(users).where(eq(users.referralCode, referralCode));
+      if (!existingUser) {
+        break;
+      }
+    } while (attempts < maxAttempts);
+
+    if (attempts >= maxAttempts) {
+      throw new Error('Unable to generate unique referral code');
+    }
+
+    // Update user with referral code
+    await db
+      .update(users)
+      .set({ referralCode, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+
+    return referralCode;
+  }
+
+  async getReferralCode(userId: string): Promise<string | null> {
+    const [user] = await db.select({ referralCode: users.referralCode }).from(users).where(eq(users.id, userId));
+    return user?.referralCode || null;
+  }
+
+  async applyReferralCode(userId: string, referralCode: string): Promise<{ success: boolean; referrerId?: string; error?: string }> {
+    // Find the referrer by referral code
+    const [referrer] = await db.select().from(users).where(eq(users.referralCode, referralCode));
+    if (!referrer) {
+      return { success: false, error: 'Invalid referral code' };
+    }
+
+    // Check if user is trying to refer themselves
+    if (referrer.id === userId) {
+      return { success: false, error: 'Cannot use your own referral code' };
+    }
+
+    // Check if user was already referred
+    const [currentUser] = await db.select({ referredByUserId: users.referredByUserId }).from(users).where(eq(users.id, userId));
+    if (currentUser?.referredByUserId) {
+      return { success: false, error: 'You have already been referred by someone else' };
+    }
+
+    // Apply the referral
+    await db
+      .update(users)
+      .set({ referredByUserId: referrer.id, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+
+    return { success: true, referrerId: referrer.id };
+  }
+
+  async getReferralStats(userId: string): Promise<{ referralCount: number; totalEarned: number; referredUsers: User[] }> {
+    // Get users referred by this user
+    const referredUsers = await db
+      .select()
+      .from(users)
+      .where(eq(users.referredByUserId, userId))
+      .orderBy(desc(users.createdAt));
+
+    // Get total earnings from referral rewards
+    const referralRewards = await db
+      .select()
+      .from(rewards)
+      .where(and(
+        eq(rewards.userId, userId),
+        eq(rewards.rewardType, 'referral_bonus')
+      ));
+
+    const totalEarned = referralRewards.reduce((sum, reward) => sum + parseFloat(reward.cashValue), 0);
+
+    return {
+      referralCount: referredUsers.length,
+      totalEarned,
+      referredUsers
+    };
+  }
+
+  async processReferralBonus(referrerId: string, newUserId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Import here to avoid circular dependency
+      const { treasuryService } = await import('./services/treasury');
+      const { rewardsService } = await import('./services/rewards');
+
+      // Calculate referral reward
+      const rewardCalc = await rewardsService.calculateReferralReward();
+
+      // Distribute tokens from treasury
+      const distribution = await treasuryService.distributeTokens(
+        rewardCalc.tokenAmount,
+        `Referral bonus for referring user ${newUserId}`,
+        'referral_bonus',
+        newUserId
+      );
+
+      if (!distribution.success) {
+        return { success: false, error: distribution.error };
+      }
+
+      // Update wallet and create reward record
+      await db.transaction(async (tx) => {
+        // Update referrer's wallet
+        await tx
+          .update(walletAccounts)
+          .set({
+            tokenBalance: `${parseFloat((await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, referrerId)))[0].tokenBalance) + rewardCalc.tokenAmount}`,
+            totalEarned: `${parseFloat((await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, referrerId)))[0].totalEarned) + rewardCalc.tokenAmount}`,
+            lastActivity: new Date()
+          })
+          .where(eq(walletAccounts.userId, referrerId));
+
+        // Create reward record
+        await tx.insert(rewards).values({
+          userId: referrerId,
+          rewardType: 'referral_bonus',
+          tokenAmount: rewardCalc.tokenAmount.toFixed(8),
+          cashValue: rewardCalc.cashValue.toFixed(2),
+          status: 'confirmed',
+          earnedDate: new Date(),
+          referenceId: newUserId,
+          metadata: { referredUserId: newUserId }
+        });
+
+        // Update referrer's referral count
+        await tx
+          .update(users)
+          .set({
+            referralCount: (await tx.select({ referralCount: users.referralCount }).from(users).where(eq(users.id, referrerId)))[0].referralCount + 1,
+            updatedAt: new Date()
+          })
+          .where(eq(users.id, referrerId));
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error processing referral bonus:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
   }
 
   // Job assignment operations
