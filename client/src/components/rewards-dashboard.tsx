@@ -169,6 +169,9 @@ export default function RewardsDashboard() {
       }
     },
     onError: (error: Error) => {
+      // Don't show error messages for authentication failures
+      if (error.message.includes('401')) return;
+      
       toast({
         title: "Check-in failed",
         description: error.message || "Something went wrong. Please try again.",
@@ -208,6 +211,9 @@ export default function RewardsDashboard() {
       }
     },
     onError: (error: Error) => {
+      // Don't show error messages for authentication failures
+      if (error.message.includes('401')) return;
+      
       toast({
         title: "Cashout failed",
         description: error.message || "Something went wrong",
@@ -241,6 +247,9 @@ export default function RewardsDashboard() {
       }
     },
     onError: (error: Error) => {
+      // Don't show error messages for authentication failures
+      if (error.message.includes('401')) return;
+      
       toast({
         title: "Error applying referral code",
         description: error.message || "Something went wrong. Please try again.",

@@ -48,7 +48,10 @@ export default function QuoteForm() {
       setSelectedService("");
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
     },
-    onError: () => {
+    onError: (error: Error) => {
+      // Don't show error messages for authentication failures
+      if (error.message.includes('401')) return;
+      
       toast({
         title: "Error",
         description: "Failed to submit quote request. Please try again.",

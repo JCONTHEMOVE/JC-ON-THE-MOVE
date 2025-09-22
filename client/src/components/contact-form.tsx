@@ -37,7 +37,10 @@ export default function ContactForm() {
       form.reset();
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
     },
-    onError: () => {
+    onError: (error: Error) => {
+      // Don't show error messages for authentication failures
+      if (error.message.includes('401')) return;
+      
       toast({
         title: "Error",
         description: "Failed to send message. Please try again.",

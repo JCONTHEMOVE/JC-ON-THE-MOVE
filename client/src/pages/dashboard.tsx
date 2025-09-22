@@ -38,7 +38,10 @@ function EmployeeDashboard() {
         description: "You have successfully accepted this job.",
       });
     },
-    onError: () => {
+    onError: (error: Error) => {
+      // Don't show error messages for authentication failures
+      if (error.message.includes('401')) return;
+      
       toast({
         title: "Error",
         description: "Failed to accept job. It may have been assigned to another employee.",
@@ -252,7 +255,10 @@ function BusinessOwnerDashboard() {
         description: "Lead status has been updated successfully.",
       });
     },
-    onError: () => {
+    onError: (error: Error) => {
+      // Don't show error messages for authentication failures
+      if (error.message.includes('401')) return;
+      
       toast({
         title: "Error",
         description: "Failed to update lead status.",
@@ -273,7 +279,10 @@ function BusinessOwnerDashboard() {
         description: "Employee role has been updated successfully.",
       });
     },
-    onError: () => {
+    onError: (error: Error) => {
+      // Don't show error messages for authentication failures
+      if (error.message.includes('401')) return;
+      
       toast({
         title: "Error",
         description: "Failed to update employee role.",

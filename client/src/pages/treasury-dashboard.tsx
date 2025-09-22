@@ -223,6 +223,9 @@ export default function TreasuryDashboard() {
       setDepositNotes('');
     },
     onError: (error: any) => {
+      // Don't show error messages for authentication failures
+      if (error.message && error.message.includes('401')) return;
+      
       toast({
         title: "Deposit failed",
         description: error.message || "Failed to deposit funds. Please try again.",
