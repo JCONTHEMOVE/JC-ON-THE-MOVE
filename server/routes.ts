@@ -8,6 +8,7 @@ import { dailyCheckinService } from "./services/daily-checkin";
 import { rewardsService } from "./services/rewards";
 import { cryptoCashoutService } from "./services/crypto-cashout";
 import { moonshotService } from "./services/moonshot";
+import { treasuryService } from "./services/treasury";
 import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
 import { eq, desc } from 'drizzle-orm';
@@ -37,6 +38,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       accountHolderName: z.string().min(2),
       bankName: z.string().min(2)
     })
+  });
+
+  // Treasury validation schema
+  const treasuryDepositSchema = z.object({
+    amount: z.coerce.number().positive().min(1.00).max(1000000).finite(), // $1.00 - $1M deposit
+    depositMethod: z.enum(['manual', 'stripe', 'bank_transfer']).optional().default('manual'),
+    notes: z.string().optional()
   });
   
   // Submit quote request
@@ -539,6 +547,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting reward stats:", error);
       res.status(500).json({ error: "Failed to get reward statistics" });
+    }
+  });
+
+  // Treasury Management Routes (Business Owner Only)
+  
+  // Deposit funds into treasury
+  app.post("/api/treasury/deposit", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
+    try {
+      const depositData = treasuryDepositSchema.parse(req.body);
+      const userId = req.user.claims.sub;
+      
+      const result = await treasuryService.depositFunds(
+        userId,
+        depositData.amount,
+        depositData.depositMethod,
+        depositData.notes
+      );
+      
+      if (result.success) {
+        res.json({ 
+          success: true, 
+          deposit: result.deposit,
+          message: `Successfully deposited $${depositData.amount.toFixed(2)} into treasury`
+        });
+      } else {
+        res.status(400).json({ 
+          success: false, 
+          error: result.error 
+        });
+      }
+    } catch (error) {
+      console.error("Error depositing treasury funds:", error);
+      res.status(400).json({ error: "Invalid deposit data" });
+    }
+  });
+
+  // Get treasury status and health
+  app.get("/api/treasury/status", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const [stats, funding, healthCheck, fundingDays] = await Promise.all([
+        treasuryService.getTreasuryStats(),
+        treasuryService.getFundingStatus(),
+        treasuryService.getHealthCheck(),
+        treasuryService.getEstimatedFundingDays()
+      ]);
+
+      res.json({
+        stats,
+        funding,
+        health: healthCheck,
+        estimatedFundingDays: fundingDays
+      });
+    } catch (error) {
+      console.error("Error getting treasury status:", error);
+      res.status(500).json({ error: "Failed to get treasury status" });
+    }
+  });
+
+  // Get funding deposit history
+  app.get("/api/treasury/deposits", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const deposits = await treasuryService.getFundingHistory();
+      res.json({ deposits });
+    } catch (error) {
+      console.error("Error getting funding history:", error);
+      res.status(500).json({ error: "Failed to get funding history" });
+    }
+  });
+
+  // Get reserve transaction history
+  app.get("/api/treasury/transactions", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
+    try {
+      // Sanitize and validate limit parameter
+      const limitParam = Number(req.query.limit);
+      const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 50;
+      
+      const transactions = await treasuryService.getRecentTransactions(limit);
+      res.json({ transactions, pagination: { limit } });
+    } catch (error) {
+      console.error("Error getting reserve transactions:", error);
+      res.status(500).json({ error: "Failed to get reserve transactions" });
     }
   });
 
