@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Phone, Mail, MapPin, Clock, Shield, Users, DollarSign, Home, Building, Trash2, CheckCircle } from "lucide-react";
 import QuoteForm from "@/components/quote-form";
 import ContactForm from "@/components/contact-form";
+import CompanySlideshow from "@/components/company-slideshow";
 
 // Gallery images
 import movingTruck1 from "@assets/IMG_20220919_091701403_HDR_1758497194325.jpg";
@@ -260,6 +261,9 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* Company Slideshow Section */}
+      <CompanySlideshow />
 
       {/* Quote Form Section */}
       <QuoteForm />
