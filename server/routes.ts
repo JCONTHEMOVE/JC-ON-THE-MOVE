@@ -11,9 +11,9 @@ import { moonshotService } from "./services/moonshot";
 import { treasuryService } from "./services/treasury";
 import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, sql, and, gte } from 'drizzle-orm';
 import { db } from './db';
-import { rewards, walletAccounts, dailyCheckins, cashoutRequests } from '@shared/schema';
+import { rewards, walletAccounts, dailyCheckins, cashoutRequests, fundingDeposits, reserveTransactions } from '@shared/schema';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -46,6 +46,153 @@ export async function registerRoutes(app: Express): Promise<Server> {
     depositMethod: z.enum(['manual', 'stripe', 'bank_transfer']).optional().default('manual'),
     notes: z.string().optional()
   });
+
+  // Treasury dashboard helper functions
+  async function getTreasuryAnalytics() {
+    // Get reward distribution patterns and user analytics
+    const rewardStats = await db
+      .select({
+        rewardType: rewards.rewardType,
+        count: sql<number>`count(*)`,
+        totalTokens: sql<number>`sum(cast(${rewards.tokenAmount} as decimal))`,
+        totalCash: sql<number>`sum(cast(${rewards.cashValue} as decimal))`
+      })
+      .from(rewards)
+      .where(eq(rewards.status, 'confirmed'))
+      .groupBy(rewards.rewardType);
+
+    // Calculate date 30 days ago
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgoISO = thirtyDaysAgo.toISOString();
+
+    const userStats = await db
+      .select({
+        totalUsers: sql<number>`count(distinct ${rewards.userId})`,
+      })
+      .from(rewards);
+
+    const activeUsers = await db
+      .select({
+        activeUsers: sql<number>`count(distinct ${rewards.userId})`,
+      })
+      .from(rewards)
+      .where(gte(rewards.earnedDate, thirtyDaysAgoISO));
+
+    // Get distribution trends (simplified without date grouping for compatibility)
+    const recentRewards = await db
+      .select({
+        tokenAmount: rewards.tokenAmount,
+        cashValue: rewards.cashValue,
+        earnedDate: rewards.earnedDate
+      })
+      .from(rewards)
+      .where(gte(rewards.earnedDate, thirtyDaysAgoISO))
+      .orderBy(desc(rewards.earnedDate));
+
+    return {
+      rewardStats,
+      userStats: { 
+        totalUsers: userStats[0]?.totalUsers || 0,
+        activeUsers: activeUsers[0]?.activeUsers || 0
+      },
+      recentRewards
+    };
+  }
+
+  async function getTreasuryReports(period: string = '30d', type: string = 'all') {
+    const dayMap = {
+      '7d': 7,
+      '30d': 30, 
+      '90d': 90,
+      '1y': 365
+    };
+    
+    const days = dayMap[period as keyof typeof dayMap] || 30;
+    
+    // Calculate date boundary
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - days);
+    const fromDateISO = fromDate.toISOString();
+    
+    // Get funding deposits within period
+    const fundingData = await db
+      .select({
+        usdAmount: fundingDeposits.usdAmount,
+        createdAt: fundingDeposits.createdAt
+      })
+      .from(fundingDeposits)
+      .where(gte(fundingDeposits.createdAt, fromDateISO))
+      .orderBy(desc(fundingDeposits.createdAt));
+
+    // Get distribution transactions within period
+    const distributionData = await db
+      .select({
+        cashValue: reserveTransactions.cashValue,
+        createdAt: reserveTransactions.createdAt
+      })
+      .from(reserveTransactions)
+      .where(and(
+        eq(reserveTransactions.transactionType, 'distribution'),
+        gte(reserveTransactions.createdAt, fromDateISO)
+      ))
+      .orderBy(desc(reserveTransactions.createdAt));
+
+    return {
+      period,
+      type,
+      fundingData,
+      distributionData
+    };
+  }
+
+  async function getTreasurySummary() {
+    // Calculate date 7 days ago
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoISO = sevenDaysAgo.toISOString();
+
+    const [stats, recentDeposits, recentDistributions, activeUsersWeek] = await Promise.all([
+      treasuryService.getTreasuryStats(),
+      
+      // Count recent deposits
+      db.select({ count: sql<number>`count(*)` })
+        .from(fundingDeposits)
+        .where(gte(fundingDeposits.createdAt, sevenDaysAgoISO)),
+      
+      // Count recent distributions  
+      db.select({ count: sql<number>`count(*)` })
+        .from(reserveTransactions)
+        .where(and(
+          eq(reserveTransactions.transactionType, 'distribution'),
+          gte(reserveTransactions.createdAt, sevenDaysAgoISO)
+        )),
+      
+      // Count active users this week
+      db.select({ count: sql<number>`count(distinct ${rewards.userId})` })
+        .from(rewards)
+        .where(gte(rewards.earnedDate, sevenDaysAgoISO))
+    ]);
+
+    return {
+      ...stats,
+      weeklyActivity: {
+        recentDeposits: recentDeposits[0]?.count || 0,
+        recentDistributions: recentDistributions[0]?.count || 0,
+        activeUsersWeek: activeUsersWeek[0]?.count || 0
+      }
+    };
+  }
+
+  function getTreasuryConfig() {
+    return {
+      tokenPrice: 0.10, // $0.10 per token
+      minimumBalance: 100.0, // $100 minimum balance
+      warningThreshold: 500.0, // $500 warning threshold
+      signupBonusTokens: 1000, // 1000 tokens signup bonus
+      maxDistributionPerDay: null
+    };
+  }
   
   // Submit quote request
   app.post("/api/leads", async (req, res) => {
@@ -628,6 +775,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting reserve transactions:", error);
       res.status(500).json({ error: "Failed to get reserve transactions" });
+    }
+  });
+
+  // Get treasury analytics and distribution patterns
+  app.get("/api/treasury/analytics", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const analytics = await getTreasuryAnalytics();
+      res.json(analytics);
+    } catch (error) {
+      console.error("Error getting treasury analytics:", error);
+      res.status(500).json({ error: "Failed to get treasury analytics" });
+    }
+  });
+
+  // Get treasury reports (time-series data for charts)
+  app.get("/api/treasury/reports", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
+    try {
+      const { period = '30d', type = 'all' } = req.query;
+      const reports = await getTreasuryReports(period as string, type as string);
+      res.json(reports);
+    } catch (error) {
+      console.error("Error getting treasury reports:", error);
+      res.status(500).json({ error: "Failed to get treasury reports" });
+    }
+  });
+
+  // Get treasury dashboard summary (quick stats for widgets)
+  app.get("/api/treasury/summary", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const summary = await getTreasurySummary();
+      res.json(summary);
+    } catch (error) {
+      console.error("Error getting treasury summary:", error);
+      res.status(500).json({ error: "Failed to get treasury summary" });
+    }
+  });
+
+  // Get treasury configuration
+  app.get("/api/treasury/config", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const config = getTreasuryConfig();
+      res.json(config);
+    } catch (error) {
+      console.error("Error getting treasury config:", error);
+      res.status(500).json({ error: "Failed to get treasury config" });
     }
   });
 
