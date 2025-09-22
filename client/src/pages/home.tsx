@@ -359,7 +359,7 @@ export default function HomePage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-foreground">Business Hours</h3>
-                    <p className="text-muted-foreground">Mon-Sat: 7AM-7PM, Sun: 9AM-5PM</p>
+                    <p className="text-muted-foreground">Mon-Sat: 7AM-7PM, Sun: CLOSED</p>
                   </div>
                 </div>
               </div>
