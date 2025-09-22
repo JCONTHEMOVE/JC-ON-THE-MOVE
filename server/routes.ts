@@ -47,6 +47,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     notes: z.string().optional()
   });
 
+  // Crypto conversion validation schemas
+  const usdToTokensSchema = z.object({
+    usdAmount: z.coerce.number().positive().min(0.01).max(10000).finite() // $0.01 - $10K conversion
+  });
+
+  const tokensToUsdSchema = z.object({
+    tokenAmount: z.string().refine(
+      (val) => {
+        const num = parseFloat(val);
+        return !isNaN(num) && num > 0 && num <= 1000000000; // 1B token max
+      },
+      { message: "Token amount must be a positive number string up to 1B tokens" }
+    )
+  });
+
   // Treasury dashboard helper functions
   async function getTreasuryAnalytics() {
     // Get reward distribution patterns and user analytics
@@ -820,6 +835,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting treasury config:", error);
       res.status(500).json({ error: "Failed to get treasury config" });
+    }
+  });
+
+  // ====================== CRYPTO PORTFOLIO MANAGEMENT API ======================
+
+  // Get comprehensive crypto portfolio performance metrics
+  app.get("/api/treasury/crypto/portfolio", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const portfolioData = await treasuryService.getCryptoPortfolioPerformance();
+      res.json(portfolioData);
+    } catch (error) {
+      console.error("Error getting crypto portfolio data:", error);
+      res.status(500).json({ error: "Failed to get crypto portfolio data" });
+    }
+  });
+
+  // Get advanced risk assessment with volatility protection
+  app.get("/api/treasury/crypto/risk-assessment", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const riskData = await treasuryService.getAdvancedRiskAssessment();
+      res.json(riskData);
+    } catch (error) {
+      console.error("Error getting risk assessment:", error);
+      res.status(500).json({ error: "Failed to get risk assessment data" });
+    }
+  });
+
+  // Get comprehensive treasury health score
+  app.get("/api/treasury/crypto/health-score", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const healthScore = await treasuryService.getTreasuryHealthScore();
+      res.json(healthScore);
+    } catch (error) {
+      console.error("Error getting treasury health score:", error);
+      res.status(500).json({ error: "Failed to get treasury health score" });
+    }
+  });
+
+  // Get current JCMOVES market data and pricing
+  app.get("/api/treasury/crypto/market-data", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const [currentPrice, marketData, volatility] = await Promise.all([
+        treasuryService.getCurrentTokenPrice(),
+        treasuryService.getMarketData(),
+        treasuryService.checkVolatility()
+      ]);
+      
+      res.json({
+        currentPrice,
+        marketData,
+        volatility,
+        lastUpdated: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("Error getting market data:", error);
+      res.status(500).json({ error: "Failed to get market data" });
+    }
+  });
+
+  // Convert USD to JCMOVES tokens at current price
+  app.post("/api/treasury/crypto/convert-usd", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      // Proper Zod validation
+      const { usdAmount } = usdToTokensSchema.parse(req.body);
+      
+      const conversion = await treasuryService.convertUsdToTokens(usdAmount);
+      
+      // Enhanced response with price metadata
+      res.json({
+        ...conversion,
+        inputAmount: usdAmount,
+        conversionType: 'usd-to-tokens',
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          error: "Invalid request data", 
+          details: error.errors 
+        });
+      }
+      console.error("Error converting USD to tokens:", error);
+      res.status(500).json({ error: "Failed to convert USD to tokens" });
+    }
+  });
+
+  // Convert JCMOVES tokens to USD at current price  
+  app.post("/api/treasury/crypto/convert-tokens", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      // Proper Zod validation
+      const { tokenAmount } = tokensToUsdSchema.parse(req.body);
+      
+      const conversion = await treasuryService.convertTokensToUsd(tokenAmount);
+      
+      // Enhanced response with price metadata
+      res.json({
+        ...conversion,
+        inputAmount: tokenAmount,
+        conversionType: 'tokens-to-usd',
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          error: "Invalid request data", 
+          details: error.errors 
+        });
+      }
+      console.error("Error converting tokens to USD:", error);
+      res.status(500).json({ error: "Failed to convert tokens to USD" });
     }
   });
 

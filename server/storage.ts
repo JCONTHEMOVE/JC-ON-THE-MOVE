@@ -7,7 +7,7 @@ export interface IStorage {
   // User operations
   // (IMPORTANT) these user operations are mandatory for Replit Auth.
   getUser(id: string): Promise<User | undefined>;
-  upsertUser(user: UpsertUser): Promise<User>;
+  upsertUser(user: UpsertUser, tokenPrice?: number): Promise<User>;
   
   // User role management
   updateUserRole(userId: string, role: string): Promise<User | undefined>;
@@ -48,7 +48,7 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
-  async upsertUser(userData: UpsertUser): Promise<User> {
+  async upsertUser(userData: UpsertUser, tokenPrice?: number): Promise<User> {
     // Check if this is a new user (first time registration)
     // Look up by ID first, then by email if ID is not provided
     let existingUser = null;
@@ -79,9 +79,10 @@ export class DatabaseStorage implements IStorage {
     // If this is a new user, attempt to give them signup bonus from treasury
     if (isNewUser) {
       try {
-        // Check if treasury has sufficient funding for signup bonus
+        // Check if treasury has sufficient funding for signup bonus using real-time pricing
         const signupTokens = TREASURY_CONFIG.SIGNUP_BONUS_TOKENS;
-        const fundingCheck = await this.checkFundingAvailability(signupTokens);
+        const currentPrice = tokenPrice ?? TREASURY_CONFIG.FALLBACK_TOKEN_PRICE;
+        const fundingCheck = await this.checkFundingAvailability(signupTokens, currentPrice);
         
         if (fundingCheck.available) {
           // Atomic signup bonus: treasury deduction + wallet creation + reward record in single transaction
@@ -101,7 +102,7 @@ export class DatabaseStorage implements IStorage {
 
             const currentBalance = parseFloat(treasury.availableFunding);
             const currentTokenReserve = parseFloat(treasury.tokenReserve);
-            const cashValue = signupTokens * TREASURY_CONFIG.FALLBACK_TOKEN_PRICE;
+            const cashValue = signupTokens * currentPrice; // Use real-time JCMOVES price
             const minimumBalance = TREASURY_CONFIG.MINIMUM_BALANCE;
 
             // Verify funding availability within transaction

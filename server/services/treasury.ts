@@ -163,6 +163,33 @@ export class TreasuryService {
     relatedEntityId?: string
   ): Promise<TokenDistributionResult> {
     try {
+      // CRITICAL: Advanced risk assessment with circuit breaker checks
+      const riskAssessment = await this.getAdvancedRiskAssessment();
+      
+      // Halt distributions if extreme volatility detected
+      if (riskAssessment.shouldHaltDistributions) {
+        return {
+          success: false,
+          tokensDistributed: 0,
+          cashValue: 0,
+          remainingBalance: 0,
+          transactionId: "",
+          error: `Distribution halted due to market conditions: ${riskAssessment.reasons.join('; ')}`
+        };
+      }
+      
+      // Enforce safe distribution limits based on volatility
+      if (tokenAmount > riskAssessment.maxSafeDistribution.tokens) {
+        return {
+          success: false,
+          tokensDistributed: 0,
+          cashValue: 0,
+          remainingBalance: 0,
+          transactionId: "",
+          error: `Distribution amount (${tokenAmount.toLocaleString()} tokens) exceeds safe limit (${riskAssessment.maxSafeDistribution.tokens.toLocaleString()} tokens) due to ${riskAssessment.riskLevel} volatility. ${riskAssessment.recommendations.join(' ')}`
+        };
+      }
+
       // Pre-distribution checks with real-time pricing
       const canDistribute = await this.canDistributeTokens(tokenAmount);
       if (!canDistribute.canDistribute) {
@@ -333,6 +360,252 @@ export class TreasuryService {
       estimatedDays: Math.floor(estimatedDays),
       basedOnDailyAverage: dailyAverage,
       confidence
+    };
+  }
+
+  // ====================== CRYPTO PORTFOLIO MANAGEMENT ======================
+
+  /**
+   * Get comprehensive crypto portfolio performance metrics
+   */
+  async getCryptoPortfolioPerformance(): Promise<{
+    currentValue: { usd: number; tokens: number };
+    performance: { 
+      daily: { change: number; percentage: number }; 
+      weekly: { change: number; percentage: number };
+      allTime: { change: number; percentage: number };
+    };
+    marketMetrics: {
+      volatility: number;
+      marketCap?: string;
+      volume24h?: string;
+      priceChange24h?: number;
+    };
+    riskAssessment: 'low' | 'medium' | 'high' | 'extreme';
+  }> {
+    const treasury = await storage.getMainTreasuryAccount();
+    const currentPrice = await this.getCurrentTokenPrice();
+    const marketData = await this.getMarketData();
+    const volatility = await this.checkVolatility();
+    
+    const tokenBalance = parseFloat(treasury.tokenReserve);
+    const currentUsdValue = tokenBalance * currentPrice.price;
+    
+    // Calculate performance metrics (simplified - would need historical data for accurate calculation)
+    const totalFunding = parseFloat(treasury.totalFunding);
+    const totalDistributed = parseFloat(treasury.totalDistributed);
+    const initialValue = totalFunding - totalDistributed; // Approximate initial portfolio value
+    
+    const allTimeChange = currentUsdValue - initialValue;
+    const allTimePercentage = initialValue > 0 ? (allTimeChange / initialValue) * 100 : 0;
+    
+    // Assess risk level based on volatility and market conditions
+    let riskAssessment: 'low' | 'medium' | 'high' | 'extreme' = 'medium';
+    if (Math.abs(volatility.changePercent) > 20) riskAssessment = 'extreme';
+    else if (Math.abs(volatility.changePercent) > 10) riskAssessment = 'high';
+    else if (Math.abs(volatility.changePercent) > 5) riskAssessment = 'medium';
+    else riskAssessment = 'low';
+    
+    return {
+      currentValue: {
+        usd: currentUsdValue,
+        tokens: tokenBalance
+      },
+      performance: {
+        daily: { 
+          change: volatility.changePercent * currentUsdValue / 100, 
+          percentage: volatility.changePercent 
+        },
+        weekly: { 
+          change: volatility.changePercent * currentUsdValue / 100 * 7, // Approximation
+          percentage: volatility.changePercent * 7 
+        },
+        allTime: { 
+          change: allTimeChange, 
+          percentage: allTimePercentage 
+        }
+      },
+      marketMetrics: {
+        volatility: Math.abs(volatility.changePercent),
+        marketCap: marketData?.marketCap,
+        volume24h: marketData?.volume24h,
+        priceChange24h: marketData?.priceChange24h
+      },
+      riskAssessment
+    };
+  }
+
+  /**
+   * Advanced risk management with dynamic volatility protection
+   */
+  async getAdvancedRiskAssessment(): Promise<{
+    shouldHaltDistributions: boolean;
+    riskLevel: 'low' | 'medium' | 'high' | 'extreme';
+    reasons: string[];
+    recommendations: string[];
+    maxSafeDistribution: { tokens: number; usd: number };
+  }> {
+    const volatility = await this.checkVolatility();
+    const portfolio = await this.getCryptoPortfolioPerformance();
+    const stats = await this.getTreasuryStats();
+    
+    const reasons: string[] = [];
+    const recommendations: string[] = [];
+    let shouldHalt = false;
+    let maxSafeTokens = 0;
+    
+    // Extreme volatility check (>20% price change)
+    if (Math.abs(volatility.changePercent) > 20) {
+      shouldHalt = true;
+      reasons.push(`Extreme price volatility detected: ${volatility.changePercent.toFixed(2)}%`);
+      recommendations.push("Halt all distributions until market stabilizes");
+      recommendations.push("Monitor price movements every 30 minutes");
+    }
+    // High volatility check (>10% price change)
+    else if (Math.abs(volatility.changePercent) > 10) {
+      reasons.push(`High price volatility: ${volatility.changePercent.toFixed(2)}%`);
+      recommendations.push("Reduce distribution amounts by 50%");
+      recommendations.push("Increase monitoring frequency");
+      maxSafeTokens = stats.tokenReserve * 0.5; // Only 50% of normal distributions
+    }
+    // Medium volatility check (>5% price change)
+    else if (Math.abs(volatility.changePercent) > 5) {
+      reasons.push(`Medium price volatility: ${volatility.changePercent.toFixed(2)}%`);
+      recommendations.push("Reduce distribution amounts by 25%");
+      recommendations.push("Monitor market conditions closely");
+      maxSafeTokens = stats.tokenReserve * 0.75; // 75% of normal distributions
+    }
+    else {
+      maxSafeTokens = stats.tokenReserve; // Full distributions allowed
+      recommendations.push("Market conditions stable - normal operations can continue");
+    }
+    
+    // Treasury health check
+    if (stats.availableFunding < TreasuryService.WARNING_THRESHOLD) {
+      reasons.push("Treasury funding below warning threshold");
+      recommendations.push("Prioritize funding deposits over large distributions");
+      maxSafeTokens = Math.min(maxSafeTokens, stats.tokenReserve * 0.3); // Conservative limit
+    }
+    
+    const currentPrice = await this.getCurrentTokenPrice();
+    const maxSafeUsd = maxSafeTokens * currentPrice.price;
+    
+    return {
+      shouldHaltDistributions: shouldHalt,
+      riskLevel: portfolio.riskAssessment,
+      reasons,
+      recommendations,
+      maxSafeDistribution: {
+        tokens: maxSafeTokens,
+        usd: maxSafeUsd
+      }
+    };
+  }
+
+  /**
+   * Comprehensive treasury health score incorporating crypto-specific factors
+   */
+  async getTreasuryHealthScore(): Promise<{
+    score: number; // 0-100
+    grade: 'A+' | 'A' | 'B+' | 'B' | 'C+' | 'C' | 'D' | 'F';
+    factors: {
+      funding: { score: number; weight: number; status: string };
+      volatility: { score: number; weight: number; status: string };
+      liquidity: { score: number; weight: number; status: string };
+      diversification: { score: number; weight: number; status: string };
+    };
+    overallAssessment: string;
+    urgentActions: string[];
+  }> {
+    const stats = await this.getTreasuryStats();
+    const portfolio = await this.getCryptoPortfolioPerformance();
+    const riskAssessment = await this.getAdvancedRiskAssessment();
+    
+    // Factor 1: Funding adequacy (40% weight)
+    let fundingScore = 100;
+    let fundingStatus = "Excellent";
+    if (stats.availableFunding < TreasuryService.MINIMUM_BALANCE) {
+      fundingScore = 20;
+      fundingStatus = "Critical - Below minimum balance";
+    } else if (stats.availableFunding < TreasuryService.WARNING_THRESHOLD) {
+      fundingScore = 50;
+      fundingStatus = "Warning - Low funding levels";
+    } else if (stats.availableFunding < TreasuryService.CRITICAL_THRESHOLD) {
+      fundingScore = 75;
+      fundingStatus = "Good - Adequate funding";
+    }
+    
+    // Factor 2: Volatility risk (30% weight)
+    let volatilityScore = 100;
+    let volatilityStatus = "Stable";
+    if (riskAssessment.riskLevel === 'extreme') {
+      volatilityScore = 10;
+      volatilityStatus = "Extreme volatility - High risk";
+    } else if (riskAssessment.riskLevel === 'high') {
+      volatilityScore = 40;
+      volatilityStatus = "High volatility - Elevated risk";
+    } else if (riskAssessment.riskLevel === 'medium') {
+      volatilityScore = 70;
+      volatilityStatus = "Moderate volatility - Normal risk";
+    }
+    
+    // Factor 3: Liquidity (20% weight)
+    let liquidityScore = 80; // JCMOVES has moderate liquidity
+    let liquidityStatus = "Good - Tradeable on DEX";
+    if (portfolio.marketMetrics.volume24h) {
+      const volume24h = parseFloat(portfolio.marketMetrics.volume24h.replace(/[^0-9.-]+/g,""));
+      if (volume24h > 100000) liquidityScore = 100;
+      else if (volume24h > 50000) liquidityScore = 90;
+      else if (volume24h > 10000) liquidityScore = 80;
+      else liquidityScore = 60;
+    }
+    
+    // Factor 4: Diversification (10% weight) - Single token = lower score
+    const diversificationScore = 30; // Single crypto asset
+    const diversificationStatus = "Poor - Single asset concentration";
+    
+    // Calculate weighted score
+    const totalScore = (
+      fundingScore * 0.4 +
+      volatilityScore * 0.3 +
+      liquidityScore * 0.2 +
+      diversificationScore * 0.1
+    );
+    
+    // Assign letter grade
+    let grade: 'A+' | 'A' | 'B+' | 'B' | 'C+' | 'C' | 'D' | 'F';
+    if (totalScore >= 95) grade = 'A+';
+    else if (totalScore >= 85) grade = 'A';
+    else if (totalScore >= 80) grade = 'B+';
+    else if (totalScore >= 70) grade = 'B';
+    else if (totalScore >= 65) grade = 'C+';
+    else if (totalScore >= 55) grade = 'C';
+    else if (totalScore >= 40) grade = 'D';
+    else grade = 'F';
+    
+    // Generate overall assessment
+    let overallAssessment = "";
+    if (totalScore >= 80) overallAssessment = "Treasury is in good health with manageable crypto exposure";
+    else if (totalScore >= 60) overallAssessment = "Treasury has moderate risks that should be monitored closely";
+    else overallAssessment = "Treasury faces significant risks requiring immediate attention";
+    
+    // Identify urgent actions
+    const urgentActions: string[] = [];
+    if (riskAssessment.shouldHaltDistributions) urgentActions.push("HALT ALL DISTRIBUTIONS - Extreme market volatility");
+    if (stats.availableFunding < TreasuryService.MINIMUM_BALANCE) urgentActions.push("URGENT: Add funding immediately");
+    if (riskAssessment.riskLevel === 'extreme') urgentActions.push("Implement emergency volatility protocols");
+    
+    return {
+      score: Math.round(totalScore),
+      grade,
+      factors: {
+        funding: { score: Math.round(fundingScore), weight: 40, status: fundingStatus },
+        volatility: { score: Math.round(volatilityScore), weight: 30, status: volatilityStatus },
+        liquidity: { score: Math.round(liquidityScore), weight: 20, status: liquidityStatus },
+        diversification: { score: diversificationScore, weight: 10, status: diversificationStatus }
+      },
+      overallAssessment,
+      urgentActions
     };
   }
 }

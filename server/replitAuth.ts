@@ -7,6 +7,7 @@ import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
+import { cryptoService } from "./services/crypto";
 
 if (!process.env.REPLIT_DOMAINS) {
   throw new Error("Environment variable REPLIT_DOMAINS not provided");
@@ -58,13 +59,23 @@ function updateUserSession(
 async function upsertUser(
   claims: any,
 ) {
+  // Get real-time JCMOVES price for signup bonus calculation
+  let currentTokenPrice: number | undefined;
+  try {
+    const priceData = await cryptoService.getCurrentPrice();
+    currentTokenPrice = priceData.price;
+  } catch (error) {
+    console.warn("Failed to get real-time JCMOVES price for signup bonus:", error);
+    // Will fall back to FALLBACK_TOKEN_PRICE in storage
+  }
+  
   await storage.upsertUser({
     id: claims["sub"],
     email: claims["email"],
     firstName: claims["first_name"],
     lastName: claims["last_name"],
     profileImageUrl: claims["profile_image_url"],
-  });
+  }, currentTokenPrice);
 }
 
 export async function setupAuth(app: Express) {
