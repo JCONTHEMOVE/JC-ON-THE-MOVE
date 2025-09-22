@@ -414,12 +414,15 @@ export class DatabaseStorage implements IStorage {
 
       // Update wallet and create reward record
       await db.transaction(async (tx) => {
+        // Get current wallet state first
+        const [currentWallet] = await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, referrerId));
+        
         // Update referrer's wallet
         await tx
           .update(walletAccounts)
           .set({
-            tokenBalance: `${parseFloat((await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, referrerId)))[0].tokenBalance) + rewardCalc.tokenAmount}`,
-            totalEarned: `${parseFloat((await tx.select().from(walletAccounts).where(eq(walletAccounts.userId, referrerId)))[0].totalEarned) + rewardCalc.tokenAmount}`,
+            tokenBalance: `${parseFloat(currentWallet.tokenBalance || '0') + rewardCalc.tokenAmount}`,
+            totalEarned: `${parseFloat(currentWallet.totalEarned || '0') + rewardCalc.tokenAmount}`,
             lastActivity: new Date()
           })
           .where(eq(walletAccounts.userId, referrerId));
@@ -437,10 +440,11 @@ export class DatabaseStorage implements IStorage {
         });
 
         // Update referrer's referral count
+        const [currentUser] = await tx.select({ referralCount: users.referralCount }).from(users).where(eq(users.id, referrerId));
         await tx
           .update(users)
           .set({
-            referralCount: (await tx.select({ referralCount: users.referralCount }).from(users).where(eq(users.id, referrerId)))[0].referralCount + 1,
+            referralCount: (currentUser?.referralCount || 0) + 1,
             updatedAt: new Date()
           })
           .where(eq(users.id, referrerId));
@@ -591,13 +595,13 @@ export class DatabaseStorage implements IStorage {
       .from(reserveTransactions);
 
     if (treasuryAccountId) {
-      query = query.where(eq(reserveTransactions.treasuryAccountId, treasuryAccountId));
+      query = query.where(eq(reserveTransactions.treasuryAccountId, treasuryAccountId)) as typeof query;
     }
 
-    query = query.orderBy(desc(reserveTransactions.createdAt));
+    query = query.orderBy(desc(reserveTransactions.createdAt)) as typeof query;
 
     if (limit) {
-      query = query.limit(limit);
+      query = query.limit(limit) as typeof query;
     }
 
     return await query;
@@ -643,9 +647,9 @@ export class DatabaseStorage implements IStorage {
         }
       }
       
-    } catch (volatilityError) {
+    } catch (volatilityError: unknown) {
       // CRITICAL: Fail-safe behavior - if volatility check fails, HALT all distributions
-      if (volatilityError.message && volatilityError.message.includes('Distribution HALTED')) {
+      if (volatilityError instanceof Error && volatilityError.message && volatilityError.message.includes('Distribution HALTED')) {
         throw volatilityError; // Re-throw volatility halt errors
       }
       console.error('Volatility check failed for treasury distribution - HALTING as safety measure:', volatilityError);
