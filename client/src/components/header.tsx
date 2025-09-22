@@ -9,7 +9,7 @@ export default function Header() {
   const [location] = useLocation();
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isBusinessOwner, isLoading } = useAuth();
 
   const scrollToSection = (sectionId: string) => {
     if (location === "/") {
@@ -53,6 +53,15 @@ export default function Header() {
                     >
                       Rewards
                     </Link>
+                    {isBusinessOwner && (
+                      <Link
+                        href="/treasury"
+                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                        data-testid="button-treasury"
+                      >
+                        Treasury
+                      </Link>
+                    )}
                     <a
                       href="/#home"
                       className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
@@ -167,6 +176,16 @@ export default function Header() {
                   >
                     Rewards
                   </Link>
+                  {isBusinessOwner && (
+                    <Link
+                      href="/treasury"
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                      data-testid="button-mobile-treasury"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      Treasury
+                    </Link>
+                  )}
                   <a
                     href="/#home"
                     className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
