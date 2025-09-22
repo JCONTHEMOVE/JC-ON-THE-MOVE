@@ -4,6 +4,7 @@ import { db } from '../db';
 import { dailyCheckins, rewards, walletAccounts, fraudLogs, users } from '@shared/schema';
 import { rewardsService } from './rewards';
 import { fraudDetectionService } from './fraud-detection';
+import { treasuryService } from './treasury';
 
 interface CheckinRequest {
   userId: string;
@@ -106,7 +107,33 @@ export class DailyCheckinService {
       // Calculate reward for this check-in
       const rewardCalc = await rewardsService.calculateDailyReward(streakCount);
 
-      // Start database transaction
+      // Check treasury funding before distributing reward
+      const canDistribute = await treasuryService.canDistributeTokens(rewardCalc.tokenAmount);
+      if (!canDistribute.canDistribute) {
+        return {
+          success: false,
+          message: 'Daily rewards are temporarily unavailable due to insufficient funding. Please try again later or contact support.',
+          riskScore: fraudCheck.riskScore
+        };
+      }
+
+      // Distribute tokens from treasury first (atomic operation)
+      const distribution = await treasuryService.distributeTokens(
+        rewardCalc.tokenAmount,
+        `Daily check-in reward (${streakCount} day streak)`,
+        'daily_checkin',
+        request.userId
+      );
+
+      if (!distribution.success) {
+        return {
+          success: false,
+          message: 'Failed to process daily check-in reward. Please try again later or contact support.',
+          riskScore: fraudCheck.riskScore
+        };
+      }
+
+      // Start database transaction for check-in record and user reward/wallet updates
       await db.transaction(async (tx) => {
         // Record the check-in
         await tx.insert(dailyCheckins).values({
@@ -130,7 +157,8 @@ export class DailyCheckinService {
           metadata: {
             streakCount,
             riskScore: fraudCheck.riskScore,
-            deviceFingerprint: deviceFP
+            deviceFingerprint: deviceFP,
+            treasuryTransactionId: distribution.transactionId
           }
         });
 
