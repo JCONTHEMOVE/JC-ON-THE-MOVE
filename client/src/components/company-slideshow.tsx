@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import useEmblaCarousel from 'embla-carousel-react'
 import Autoplay from 'embla-carousel-autoplay'
 import { Button } from "@/components/ui/button"
@@ -84,27 +84,45 @@ const slides = [
 ]
 
 export default function CompanySlideshow() {
+  const autoplay = useRef(Autoplay({ delay: 6000, stopOnInteraction: false }))
+
   const [emblaRef, emblaApi] = useEmblaCarousel(
     { 
       loop: true,
       dragFree: false,
       containScroll: 'trimSnaps'
     },
-    [Autoplay({ delay: 6000, stopOnInteraction: false })]
+    [autoplay.current]
   )
 
   const scrollPrev = useCallback(() => {
-    if (emblaApi) emblaApi.scrollPrev()
+    if (emblaApi) {
+      emblaApi.scrollPrev()
+    }
   }, [emblaApi])
 
   const scrollNext = useCallback(() => {
-    if (emblaApi) emblaApi.scrollNext()
+    if (emblaApi) {
+      emblaApi.scrollNext()
+    }
   }, [emblaApi])
 
   useEffect(() => {
     if (!emblaApi) return
 
-    // Optional: Add any additional event listeners here
+    // Start autoplay when component mounts
+    const autoplayPlugin = autoplay.current
+    if (autoplayPlugin && autoplayPlugin.play) {
+      autoplayPlugin.play()
+    }
+
+    // Embla API is now initialized and ready
+    
+    return () => {
+      if (autoplayPlugin && autoplayPlugin.stop) {
+        autoplayPlugin.stop()
+      }
+    }
   }, [emblaApi])
 
   return (
