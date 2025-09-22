@@ -98,6 +98,9 @@ export class DatabaseStorage implements IStorage {
           return user; // Return user without signup bonus
         }
         
+        // Get current price for USD-to-token conversion
+        const currentPrice = tokenPrice ?? TREASURY_CONFIG.FALLBACK_TOKEN_PRICE;
+        
         // Convert $5.00 USD reward to JCMOVES tokens using real-time pricing
         const signupUsdValue = TREASURY_CONFIG.SIGNUP_BONUS_USD;
         const signupTokens = signupUsdValue / currentPrice; // Calculate tokens from USD value
@@ -107,9 +110,6 @@ export class DatabaseStorage implements IStorage {
           console.warn(`Signup bonus (${signupTokens.toFixed(0)} tokens ≈ $${signupUsdValue}) exceeds safe limit (${riskLimits.maxSafeTokens} tokens) due to ${riskLimits.riskLevel} volatility for user ${userData.email || userData.id}`);
           return user; // Return user without signup bonus
         }
-        
-        // Check if treasury has sufficient funding for signup bonus using real-time pricing
-        const currentPrice = tokenPrice ?? TREASURY_CONFIG.FALLBACK_TOKEN_PRICE;
         const fundingCheck = await this.checkFundingAvailability(signupTokens, currentPrice);
         
         if (fundingCheck.available) {
