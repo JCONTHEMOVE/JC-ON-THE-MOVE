@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, leads, contacts, users, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, faucetConfig, faucetClaims, faucetWallets, faucetRevenue } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, isNull, and } from "drizzle-orm";
+import { eq, desc, isNull, and, isNotNull, sql, gt, gte } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
 import { cryptoService } from "./services/crypto";
 
@@ -406,7 +406,7 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  // Admin-only referral management functions
+  // Admin and business_owner referral management functions
   async getAllReferralStats(): Promise<{ totalReferrals: number; totalRewardsPaid: number; topReferrers: any[]; recentActivity: any[] }> {
     // Get total referral count across all users
     const totalReferralsResult = await db
@@ -447,6 +447,7 @@ export class DatabaseStorage implements IStorage {
       .limit(10);
 
     // Get recent referral activity
+    const referredUsers = users; // Create alias for joined table
     const recentActivity = await db
       .select({
         referrerId: users.id,
@@ -479,11 +480,8 @@ export class DatabaseStorage implements IStorage {
     let weeklyLimit = 15;
     let monthlyLimit = 50;
 
-    if (user.role === 'business_owner') {
-      dailyLimit = 20;
-      weeklyLimit = 100;
-      monthlyLimit = 300;
-    } else if (user.role === 'admin') {
+    // Admin and business_owner have equivalent high-level access
+    if (user.role === 'business_owner' || user.role === 'admin') {
       dailyLimit = 50;
       weeklyLimit = 200;
       monthlyLimit = 500;

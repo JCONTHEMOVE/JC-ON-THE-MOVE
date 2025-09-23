@@ -247,8 +247,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
-      if (!user || user.role !== 'business_owner') {
-        return res.status(403).json({ message: "Business owner access required" });
+      // Admin and business_owner have equivalent access
+      if (!user || (user.role !== 'business_owner' && user.role !== 'admin')) {
+        return res.status(403).json({ message: "Business owner or administrator access required" });
       }
       req.currentUser = user;
       next();
@@ -275,8 +276,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
-      if (!user || user.role !== 'admin') {
-        return res.status(403).json({ message: "Administrator access required" });
+      // Admin and business_owner have equivalent access
+      if (!user || (user.role !== 'admin' && user.role !== 'business_owner')) {
+        return res.status(403).json({ message: "Administrator or business owner access required" });
       }
       req.currentUser = user;
       next();
