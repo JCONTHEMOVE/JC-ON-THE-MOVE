@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Users, ClipboardList, CheckCircle, DollarSign, Eye, Mail, Phone, UserCheck, Briefcase, Clock, UserPlus } from "lucide-react";
+import { ArrowLeft, Users, ClipboardList, CheckCircle, DollarSign, Eye, Mail, Phone, UserCheck, Briefcase, Clock, UserPlus, Wallet, TrendingUp, AlertTriangle, Activity, PiggyBank } from "lucide-react";
 
 // Employee Dashboard Component
 function EmployeeDashboard() {
@@ -243,6 +243,22 @@ function BusinessOwnerDashboard() {
     queryKey: ["/api/employees"],
   });
 
+  // Treasury data
+  const { data: treasuryStatus, isLoading: treasuryLoading } = useQuery({
+    queryKey: ["/api/treasury/status"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  const { data: depositsData, isLoading: depositsLoading } = useQuery({
+    queryKey: ["/api/treasury/deposits"],
+    refetchInterval: 30000,
+  });
+
+  const { data: transactionsData, isLoading: transactionsLoading } = useQuery({
+    queryKey: ["/api/treasury/transactions"],
+    refetchInterval: 30000,
+  });
+
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const response = await apiRequest("PATCH", `/api/leads/${id}/status`, { status });
@@ -321,6 +337,11 @@ function BusinessOwnerDashboard() {
     totalEmployees: employees.length,
   };
 
+  // Treasury stats
+  const treasuryStats = treasuryStatus?.stats || {};
+  const recentDeposits = depositsData?.deposits?.slice(0, 5) || [];
+  const recentTransactions = transactionsData?.transactions?.slice(0, 5) || [];
+
   if (leadsLoading || employeesLoading) {
     return (
       <div className="min-h-screen bg-muted/30 flex items-center justify-center">
@@ -348,7 +369,7 @@ function BusinessOwnerDashboard() {
           <p className="text-muted-foreground mt-2">Manage leads, employees, and business operations</p>
         </div>
 
-        {/* Stats Cards */}
+        {/* Business Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card data-testid="stat-new-leads">
             <CardContent className="p-6">
@@ -407,10 +428,118 @@ function BusinessOwnerDashboard() {
           </Card>
         </div>
 
+        {/* Treasury Stats Cards */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-foreground mb-4 flex items-center gap-2">
+            <Wallet className="h-6 w-6" />
+            Treasury Overview
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <Card data-testid="treasury-available-funding">
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <div className="bg-green-500 text-white p-3 rounded-lg">
+                    <DollarSign className="h-6 w-6" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-2xl font-bold text-foreground">
+                      ${parseFloat(treasuryStats.availableFunding || '0').toFixed(2)}
+                    </p>
+                    <p className="text-muted-foreground">Available Funding</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card data-testid="treasury-token-reserve">
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <div className="bg-purple-500 text-white p-3 rounded-lg">
+                    <PiggyBank className="h-6 w-6" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-2xl font-bold text-foreground">
+                      {parseFloat(treasuryStats.tokenReserve || '0').toFixed(0)}
+                    </p>
+                    <p className="text-muted-foreground">JC MOVES Tokens</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card data-testid="treasury-total-funding">
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <div className="bg-blue-500 text-white p-3 rounded-lg">
+                    <TrendingUp className="h-6 w-6" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-2xl font-bold text-foreground">
+                      ${parseFloat(treasuryStats.totalFunding || '0').toFixed(2)}
+                    </p>
+                    <p className="text-muted-foreground">Total Funding</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card data-testid="treasury-distributed">
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <div className="bg-orange-500 text-white p-3 rounded-lg">
+                    <Activity className="h-6 w-6" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-2xl font-bold text-foreground">
+                      ${parseFloat(treasuryStats.totalDistributed || '0').toFixed(2)}
+                    </p>
+                    <p className="text-muted-foreground">Total Distributed</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Treasury Health Status */}
+          {treasuryStatus?.health && (
+            <div className="mt-4">
+              <Card data-testid="treasury-health">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-lg ${
+                        treasuryStatus.health.status === 'healthy' ? 'bg-green-100 dark:bg-green-900/20' :
+                        treasuryStatus.health.status === 'warning' ? 'bg-yellow-100 dark:bg-yellow-900/20' :
+                        'bg-red-100 dark:bg-red-900/20'
+                      }`}>
+                        <AlertTriangle className={`h-5 w-5 ${
+                          treasuryStatus.health.status === 'healthy' ? 'text-green-600 dark:text-green-400' :
+                          treasuryStatus.health.status === 'warning' ? 'text-yellow-600 dark:text-yellow-400' :
+                          'text-red-600 dark:text-red-400'
+                        }`} />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold">Treasury Health: {treasuryStatus.health.status}</h3>
+                        <p className="text-sm text-muted-foreground">{treasuryStatus.health.message}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <Link href="/admin-moonshot">
+                        <Button data-testid="button-add-funding">Add Funding</Button>
+                      </Link>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
+
         <Tabs defaultValue="leads" className="space-y-8">
           <TabsList data-testid="dashboard-tabs">
             <TabsTrigger value="leads">Lead Management</TabsTrigger>
             <TabsTrigger value="employees">Employee Management</TabsTrigger>
+            <TabsTrigger value="treasury">Treasury Activity</TabsTrigger>
           </TabsList>
 
           <TabsContent value="leads">
@@ -627,6 +756,112 @@ function BusinessOwnerDashboard() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="treasury">
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Recent Deposits */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <DollarSign className="h-5 w-5" />
+                    Recent Deposits
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {depositsLoading ? (
+                    <div className="space-y-3">
+                      {[...Array(3)].map((_, i) => (
+                        <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="w-3/4 h-4 bg-muted rounded animate-pulse"></div>
+                          <div className="w-1/4 h-4 bg-muted rounded animate-pulse"></div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : recentDeposits.length > 0 ? (
+                    <div className="space-y-3">
+                      {recentDeposits.map((deposit: any) => (
+                        <div key={deposit.id} className="flex items-center justify-between p-3 border rounded-lg" data-testid={`deposit-${deposit.id}`}>
+                          <div>
+                            <p className="font-medium">${parseFloat(deposit.depositAmount).toFixed(2)}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {deposit.depositMethod} • {new Date(deposit.createdAt).toLocaleDateString()}
+                            </p>
+                            {deposit.notes && (
+                              <p className="text-xs text-muted-foreground">{deposit.notes}</p>
+                            )}
+                          </div>
+                          <Badge variant="outline">{deposit.status}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <DollarSign className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground">No recent deposits</p>
+                    </div>
+                  )}
+                  <div className="mt-4 text-center">
+                    <Link href="/admin-moonshot">
+                      <Button variant="outline" size="sm" data-testid="button-view-all-deposits">
+                        Add Moonshot Funding
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Recent Transactions */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Activity className="h-5 w-5" />
+                    Recent Transactions
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {transactionsLoading ? (
+                    <div className="space-y-3">
+                      {[...Array(3)].map((_, i) => (
+                        <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="w-3/4 h-4 bg-muted rounded animate-pulse"></div>
+                          <div className="w-1/4 h-4 bg-muted rounded animate-pulse"></div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : recentTransactions.length > 0 ? (
+                    <div className="space-y-3">
+                      {recentTransactions.map((transaction: any) => (
+                        <div key={transaction.id} className="flex items-center justify-between p-3 border rounded-lg" data-testid={`transaction-${transaction.id}`}>
+                          <div>
+                            <p className="font-medium">{transaction.description}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {new Date(transaction.createdAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium">{transaction.tokenAmount} tokens</p>
+                            <p className="text-sm text-muted-foreground">${parseFloat(transaction.cashValue).toFixed(2)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <Activity className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground">No recent transactions</p>
+                    </div>
+                  )}
+                  <div className="mt-4 text-center">
+                    <Link href="/treasury">
+                      <Button variant="outline" size="sm" data-testid="button-view-all-transactions">
+                        View Full Treasury
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </div>
