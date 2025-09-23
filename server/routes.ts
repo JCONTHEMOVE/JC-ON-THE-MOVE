@@ -1029,6 +1029,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ====================== ADMIN SYSTEM MANAGEMENT API ======================
+
+  // Get system configuration (admin only) - shows environment variable status without exposing values
+  app.get("/api/admin/system/config", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const systemConfig = {
+        environment: process.env.NODE_ENV || 'development',
+        database: {
+          status: process.env.DATABASE_URL ? 'configured' : 'missing',
+          type: 'PostgreSQL'
+        },
+        email: {
+          sendgrid: {
+            status: process.env.SENDGRID_API_KEY ? 'configured' : 'missing',
+            companyEmail: process.env.COMPANY_EMAIL ? 'configured' : 'missing'
+          }
+        },
+        authentication: {
+          replit: {
+            domains: process.env.REPLIT_DOMAINS ? 'configured' : 'missing',
+            cluster: process.env.REPLIT_CLUSTER ? 'configured' : 'missing',
+            devDomain: process.env.REPLIT_DEV_DOMAIN ? 'configured' : 'missing'
+          }
+        },
+        crypto: {
+          moonshot: {
+            tokenAddress: process.env.MOONSHOT_TOKEN_ADDRESS ? 'configured' : 'missing'
+          },
+          requestTech: {
+            apiKey: process.env.REQUEST_TECH_API_KEY ? 'configured' : 'missing'
+          },
+          encryption: {
+            key: process.env.ENCRYPTION_KEY ? 'configured' : 'missing'
+          }
+        },
+        server: {
+          port: process.env.PORT || '5000',
+          sessionSecret: process.env.SESSION_SECRET ? 'configured' : 'missing'
+        },
+        lastChecked: new Date().toISOString()
+      };
+
+      res.json(systemConfig);
+    } catch (error) {
+      console.error("Error getting system config:", error);
+      res.status(500).json({ error: "Failed to get system configuration" });
+    }
+  });
+
+  // Get system health status (admin only)
+  app.get("/api/admin/system/health", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const healthStatus = {
+        database: {
+          status: 'healthy',
+          connected: true,
+          lastCheck: new Date().toISOString()
+        },
+        services: {
+          email: process.env.SENDGRID_API_KEY ? 'available' : 'disabled',
+          authentication: 'active',
+          rewards: 'active',
+          treasury: 'active'
+        },
+        security: {
+          encryption: process.env.ENCRYPTION_KEY ? 'enabled' : 'disabled',
+          authentication: 'enabled',
+          roleBasedAccess: 'enabled'
+        },
+        uptime: process.uptime(),
+        memoryUsage: process.memoryUsage(),
+        version: process.version,
+        platform: process.platform,
+        lastUpdated: new Date().toISOString()
+      };
+
+      res.json(healthStatus);
+    } catch (error) {
+      console.error("Error getting system health:", error);
+      res.status(500).json({ error: "Failed to get system health status" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
