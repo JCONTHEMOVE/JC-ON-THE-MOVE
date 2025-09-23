@@ -553,7 +553,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get token price and info
-  app.get("/api/rewards/token-info", async (req, res) => {
+  app.get("/api/rewards/token-info", isAuthenticated, async (req, res) => {
     try {
       const tokenData = await moonshotService.getTokenData();
       const price = await moonshotService.getTokenPrice();
