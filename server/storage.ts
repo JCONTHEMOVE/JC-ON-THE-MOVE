@@ -406,6 +406,172 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
+  // Admin-only referral management functions
+  async getAllReferralStats(): Promise<{ totalReferrals: number; totalRewardsPaid: number; topReferrers: any[]; recentActivity: any[] }> {
+    // Get total referral count across all users
+    const totalReferralsResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(isNotNull(users.referredByUserId));
+    
+    const totalReferrals = totalReferralsResult[0]?.count || 0;
+
+    // Get total rewards paid for referrals
+    const totalRewardsResult = await db
+      .select({ 
+        totalPaid: sql<string>`coalesce(sum(cast(${rewards.cashValue} as decimal)), 0)` 
+      })
+      .from(rewards)
+      .where(eq(rewards.rewardType, 'referral_bonus'));
+    
+    const totalRewardsPaid = parseFloat(totalRewardsResult[0]?.totalPaid || '0');
+
+    // Get top referrers (users with most successful referrals)
+    const topReferrers = await db
+      .select({
+        userId: users.id,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        referralCount: users.referralCount,
+        totalEarned: sql<string>`coalesce(sum(cast(${rewards.cashValue} as decimal)), 0)`
+      })
+      .from(users)
+      .leftJoin(rewards, and(
+        eq(rewards.userId, users.id),
+        eq(rewards.rewardType, 'referral_bonus')
+      ))
+      .where(gt(users.referralCount, 0))
+      .groupBy(users.id, users.email, users.firstName, users.lastName, users.referralCount)
+      .orderBy(desc(users.referralCount))
+      .limit(10);
+
+    // Get recent referral activity
+    const recentActivity = await db
+      .select({
+        referrerId: users.id,
+        referrerEmail: users.email,
+        referrerName: sql<string>`concat(${users.firstName}, ' ', ${users.lastName})`,
+        newUserId: referredUsers.id,
+        newUserEmail: referredUsers.email,
+        newUserName: sql<string>`concat(${referredUsers.firstName}, ' ', ${referredUsers.lastName})`,
+        createdAt: referredUsers.createdAt
+      })
+      .from(users)
+      .innerJoin(referredUsers, eq(referredUsers.referredByUserId, users.id))
+      .orderBy(desc(referredUsers.createdAt))
+      .limit(20);
+
+    return {
+      totalReferrals,
+      totalRewardsPaid,
+      topReferrers,
+      recentActivity
+    };
+  }
+
+  async getUserInvitationQuota(userId: string): Promise<{ dailyLimit: number; weeklyLimit: number; monthlyLimit: number; dailyUsed: number; weeklyUsed: number; monthlyUsed: number }> {
+    const user = await this.getUser(userId);
+    if (!user) throw new Error('User not found');
+
+    // Set limits based on user role
+    let dailyLimit = 3; // Default for employees
+    let weeklyLimit = 15;
+    let monthlyLimit = 50;
+
+    if (user.role === 'business_owner') {
+      dailyLimit = 20;
+      weeklyLimit = 100;
+      monthlyLimit = 300;
+    } else if (user.role === 'admin') {
+      dailyLimit = 50;
+      weeklyLimit = 200;
+      monthlyLimit = 500;
+    }
+
+    // Calculate usage for different time periods
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - today.getDay());
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // Count successful referrals in each period
+    const dailyUsedResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(and(
+        eq(users.referredByUserId, userId),
+        gte(users.createdAt, today)
+      ));
+    
+    const weeklyUsedResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(and(
+        eq(users.referredByUserId, userId),
+        gte(users.createdAt, weekStart)
+      ));
+    
+    const monthlyUsedResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(and(
+        eq(users.referredByUserId, userId),
+        gte(users.createdAt, monthStart)
+      ));
+
+    return {
+      dailyLimit,
+      weeklyLimit,
+      monthlyLimit,
+      dailyUsed: dailyUsedResult[0]?.count || 0,
+      weeklyUsed: weeklyUsedResult[0]?.count || 0,
+      monthlyUsed: monthlyUsedResult[0]?.count || 0
+    };
+  }
+
+  async canUserInvite(userId: string): Promise<{ canInvite: boolean; reason?: string; quotas?: any }> {
+    try {
+      const quotas = await this.getUserInvitationQuota(userId);
+      
+      // Check if user has exceeded any limits
+      if (quotas.dailyUsed >= quotas.dailyLimit) {
+        return {
+          canInvite: false,
+          reason: `Daily invitation limit reached (${quotas.dailyLimit})`,
+          quotas
+        };
+      }
+      
+      if (quotas.weeklyUsed >= quotas.weeklyLimit) {
+        return {
+          canInvite: false,
+          reason: `Weekly invitation limit reached (${quotas.weeklyLimit})`,
+          quotas
+        };
+      }
+      
+      if (quotas.monthlyUsed >= quotas.monthlyLimit) {
+        return {
+          canInvite: false,
+          reason: `Monthly invitation limit reached (${quotas.monthlyLimit})`,
+          quotas
+        };
+      }
+
+      return {
+        canInvite: true,
+        quotas
+      };
+    } catch (error) {
+      return {
+        canInvite: false,
+        reason: 'Error checking invitation permissions'
+      };
+    }
+  }
+
   async processReferralBonus(referrerId: string, newUserId: string): Promise<{ success: boolean; error?: string }> {
     try {
       // Import here to avoid circular dependency
