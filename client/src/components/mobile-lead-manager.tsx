@@ -21,8 +21,10 @@ import {
   Building,
   Trash2,
   Navigation,
-  MessageSquare
+  MessageSquare,
+  Route
 } from "lucide-react";
+import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 
 interface SwipeCardProps {
   lead: Lead;
@@ -30,9 +32,11 @@ interface SwipeCardProps {
   onSwipeRight?: (leadId: string) => void;
   onTap?: (leadId: string) => void;
   showAcceptActions?: boolean;
+  userLocation?: { latitude: number; longitude: number } | null;
+  distance?: number | null;
 }
 
-function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions = false }: SwipeCardProps) {
+function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions = false, userLocation, distance }: SwipeCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [startX, setStartX] = useState(0);
@@ -181,6 +185,35 @@ function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions =
               </div>
             )}
 
+            {/* Distance Information */}
+            {distance !== null && distance !== undefined && distance > 0 && (
+              <div className="flex items-center gap-2 text-sm">
+                <Route className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">Distance:</span>
+                <span className="font-medium">{distance} miles away</span>
+                <span className="text-xs text-muted-foreground">
+                  (~{Math.round(distance * 2.5)} min drive)
+                </span>
+              </div>
+            )}
+            
+            {/* Location loading indicator */}
+            {userLocation && distance === null && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Route className="h-4 w-4 animate-pulse" />
+                <span>Calculating distance...</span>
+              </div>
+            )}
+            
+            {/* Location error indicator */}
+            {distance === -1 && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Route className="h-4 w-4" />
+                <span>Distance unavailable</span>
+              </div>
+            )}
+            
+
             {/* Contact Actions - Only show for accepted jobs */}
             {!showAcceptActions && (
               <div className="flex items-center gap-2 pt-2">
@@ -240,6 +273,14 @@ export default function MobileLeadManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"available" | "accepted">("available");
+  const [jobDistances, setJobDistances] = useState<Map<string, number>>(new Map());
+  
+  // Get user's current location
+  const { latitude, longitude, error: locationError } = useGeolocation({
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 300000, // 5 minutes
+  });
 
   const { data: availableJobs = [], isLoading: availableLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/available"],
@@ -248,6 +289,60 @@ export default function MobileLeadManager() {
   const { data: myJobs = [], isLoading: myJobsLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/my-jobs"],
   });
+
+  // Calculate distances when location and jobs are available
+  useEffect(() => {
+    if (!latitude || !longitude) return;
+    
+    const calculateJobDistances = async () => {
+      const allJobs = [...availableJobs, ...myJobs];
+      const jobsNeedingDistance = allJobs.filter(job => !jobDistances.has(job.id));
+      
+      if (jobsNeedingDistance.length === 0) return;
+      
+      const newDistances = new Map<string, number>();
+      
+      // Batch process with delay to avoid rate limiting
+      for (let i = 0; i < jobsNeedingDistance.length; i++) {
+        const job = jobsNeedingDistance[i];
+        
+        try {
+          // Add delay between requests to prevent rate limiting
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+          const coords = await geocodeAddress(job.fromAddress);
+          if (coords) {
+            const distance = calculateDistance(
+              latitude,
+              longitude,
+              coords.lat,
+              coords.lng
+            );
+            newDistances.set(job.id, distance);
+          } else {
+            // Mark as failed geocoding to prevent endless loading
+            newDistances.set(job.id, -1);
+          }
+        } catch (error) {
+          console.error(`Failed to calculate distance for job ${job.id}:`, error);
+          // Mark as failed geocoding to prevent endless loading  
+          newDistances.set(job.id, -1);
+        }
+      }
+      
+      if (newDistances.size > 0) {
+        setJobDistances(prev => {
+          const updated = new Map(prev);
+          newDistances.forEach((value, key) => updated.set(key, value));
+          return updated;
+        });
+      }
+    };
+    
+    calculateJobDistances();
+  }, [latitude, longitude, availableJobs, myJobs]); // Removed jobDistances from dependencies
 
   const acceptJobMutation = useMutation({
     mutationFn: async (jobId: string) => {
@@ -296,7 +391,21 @@ export default function MobileLeadManager() {
     
     const address = lead.fromAddress;
     const encodedAddress = encodeURIComponent(address);
-    window.open(`https://maps.google.com/?q=${encodedAddress}`, '_blank');
+    
+    // Try to use device's preferred navigation app
+    if (latitude && longitude) {
+      // Open with directions from current location
+      const navigationUrl = `https://www.google.com/maps/dir/${latitude},${longitude}/${encodedAddress}`;
+      window.open(navigationUrl, '_blank');
+    } else {
+      // Fallback to just the destination
+      window.open(`https://maps.google.com/?q=${encodedAddress}`, '_blank');
+    }
+    
+    toast({
+      title: "Opening navigation",
+      description: "Launching maps with directions to job location",
+    });
   };
 
   if (availableLoading || myJobsLoading) {
@@ -310,8 +419,23 @@ export default function MobileLeadManager() {
     );
   }
 
+  const userLocation = latitude && longitude ? { latitude, longitude } : null;
+
   return (
     <div className="flex flex-col h-screen bg-background">
+      {/* Location Error Banner */}
+      {locationError && !userLocation && (
+        <div className="bg-muted/50 border-l-4 border-orange-400 p-3 mx-4 mt-4">
+          <div className="flex items-center gap-2 text-sm">
+            <Route className="h-4 w-4 text-orange-600" />
+            <span className="font-medium">Location access needed</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Enable location permissions to see job distances and get directions
+          </p>
+        </div>
+      )}
+      
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto px-4 py-4 pb-20">
         {activeTab === "available" ? (
@@ -338,6 +462,8 @@ export default function MobileLeadManager() {
                 onSwipeLeft={handleSwipeLeft}
                 onTap={handleJobTap}
                 showAcceptActions={true}
+                userLocation={userLocation}
+                distance={jobDistances.get(job.id) || null}
               />
             ))}
           </div>
@@ -365,6 +491,8 @@ export default function MobileLeadManager() {
                     lead={job}
                     onTap={handleJobTap}
                     showAcceptActions={false}
+                    userLocation={userLocation}
+                    distance={jobDistances.get(job.id) || null}
                   />
                   {/* Navigation Button */}
                   <Button
