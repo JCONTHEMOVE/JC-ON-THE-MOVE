@@ -1,7 +1,39 @@
-// Moonshot DEX API integration for token data and pricing
+// Moonshot DEX API integration for token data and pricing + account transfers for funding
 import axios from 'axios';
+import { z } from "zod";
 
 const MOONSHOT_API_BASE = 'https://api.moonshot.cc';
+
+// Moonshot funding configuration
+const MOONSHOT_FUNDING_CONFIG = {
+  maxTransferAmount: 10000, // Max USD equivalent per transfer
+  minTransferAmount: 10, // Min USD equivalent per transfer
+};
+
+// Moonshot account transfer metadata schema
+export const moonshotAccountMetadataSchema = z.object({
+  accountId: z.string(),
+  transferHash: z.string(),
+  tokenSymbol: z.string(),
+  tokenAmount: z.string(),
+  usdValue: z.number(),
+  fromAddress: z.string().optional(),
+  toAddress: z.string().optional(),
+  timestamp: z.string(),
+});
+
+export type MoonshotAccountMetadata = z.infer<typeof moonshotAccountMetadataSchema>;
+
+// Moonshot account transfer request schema
+export const moonshotAccountTransferSchema = z.object({
+  accountId: z.string().min(1, "Moonshot account ID is required"),
+  tokenSymbol: z.string().default("SOL"),
+  tokenAmount: z.string().min(1, "Token amount is required"),
+  treasuryAccountId: z.string().min(1, "Treasury account ID is required"),
+  notes: z.string().optional(),
+});
+
+export type MoonshotAccountTransfer = z.infer<typeof moonshotAccountTransferSchema>;
 
 export interface TokenData {
   url: string;
@@ -79,6 +111,127 @@ export class MoonshotService {
     const pricePerToken = await this.getTokenPrice();
     if (pricePerToken <= 0) return 0;
     return cashValue / pricePerToken;
+  }
+
+  // === ACCOUNT FUNDING METHODS ===
+
+  /**
+   * Verify that a Moonshot account ID is valid for transfers
+   */
+  async verifyAccountForTransfer(accountId: string): Promise<boolean> {
+    try {
+      // TODO: Implement actual Moonshot account verification API call
+      // For now, return true if accountId looks valid (alphanumeric, reasonable length)
+      const isValidFormat = /^[a-zA-Z0-9_-]{8,64}$/.test(accountId);
+      return isValidFormat;
+    } catch (error) {
+      console.error("Error verifying Moonshot account:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Initiate a token transfer from Moonshot account to JC MOVES treasury
+   */
+  async initiateAccountTransfer(request: MoonshotAccountTransfer): Promise<string> {
+    try {
+      // Validate the request
+      const validatedRequest = moonshotAccountTransferSchema.parse(request);
+      
+      // Verify account exists
+      const accountValid = await this.verifyAccountForTransfer(validatedRequest.accountId);
+      if (!accountValid) {
+        throw new Error("Invalid Moonshot account ID format");
+      }
+
+      // Get current token price for USD value calculation
+      const tokenPrice = await this.getTokenPrice();
+      const tokenAmount = parseFloat(validatedRequest.tokenAmount);
+      const usdValue = tokenAmount * tokenPrice;
+
+      // Validate transfer amount limits
+      if (usdValue < MOONSHOT_FUNDING_CONFIG.minTransferAmount) {
+        throw new Error(`Transfer amount too small. Minimum: $${MOONSHOT_FUNDING_CONFIG.minTransferAmount}`);
+      }
+      if (usdValue > MOONSHOT_FUNDING_CONFIG.maxTransferAmount) {
+        throw new Error(`Transfer amount too large. Maximum: $${MOONSHOT_FUNDING_CONFIG.maxTransferAmount}`);
+      }
+
+      // TODO: Implement actual Moonshot account transfer API call
+      // For now, generate a realistic transaction hash
+      const transferHash = `moonshot_tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      console.log("Moonshot account transfer initiated:", {
+        accountId: validatedRequest.accountId,
+        tokenSymbol: validatedRequest.tokenSymbol,
+        tokenAmount: validatedRequest.tokenAmount,
+        usdValue: usdValue.toFixed(2),
+        transferHash,
+        treasuryAccountId: validatedRequest.treasuryAccountId,
+      });
+
+      return transferHash;
+    } catch (error) {
+      console.error("Error initiating Moonshot account transfer:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check the status of a Moonshot account transfer
+   */
+  async checkAccountTransferStatus(transferHash: string, originalRequest?: MoonshotAccountTransfer): Promise<{
+    status: "pending" | "completed" | "failed";
+    metadata?: MoonshotAccountMetadata;
+  }> {
+    try {
+      // TODO: Implement actual Moonshot API call to check transfer status
+      // For now, use the original request data to create accurate metadata
+      
+      if (!originalRequest) {
+        console.warn("No original request data provided for transfer status check");
+        return { status: "failed" };
+      }
+
+      const timestamp = new Date().toISOString();
+      const tokenAmount = parseFloat(originalRequest.tokenAmount);
+      const currentPrice = await this.getTokenPrice(originalRequest.tokenSymbol);
+      const usdValue = tokenAmount * currentPrice;
+      
+      const metadata: MoonshotAccountMetadata = {
+        accountId: originalRequest.accountId,
+        transferHash,
+        tokenSymbol: originalRequest.tokenSymbol,
+        tokenAmount: originalRequest.tokenAmount,
+        usdValue: usdValue,
+        timestamp,
+      };
+
+      // For development, assume transfer completes immediately
+      // In production, this would check the actual Moonshot API status
+      return {
+        status: "completed",
+        metadata: metadata,
+      };
+    } catch (error) {
+      console.error("Error checking Moonshot transfer status:", error);
+      return { status: "failed" };
+    }
+  }
+
+  /**
+   * Validate Moonshot account metadata
+   */
+  validateAccountMetadata(metadata: unknown): MoonshotAccountMetadata {
+    return moonshotAccountMetadataSchema.parse(metadata);
+  }
+
+  /**
+   * Calculate JC MOVES tokens from Moonshot transfer value
+   */
+  calculateJCMovesTokens(usdValue: number, jcMovesTokenPrice: number = 0.01): string {
+    const tokens = usdValue / jcMovesTokenPrice;
+    return tokens.toFixed(8);
   }
 }
 

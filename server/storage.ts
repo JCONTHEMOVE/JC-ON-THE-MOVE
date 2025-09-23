@@ -39,6 +39,7 @@ export interface IStorage {
   getMainTreasuryAccount(): Promise<TreasuryAccount>;
   createFundingDeposit(deposit: InsertFundingDeposit): Promise<FundingDeposit>;
   getFundingDeposits(treasuryAccountId?: string): Promise<FundingDeposit[]>;
+  updateFundingDeposit(id: string, data: { externalTransactionId?: string; moonshotMetadata?: any }): Promise<FundingDeposit | undefined>;
   createReserveTransaction(transaction: InsertReserveTransaction): Promise<ReserveTransaction>;
   getReserveTransactions(treasuryAccountId?: string, limit?: number): Promise<ReserveTransaction[]>;
   checkFundingAvailability(tokenAmount: number, tokenPrice?: number): Promise<{ available: boolean; currentBalance: number; requiredValue: number }>;
@@ -565,6 +566,15 @@ export class DatabaseStorage implements IStorage {
       .values(deposit)
       .returning();
     return newDeposit;
+  }
+
+  async updateFundingDeposit(id: string, data: { externalTransactionId?: string; moonshotMetadata?: any }): Promise<FundingDeposit | undefined> {
+    const [result] = await db
+      .update(fundingDeposits)
+      .set(data)
+      .where(eq(fundingDeposits.id, id))
+      .returning();
+    return result || undefined;
   }
 
   async getFundingDeposits(treasuryAccountId?: string): Promise<FundingDeposit[]> {

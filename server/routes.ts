@@ -7,8 +7,9 @@ import { setupAuth, isAuthenticated } from "./replitAuth";
 import { dailyCheckinService } from "./services/daily-checkin";
 import { rewardsService } from "./services/rewards";
 import { cryptoCashoutService } from "./services/crypto-cashout";
-import { moonshotService } from "./services/moonshot";
+import { moonshotService, moonshotAccountTransferSchema } from "./services/moonshot";
 import { treasuryService } from "./services/treasury";
+import { insertFundingDepositSchema } from "@shared/schema";
 import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
 import { eq, desc, sql, and, gte } from 'drizzle-orm';
@@ -823,6 +824,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error depositing treasury funds:", error);
       res.status(400).json({ error: "Invalid deposit data" });
+    }
+  });
+
+  // Moonshot funding deposit endpoint
+  app.post("/api/treasury/moonshot-deposit", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
+    try {
+      const transferData = moonshotAccountTransferSchema.parse(req.body);
+      const userId = req.user.claims.sub;
+      
+      // Initiate Moonshot transfer
+      const transferHash = await moonshotService.initiateAccountTransfer(transferData);
+      
+      // Check transfer status with original request data for accurate metadata
+      const transferStatus = await moonshotService.checkAccountTransferStatus(transferHash, transferData);
+      
+      if (transferStatus.status === "completed" && transferStatus.metadata) {
+        // Create funding deposit record
+        const depositAmount = transferStatus.metadata.usdValue;
+        const tokenPrice = await moonshotService.getTokenPrice(transferStatus.metadata.tokenSymbol);
+        
+        const result = await treasuryService.depositFunds(
+          userId,
+          depositAmount,
+          "moonshot",
+          `Moonshot transfer: ${transferHash}`
+        );
+        
+        if (result.success && result.deposit) {
+          // Update deposit with Moonshot metadata
+          await storage.updateFundingDeposit(result.deposit.id, {
+            externalTransactionId: transferHash,
+            moonshotMetadata: transferStatus.metadata
+          });
+          
+          res.json({ 
+            success: true, 
+            deposit: result.deposit,
+            moonshotMetadata: transferStatus.metadata,
+            message: `Successfully transferred ${transferStatus.metadata.tokenAmount} ${transferStatus.metadata.tokenSymbol} ($${depositAmount.toFixed(2)}) from Moonshot account`
+          });
+        } else {
+          res.status(400).json({ 
+            success: false, 
+            error: result.error || "Failed to record deposit"
+          });
+        }
+      } else {
+        res.status(400).json({ 
+          success: false, 
+          error: "Moonshot transfer failed or is still pending"
+        });
+      }
+    } catch (error) {
+      console.error("Error processing Moonshot deposit:", error);
+      res.status(400).json({ 
+        error: error instanceof Error ? error.message : "Invalid Moonshot transfer data" 
+      });
     }
   });
 

@@ -150,8 +150,10 @@ export const fundingDeposits = pgTable("funding_deposits", {
   depositAmount: decimal("deposit_amount", { precision: 10, scale: 2 }).notNull(), // USD amount deposited
   tokensPurchased: decimal("tokens_purchased", { precision: 18, scale: 8 }).notNull(), // Tokens acquired with deposit
   tokenPrice: decimal("token_price", { precision: 10, scale: 8 }).notNull(), // Price per token at time of deposit
-  depositMethod: text("deposit_method").notNull().default("manual"), // 'manual', 'stripe', 'bank_transfer'
+  depositMethod: text("deposit_method").notNull().default("manual"), // 'manual', 'stripe', 'bank_transfer', 'moonshot'
   status: text("status").notNull().default("completed"), // 'pending', 'completed', 'failed'
+  externalTransactionId: text("external_transaction_id"), // Stripe payment intent ID, Moonshot transaction hash, etc.
+  moonshotMetadata: jsonb("moonshot_metadata"), // Moonshot-specific data: accountId, transferHash, tokenSymbol, etc.
   notes: text("notes"), // Optional notes about the deposit
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
