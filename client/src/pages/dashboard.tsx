@@ -727,14 +727,15 @@ function BusinessOwnerDashboard() {
                               >
                                 <SelectTrigger className="w-40">
                                   <SelectValue>
-                                    <Badge variant={employee.role === 'business_owner' ? 'default' : 'secondary'}>
-                                      {employee.role === 'business_owner' ? 'Owner' : 'Employee'}
+                                    <Badge variant={(employee.role === 'business_owner' || employee.role === 'admin') ? 'default' : 'secondary'}>
+                                      {employee.role === 'business_owner' ? 'Owner' : employee.role === 'admin' ? 'Admin' : 'Employee'}
                                     </Badge>
                                   </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="employee">Employee</SelectItem>
                                   <SelectItem value="business_owner">Business Owner</SelectItem>
+                                  <SelectItem value="admin">Administrator</SelectItem>
                                 </SelectContent>
                               </Select>
                             </td>
@@ -885,7 +886,7 @@ function getServiceBadgeColor(serviceType: string) {
 
 // Main Dashboard Component
 export default function Dashboard() {
-  const { isBusinessOwner, isEmployee, isLoading } = useAuth();
+  const { hasAdminAccess, isEmployee, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -898,7 +899,7 @@ export default function Dashboard() {
     );
   }
 
-  if (isBusinessOwner) {
+  if (hasAdminAccess) {
     return <BusinessOwnerDashboard />;
   }
 
