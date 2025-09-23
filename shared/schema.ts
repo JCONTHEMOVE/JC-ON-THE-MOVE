@@ -69,8 +69,22 @@ export const users = pgTable("users", {
   referralCode: varchar("referral_code").unique(), // Unique code for users to share
   referredByUserId: varchar("referred_by_user_id"), // Who referred this user - foreign key defined separately
   referralCount: integer("referral_count").default(0), // Number of successful referrals made
+  pushSubscription: jsonb("push_subscription"), // Store push notification subscription data
+  notificationsEnabled: boolean("notifications_enabled").default(true), // User preference for notifications
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Notifications table for real-time updates
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  type: text("type").notNull(), // 'job_assigned', 'job_status_change', 'new_message', 'system_alert'
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  data: jsonb("data"), // Additional data like job ID, status info
+  read: boolean("read").default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
 
 // Rewards system tables
@@ -212,6 +226,20 @@ export type InsertLead = z.infer<typeof insertLeadSchema>;
 export type Lead = typeof leads.$inferSelect;
 export type InsertContact = z.infer<typeof insertContactSchema>;
 export type Contact = typeof contacts.$inferSelect;
+
+// Notification schemas
+export const insertNotificationSchema = createInsertSchema(notifications);
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type Notification = typeof notifications.$inferSelect;
+
+// Push subscription schema
+export const pushSubscriptionSchema = z.object({
+  endpoint: z.string(),
+  keys: z.object({
+    p256dh: z.string(),
+    auth: z.string(),
+  }),
+});
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type UpsertUser = typeof users.$inferInsert;

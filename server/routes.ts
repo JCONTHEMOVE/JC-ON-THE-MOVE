@@ -325,6 +325,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Lead not found" });
       }
 
+      // Send notifications for important status changes
+      try {
+        const { notificationService } = await import("./services/notification");
+        
+        // Notify when job becomes available for assignment
+        if (status === 'available') {
+          await notificationService.notifyAllEmployees(
+            'New Job Available',
+            `${updatedLead.serviceType} job available for ${updatedLead.firstName} ${updatedLead.lastName}`,
+            { jobId: updatedLead.id, type: 'job_available' }
+          );
+        }
+        
+        // Notify assigned employee about status changes
+        if (updatedLead.assignedToUserId && ['confirmed', 'in_progress', 'completed'].includes(status)) {
+          await notificationService.notifyJobStatusChange(
+            updatedLead.assignedToUserId,
+            updatedLead.id,
+            status,
+            `${updatedLead.firstName} ${updatedLead.lastName}`
+          );
+        }
+      } catch (notificationError) {
+        console.error("Error sending status change notification:", notificationError);
+        // Don't fail the request if notification fails
+      }
+
       res.json(updatedLead);
     } catch (error) {
       console.error("Error updating lead status:", error);
@@ -442,6 +469,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ error: "Job already assigned to another employee" });
       }
 
+      // Send notification to employee confirming job assignment
+      try {
+        const { notificationService } = await import("./services/notification");
+        await notificationService.notifyJobAssigned(
+          employeeId,
+          updatedLead.id,
+          `${updatedLead.firstName} ${updatedLead.lastName}`
+        );
+      } catch (notificationError) {
+        console.error("Error sending job assignment notification:", notificationError);
+        // Don't fail the request if notification fails
+      }
+
       res.json(updatedLead);
     } catch (error) {
       console.error("Error accepting job:", error);
@@ -481,6 +521,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid photo data" });
       }
       res.status(500).json({ error: "Failed to add photo" });
+    }
+  });
+
+  // Notification routes
+  app.get("/api/notifications", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.currentUser.id;
+      const limit = parseInt(req.query.limit as string) || 50;
+      
+      const notifications = await storage.getUserNotifications(userId, limit);
+      res.json({ notifications });
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.currentUser.id;
+      const count = await storage.getUnreadNotificationCount(userId);
+      res.json({ count });
+    } catch (error) {
+      console.error("Error fetching unread count:", error);
+      res.status(500).json({ error: "Failed to fetch unread count" });
+    }
+  });
+
+  app.patch("/api/notifications/:id/read", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const notification = await storage.markNotificationAsRead(id);
+      
+      if (!notification) {
+        return res.status(404).json({ error: "Notification not found" });
+      }
+      
+      res.json({ success: true, notification });
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+      res.status(500).json({ error: "Failed to mark notification as read" });
+    }
+  });
+
+  app.patch("/api/notifications/mark-all-read", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.currentUser.id;
+      await storage.markAllNotificationsAsRead(userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error);
+      res.status(500).json({ error: "Failed to mark all notifications as read" });
+    }
+  });
+
+  app.post("/api/notifications/subscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.currentUser.id;
+      const { pushSubscriptionSchema } = await import("@shared/schema");
+      const subscription = pushSubscriptionSchema.parse(req.body);
+      
+      const user = await storage.updateUserPushSubscription(userId, subscription);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      res.json({ success: true, message: "Push notifications enabled" });
+    } catch (error) {
+      console.error("Error subscribing to push notifications:", error);
+      res.status(500).json({ error: "Failed to subscribe to push notifications" });
     }
   });
 

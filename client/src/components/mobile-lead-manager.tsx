@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 import { PhotoCapture } from "@/components/photo-capture";
+import { NotificationBell } from "@/components/notification-bell";
+import { NotificationList } from "@/components/notification-list";
 import { JobPhoto } from "@shared/schema";
 
 interface SwipeCardProps {
@@ -279,6 +281,7 @@ export default function MobileLeadManager() {
   const [jobDistances, setJobDistances] = useState<Map<string, number>>(new Map());
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
   const [selectedJobForPhotos, setSelectedJobForPhotos] = useState<Lead | null>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
   
   // Get user's current location
   const { latitude, longitude, error: locationError } = useGeolocation({
@@ -445,6 +448,19 @@ export default function MobileLeadManager() {
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      {/* Header */}
+      <div className="bg-primary text-primary-foreground p-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex-1 text-center">
+            <h1 className="text-xl font-bold">JC ON THE MOVE</h1>
+            <p className="text-sm opacity-90 mt-1">Mobile Job Manager</p>
+          </div>
+          <div className="ml-4">
+            <NotificationBell onClick={() => setShowNotifications(true)} />
+          </div>
+        </div>
+      </div>
+
       {/* Location Error Banner */}
       {locationError && !userLocation && (
         <div className="bg-muted/50 border-l-4 border-orange-400 p-3 mx-4 mt-4">
@@ -595,6 +611,12 @@ export default function MobileLeadManager() {
           onPhotoAdded={handlePhotoAdded}
         />
       )}
+
+      {/* Notification List */}
+      <NotificationList 
+        open={showNotifications} 
+        onOpenChange={setShowNotifications} 
+      />
     </div>
   );
 }
