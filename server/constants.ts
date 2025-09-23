@@ -40,3 +40,26 @@ export const REWARD_TYPES = {
   JOB_COMPLETION: 'job_completion',
   REFERRAL_BONUS: 'referral_bonus',
 } as const;
+
+export const FAUCETPAY_CONFIG = {
+  // Default faucet settings
+  DEFAULT_CURRENCIES: ['BTC', 'ETH', 'LTC', 'DOGE'],
+  DEFAULT_CLAIM_INTERVAL: 3600, // 1 hour in seconds
+  
+  // Reward amounts in smallest units (satoshis, gwei, etc.)
+  DEFAULT_REWARDS: {
+    BTC: 50, // 50 satoshis (~$0.025 at $50k BTC)
+    ETH: 1000, // 1000 gwei (~$0.003 at $3k ETH)
+    LTC: 10000, // 10000 litoshi (~$0.001 at $100 LTC)
+    DOGE: 1000000, // 1M koinu (~$0.10 at $0.10 DOGE)
+  },
+  
+  // Anti-abuse settings
+  MAX_CLAIMS_PER_IP_PER_HOUR: 5,
+  MAX_CLAIMS_PER_USER_PER_DAY: 24, // One per hour max
+  RISK_SCORE_THRESHOLD: 75, // Block claims above this risk score
+  
+  // Revenue tracking
+  ESTIMATED_AD_REVENUE_PER_CLAIM: 0.001, // $0.001 estimated revenue per claim
+  REVENUE_SHARE_PERCENTAGE: 0.30, // 30% of ad revenue goes to users
+};

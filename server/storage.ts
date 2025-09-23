@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, leads, contacts, users, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, leads, contacts, users, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, faucetConfig, faucetClaims, faucetWallets, faucetRevenue } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, isNull, and } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
@@ -46,6 +46,20 @@ export interface IStorage {
   deductFromReserve(tokenAmount: number, description: string, tokenPrice: number, relatedEntityType?: string, relatedEntityId?: string): Promise<ReserveTransaction>;
   addToReserve(tokenAmount: number, cashValue: number, description: string): Promise<ReserveTransaction>;
   atomicDepositFunds(depositedBy: string, usdAmount: number, depositMethod?: string, notes?: string): Promise<FundingDeposit>;
+  
+  // Faucet operations
+  getFaucetConfig(currency?: string): Promise<FaucetConfig[]>;
+  createFaucetConfig(config: InsertFaucetConfig): Promise<FaucetConfig>;
+  updateFaucetConfig(currency: string, updates: Partial<InsertFaucetConfig>): Promise<FaucetConfig | undefined>;
+  getFaucetWallet(userId: string, currency: string): Promise<FaucetWallet | undefined>;
+  createFaucetWallet(wallet: InsertFaucetWallet): Promise<FaucetWallet>;
+  updateFaucetWallet(userId: string, currency: string, updates: Partial<FaucetWallet>): Promise<FaucetWallet | undefined>;
+  canUserClaim(userId: string, currency: string): Promise<{ canClaim: boolean; nextClaimTime?: Date; secondsRemaining?: number }>;
+  createFaucetClaim(claim: InsertFaucetClaim): Promise<FaucetClaim>;
+  updateFaucetClaim(claimId: string, updates: Partial<FaucetClaim>): Promise<FaucetClaim | undefined>;
+  getFaucetClaims(userId?: string, currency?: string, limit?: number): Promise<FaucetClaim[]>;
+  getFaucetRevenue(date?: string, currency?: string): Promise<FaucetRevenue[]>;
+  updateFaucetRevenue(date: string, currency: string, updates: Partial<FaucetRevenue>): Promise<FaucetRevenue>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -846,6 +860,151 @@ export class DatabaseStorage implements IStorage {
 
       return deposit;
     });
+  }
+
+  // Faucet operations implementation
+  async getFaucetConfig(currency?: string): Promise<FaucetConfig[]> {
+    if (currency) {
+      const [config] = await db.select().from(faucetConfig).where(eq(faucetConfig.currency, currency));
+      return config ? [config] : [];
+    }
+    return await db.select().from(faucetConfig).orderBy(faucetConfig.currency);
+  }
+
+  async createFaucetConfig(config: InsertFaucetConfig): Promise<FaucetConfig> {
+    const [newConfig] = await db.insert(faucetConfig).values(config).returning();
+    return newConfig;
+  }
+
+  async updateFaucetConfig(currency: string, updates: Partial<InsertFaucetConfig>): Promise<FaucetConfig | undefined> {
+    const [updated] = await db
+      .update(faucetConfig)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(faucetConfig.currency, currency))
+      .returning();
+    return updated;
+  }
+
+  async getFaucetWallet(userId: string, currency: string): Promise<FaucetWallet | undefined> {
+    const [wallet] = await db
+      .select()
+      .from(faucetWallets)
+      .where(and(eq(faucetWallets.userId, userId), eq(faucetWallets.currency, currency)));
+    return wallet;
+  }
+
+  async createFaucetWallet(wallet: InsertFaucetWallet): Promise<FaucetWallet> {
+    const [newWallet] = await db.insert(faucetWallets).values(wallet).returning();
+    return newWallet;
+  }
+
+  async updateFaucetWallet(userId: string, currency: string, updates: Partial<FaucetWallet>): Promise<FaucetWallet | undefined> {
+    const [updated] = await db
+      .update(faucetWallets)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(faucetWallets.userId, userId), eq(faucetWallets.currency, currency)))
+      .returning();
+    return updated;
+  }
+
+  async canUserClaim(userId: string, currency: string): Promise<{ canClaim: boolean; nextClaimTime?: Date; secondsRemaining?: number }> {
+    const [config] = await this.getFaucetConfig(currency);
+    if (!config || !config.isEnabled) {
+      return { canClaim: false };
+    }
+
+    const wallet = await this.getFaucetWallet(userId, currency);
+    if (!wallet || !wallet.lastClaimTime) {
+      return { canClaim: true };
+    }
+
+    const claimInterval = config.claimInterval; // seconds
+    const lastClaimTime = new Date(wallet.lastClaimTime);
+    const nextClaimTime = new Date(lastClaimTime.getTime() + claimInterval * 1000);
+    const now = new Date();
+
+    if (now >= nextClaimTime) {
+      return { canClaim: true };
+    }
+
+    const secondsRemaining = Math.ceil((nextClaimTime.getTime() - now.getTime()) / 1000);
+    return { canClaim: false, nextClaimTime, secondsRemaining };
+  }
+
+  async createFaucetClaim(claim: InsertFaucetClaim): Promise<FaucetClaim> {
+    const [newClaim] = await db.insert(faucetClaims).values(claim).returning();
+    return newClaim;
+  }
+
+  async updateFaucetClaim(claimId: string, updates: Partial<FaucetClaim>): Promise<FaucetClaim | undefined> {
+    const [updated] = await db
+      .update(faucetClaims)
+      .set(updates)
+      .where(eq(faucetClaims.id, claimId))
+      .returning();
+    return updated;
+  }
+
+  async getFaucetClaims(userId?: string, currency?: string, limit: number = 50): Promise<FaucetClaim[]> {
+    const conditions = [];
+    if (userId) conditions.push(eq(faucetClaims.userId, userId));
+    if (currency) conditions.push(eq(faucetClaims.currency, currency));
+    
+    if (conditions.length > 0) {
+      return await db
+        .select()
+        .from(faucetClaims)
+        .where(and(...conditions))
+        .orderBy(desc(faucetClaims.claimTime))
+        .limit(limit);
+    }
+    
+    return await db
+      .select()
+      .from(faucetClaims)
+      .orderBy(desc(faucetClaims.claimTime))
+      .limit(limit);
+  }
+
+  async getFaucetRevenue(date?: string, currency?: string): Promise<FaucetRevenue[]> {
+    const conditions = [];
+    if (date) conditions.push(eq(faucetRevenue.date, date));
+    if (currency) conditions.push(eq(faucetRevenue.currency, currency));
+    
+    if (conditions.length > 0) {
+      return await db
+        .select()
+        .from(faucetRevenue)
+        .where(and(...conditions))
+        .orderBy(desc(faucetRevenue.date));
+    }
+    
+    return await db
+      .select()
+      .from(faucetRevenue)
+      .orderBy(desc(faucetRevenue.date));
+  }
+
+  async updateFaucetRevenue(date: string, currency: string, updates: Partial<FaucetRevenue>): Promise<FaucetRevenue> {
+    const [existing] = await db
+      .select()
+      .from(faucetRevenue)
+      .where(and(eq(faucetRevenue.date, date), eq(faucetRevenue.currency, currency)));
+
+    if (existing) {
+      const [updated] = await db
+        .update(faucetRevenue)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(and(eq(faucetRevenue.date, date), eq(faucetRevenue.currency, currency)))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db
+        .insert(faucetRevenue)
+        .values({ date, currency, ...updates })
+        .returning();
+      return created;
+    }
   }
 }
 

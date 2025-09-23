@@ -9,12 +9,14 @@ import { rewardsService } from "./services/rewards";
 import { cryptoCashoutService } from "./services/crypto-cashout";
 import { moonshotService, moonshotAccountTransferSchema } from "./services/moonshot";
 import { treasuryService } from "./services/treasury";
-import { insertFundingDepositSchema } from "@shared/schema";
+import { insertFundingDepositSchema, insertFaucetConfigSchema, insertFaucetWalletSchema } from "@shared/schema";
 import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
 import { eq, desc, sql, and, gte } from 'drizzle-orm';
 import { db } from './db';
 import { rewards, walletAccounts, dailyCheckins, cashoutRequests, fundingDeposits, reserveTransactions } from '@shared/schema';
+import { getFaucetPayService } from "./services/faucetpay";
+import { FAUCETPAY_CONFIG } from "./constants";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -1167,6 +1169,255 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting system health:", error);
       res.status(500).json({ error: "Failed to get system health status" });
+    }
+  });
+
+  // ====================== FAUCET API ROUTES ======================
+
+  // Faucet validation schemas
+  const faucetClaimSchema = z.object({
+    currency: z.enum(['BTC', 'ETH', 'LTC', 'DOGE']),
+    faucetpayAddress: z.string().min(10).max(100),
+    deviceFingerprint: z.string().optional(),
+  });
+
+  // Get available faucet currencies and configurations
+  app.get("/api/faucet/config", async (req, res) => {
+    try {
+      const configs = await storage.getFaucetConfig();
+      const enabledConfigs = configs.filter(config => config.isEnabled);
+      
+      res.json({
+        currencies: enabledConfigs,
+        defaultInterval: FAUCETPAY_CONFIG.DEFAULT_CLAIM_INTERVAL,
+        isConfigured: !!process.env.FAUCETPAY_API_KEY
+      });
+    } catch (error) {
+      console.error("Error getting faucet config:", error);
+      res.status(500).json({ error: "Failed to get faucet configuration" });
+    }
+  });
+
+  // Check if user can claim for a specific currency
+  app.get("/api/faucet/claim-status/:currency", isAuthenticated, async (req, res) => {
+    try {
+      const { currency } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const claimStatus = await storage.canUserClaim(userId, currency);
+      const wallet = await storage.getFaucetWallet(userId, currency);
+      
+      res.json({
+        ...claimStatus,
+        totalEarned: wallet?.totalEarned || "0",
+        totalClaims: wallet?.totalClaims || 0,
+        lastClaimTime: wallet?.lastClaimTime
+      });
+    } catch (error) {
+      console.error("Error checking claim status:", error);
+      res.status(500).json({ error: "Failed to check claim status" });
+    }
+  });
+
+  // Process faucet claim
+  app.post("/api/faucet/claim", isAuthenticated, async (req, res) => {
+    try {
+      const { currency, faucetpayAddress, deviceFingerprint } = faucetClaimSchema.parse(req.body);
+      const userId = req.user?.id;
+      const userEmail = req.user?.email;
+
+      if (!userId || !req.user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      // Check if FaucetPay is configured
+      const faucetPayService = getFaucetPayService();
+      if (!faucetPayService) {
+        return res.status(503).json({ error: "Faucet service is not configured" });
+      }
+
+      // Check if user can claim
+      const claimStatus = await storage.canUserClaim(userId, currency);
+      if (!claimStatus.canClaim) {
+        return res.status(429).json({ 
+          error: "Claim not available yet",
+          nextClaimTime: claimStatus.nextClaimTime,
+          secondsRemaining: claimStatus.secondsRemaining
+        });
+      }
+
+      // Get faucet configuration
+      const [config] = await storage.getFaucetConfig(currency);
+      if (!config || !config.isEnabled) {
+        return res.status(400).json({ error: `Faucet not available for ${currency}` });
+      }
+
+      // Check FaucetPay balance
+      try {
+        const balance = await faucetPayService.getBalance(currency);
+        const balanceAmount = parseInt(balance.balance);
+        const rewardAmountNumber = parseFloat(config.rewardAmount);
+        if (balanceAmount < rewardAmountNumber) {
+          return res.status(503).json({ error: "Faucet temporarily out of funds" });
+        }
+      } catch (error) {
+        console.error("FaucetPay balance check failed:", error);
+        return res.status(503).json({ error: "Faucet service temporarily unavailable" });
+      }
+
+      // Calculate reward and cash value
+      const rewardAmount = parseFloat(config.rewardAmount);
+      const cashValue = rewardAmount * 0.001; // Estimate based on crypto prices
+
+      // Get user's IP address for anti-fraud
+      const ipAddress = req.ip || req.connection.remoteAddress || '';
+
+      let claim: any = null;
+      try {
+        // Create faucet claim record
+        claim = await storage.createFaucetClaim({
+          userId,
+          currency,
+          rewardAmount: config.rewardAmount,
+          cashValue: cashValue.toFixed(2),
+          ipAddress,
+          userAgent: req.get('User-Agent'),
+          deviceFingerprint
+        });
+
+        // Send payment via FaucetPay
+        const paymentResult = await faucetPayService.sendPayment({
+          amount: parseInt(config.rewardAmount),
+          to: faucetpayAddress,
+          currency,
+          ipAddress
+        });
+
+        // Update claim with payment details
+        await storage.updateFaucetClaim(claim.id, {
+          status: 'paid',
+          faucetpayPayoutId: paymentResult.payout_id.toString(),
+          faucetpayUserHash: paymentResult.payout_user_hash
+        });
+
+        // Create or update user's faucet wallet
+        const existingWallet = await storage.getFaucetWallet(userId, currency);
+        if (existingWallet) {
+          await storage.updateFaucetWallet(userId, currency, {
+            totalEarned: (parseFloat(existingWallet.totalEarned) + rewardAmount).toFixed(8),
+            totalClaims: (existingWallet.totalClaims || 0) + 1,
+            lastClaimTime: new Date(),
+            faucetpayAddress
+          });
+        } else {
+          await storage.createFaucetWallet({
+            userId,
+            currency,
+            faucetpayAddress,
+            lastClaimTime: new Date()
+          });
+        }
+
+        // Update daily revenue tracking
+        const today = new Date().toISOString().split('T')[0];
+        await storage.updateFaucetRevenue(today, currency, {
+          totalClaims: 1,
+          totalRewards: rewardAmount.toFixed(8),
+          totalRevenue: FAUCETPAY_CONFIG.ESTIMATED_AD_REVENUE_PER_CLAIM.toFixed(2),
+          uniqueUsers: 1,
+          adViews: 1
+        });
+
+        res.json({
+          success: true,
+          reward: {
+            amount: rewardAmount,
+            currency,
+            cashValue,
+            payoutId: paymentResult.payout_id
+          },
+          nextClaimTime: new Date(Date.now() + config.claimInterval * 1000),
+          remainingBalance: paymentResult.balance
+        });
+
+      } catch (paymentError: any) {
+        console.error("FaucetPay payment failed:", paymentError);
+        
+        // Update claim status to failed - only if claim was created
+        if (claim) {
+          await storage.updateFaucetClaim(claim.id, {
+            status: 'failed',
+            failureReason: paymentError.message
+          });
+        }
+
+        res.status(500).json({ 
+          error: "Payment failed", 
+          details: paymentError.message 
+        });
+      }
+
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          error: "Invalid request data", 
+          details: error.errors 
+        });
+      }
+      console.error("Error processing faucet claim:", error);
+      res.status(500).json({ error: "Failed to process claim" });
+    }
+  });
+
+  // Get user's faucet claim history
+  app.get("/api/faucet/claims", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      const currency = req.query.currency as string;
+      const limit = parseInt(req.query.limit as string) || 50;
+
+      if (!userId || !req.user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const claims = await storage.getFaucetClaims(userId, currency, limit);
+      res.json({ claims });
+    } catch (error) {
+      console.error("Error getting faucet claims:", error);
+      res.status(500).json({ error: "Failed to get claim history" });
+    }
+  });
+
+  // Admin: Get faucet revenue statistics (business owner only)
+  app.get("/api/faucet/admin/revenue", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const revenue = await storage.getFaucetRevenue();
+      res.json({ revenue });
+    } catch (error) {
+      console.error("Error getting faucet revenue:", error);
+      res.status(500).json({ error: "Failed to get revenue statistics" });
+    }
+  });
+
+  // Admin: Update faucet configuration (business owner only)
+  app.put("/api/faucet/admin/config/:currency", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { currency } = req.params;
+      const updates = req.body;
+
+      const updatedConfig = await storage.updateFaucetConfig(currency, updates);
+      if (!updatedConfig) {
+        return res.status(404).json({ error: "Currency configuration not found" });
+      }
+
+      res.json({ config: updatedConfig });
+    } catch (error) {
+      console.error("Error updating faucet config:", error);
+      res.status(500).json({ error: "Failed to update configuration" });
     }
   });
 
