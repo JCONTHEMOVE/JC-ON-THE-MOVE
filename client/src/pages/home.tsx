@@ -10,7 +10,7 @@ import movingTruck1 from "@assets/IMG_20220919_091701403_HDR_1758497194325.jpg";
 import movingTruck2 from "@assets/stock_images/professional_moving__3cea5ab5.jpg";
 import movers1 from "@assets/IMG_20250920_152516884.jpg";
 import movers2 from "@assets/IMG_20250827_103204519_HDR_1758496567144.jpg";
-import happyFamily1 from "@assets/stock_images/happy_family_in_new__7de85855.jpg";
+import customerReviews from "@assets/customer_reviews.jpg";
 import happyFamily2 from "@assets/stock_images/happy_family_in_new__32e2c8cf.jpg";
 
 export default function HomePage() {
@@ -206,14 +206,14 @@ export default function HomePage() {
             <Card className="overflow-hidden group hover:shadow-lg transition-shadow duration-300" data-testid="gallery-item-3">
               <div className="aspect-video overflow-hidden">
                 <img 
-                  src={happyFamily1} 
-                  alt="Happy family in new home" 
+                  src={customerReviews} 
+                  alt="5-star customer reviews showing excellent ratings and testimonials for JC ON THE MOVE moving services" 
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
               </div>
               <CardContent className="p-4">
-                <h3 className="font-semibold text-lg mb-2">Happy Customers</h3>
-                <p className="text-muted-foreground text-sm">We make moving day a positive experience for families across the region.</p>
+                <h3 className="font-semibold text-lg mb-2">5-Star Customer Reviews</h3>
+                <p className="text-muted-foreground text-sm">See what our satisfied customers are saying about our professional moving services.</p>
               </CardContent>
             </Card>
 
