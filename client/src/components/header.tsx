@@ -60,33 +60,27 @@ export default function Header() {
                     >
                       Faucet
                     </Link>
-                    {isBusinessOwner && (
-                      <Link
-                        href="/treasury"
-                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                        data-testid="button-treasury"
-                      >
-                        Treasury
-                      </Link>
-                    )}
-                    {isAdmin && (
-                      <>
-                        <Link
-                          href="/admin"
-                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                          data-testid="button-admin"
-                        >
-                          Admin
-                        </Link>
-                        <Link
-                          href="/admin-moonshot"
-                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                          data-testid="button-moonshot"
-                        >
-                          Moonshot Funding
-                        </Link>
-                      </>
-                    )}
+                    <Link
+                      href="/treasury"
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-treasury"
+                    >
+                      Treasury
+                    </Link>
+                    <Link
+                      href="/admin"
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-admin"
+                    >
+                      Admin
+                    </Link>
+                    <Link
+                      href="/admin-moonshot"
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-moonshot"
+                    >
+                      Moonshot Funding
+                    </Link>
                     <a
                       href="/#home"
                       className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"

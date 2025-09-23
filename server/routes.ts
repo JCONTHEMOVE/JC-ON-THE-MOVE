@@ -380,13 +380,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/employees/:id/role", isAuthenticated, requireBusinessOwner, async (req, res) => {
+  app.patch("/api/employees/:id/role", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
       const { role } = req.body;
       
-      if (!role || !["business_owner", "employee"].includes(role)) {
-        return res.status(400).json({ error: "Invalid role" });
+      if (!role || !["business_owner", "employee", "admin"].includes(role)) {
+        return res.status(400).json({ error: "Invalid role. Valid roles: business_owner, employee, admin" });
       }
 
       const updatedUser = await storage.updateUserRole(id, role);
@@ -1086,6 +1086,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.error("Error converting tokens to USD:", error);
       res.status(500).json({ error: "Failed to convert tokens to USD" });
+    }
+  });
+
+  // Bootstrap endpoint - promote current user to admin if no admins exist
+  app.post("/api/bootstrap/admin", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      // Check if there are any existing admins
+      const existingAdmins = await db.select().from(users).where(eq(users.role, 'admin'));
+      
+      if (existingAdmins.length > 0) {
+        return res.status(403).json({ error: "Admin users already exist. Bootstrap not needed." });
+      }
+      
+      // Promote current user to admin
+      const updatedUser = await storage.updateUserRole(userId, 'admin');
+      if (!updatedUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      res.json({ 
+        message: "Successfully promoted to admin", 
+        user: updatedUser 
+      });
+    } catch (error) {
+      console.error("Error bootstrapping admin:", error);
+      res.status(500).json({ error: "Failed to bootstrap admin" });
     }
   });
 
