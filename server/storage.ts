@@ -70,16 +70,16 @@ export class DatabaseStorage implements IStorage {
     
     const isNewUser = !existingUser;
 
-    // Update conflict target based on available data
-    const conflictTarget = userData.id ? users.id : users.email;
-    
+    // Always use email as conflict target for upserts since email is unique and always provided
     const [user] = await db
       .insert(users)
       .values(userData)
       .onConflictDoUpdate({
-        target: conflictTarget,
+        target: users.email,
         set: {
-          ...userData,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          profileImageUrl: userData.profileImageUrl,
           updatedAt: new Date(),
         },
       })

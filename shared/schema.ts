@@ -280,3 +280,111 @@ export type InsertFundingDeposit = z.infer<typeof insertFundingDepositSchema>;
 export type FundingDeposit = typeof fundingDeposits.$inferSelect;
 export type InsertReserveTransaction = z.infer<typeof insertReserveTransactionSchema>;
 export type ReserveTransaction = typeof reserveTransactions.$inferSelect;
+
+// Faucet system tables
+export const faucetConfig = pgTable("faucet_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  currency: text("currency").notNull(), // 'BTC', 'ETH', 'LTC', etc.
+  rewardAmount: decimal("reward_amount", { precision: 18, scale: 8 }).notNull(), // Amount in satoshis/wei
+  claimInterval: integer("claim_interval").notNull().default(3600), // Time between claims in seconds (default 1 hour)
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  dailyLimit: decimal("daily_limit", { precision: 18, scale: 8 }), // Maximum daily rewards per currency
+  minimumBalance: decimal("minimum_balance", { precision: 18, scale: 8 }), // Minimum FaucetPay balance required
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  unique("unique_currency_config").on(table.currency),
+]);
+
+export const faucetClaims = pgTable("faucet_claims", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  currency: text("currency").notNull(),
+  rewardAmount: decimal("reward_amount", { precision: 18, scale: 8 }).notNull(),
+  cashValue: decimal("cash_value", { precision: 10, scale: 2 }).notNull(),
+  claimTime: timestamp("claim_time").notNull().default(sql`now()`),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  deviceFingerprint: text("device_fingerprint"),
+  faucetpayPayoutId: text("faucetpay_payout_id"), // Reference to FaucetPay transaction
+  faucetpayUserHash: text("faucetpay_user_hash"), // FaucetPay user identifier
+  status: text("status").notNull().default("pending"), // 'pending', 'paid', 'failed'
+  failureReason: text("failure_reason"),
+  riskScore: integer("risk_score").default(0),
+  metadata: jsonb("metadata"), // Additional tracking data
+}, (table) => [
+  index("idx_faucet_claims_user_time").on(table.userId, table.claimTime),
+  index("idx_faucet_claims_currency").on(table.currency),
+  index("idx_faucet_claims_ip").on(table.ipAddress),
+]);
+
+export const faucetRevenue = pgTable("faucet_revenue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  date: date("date").notNull(),
+  currency: text("currency").notNull(),
+  totalClaims: integer("total_claims").default(0),
+  totalRewards: decimal("total_rewards", { precision: 18, scale: 8 }).default("0"),
+  totalRevenue: decimal("total_revenue", { precision: 10, scale: 2 }).default("0"), // Estimated ad revenue
+  uniqueUsers: integer("unique_users").default(0),
+  adViews: integer("ad_views").default(0),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  unique("unique_date_currency").on(table.date, table.currency),
+  index("idx_faucet_revenue_date").on(table.date),
+]);
+
+export const faucetWallets = pgTable("faucet_wallets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  currency: text("currency").notNull(),
+  faucetpayAddress: text("faucetpay_address"), // User's FaucetPay address for this currency
+  totalEarned: decimal("total_earned", { precision: 18, scale: 8 }).default("0"),
+  totalClaims: integer("total_claims").default(0),
+  lastClaimTime: timestamp("last_claim_time"),
+  isVerified: boolean("is_verified").default(false), // Whether address is verified with FaucetPay
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  unique("unique_user_currency").on(table.userId, table.currency),
+  index("idx_faucet_wallet_user").on(table.userId),
+]);
+
+// Faucet system schemas
+export const insertFaucetConfigSchema = createInsertSchema(faucetConfig).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertFaucetClaimSchema = createInsertSchema(faucetClaims).omit({
+  id: true,
+  claimTime: true,
+  status: true,
+  riskScore: true,
+});
+
+export const insertFaucetRevenueSchema = createInsertSchema(faucetRevenue).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertFaucetWalletSchema = createInsertSchema(faucetWallets).omit({
+  id: true,
+  totalEarned: true,
+  totalClaims: true,
+  isVerified: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// Faucet system types
+export type InsertFaucetConfig = z.infer<typeof insertFaucetConfigSchema>;
+export type FaucetConfig = typeof faucetConfig.$inferSelect;
+export type InsertFaucetClaim = z.infer<typeof insertFaucetClaimSchema>;
+export type FaucetClaim = typeof faucetClaims.$inferSelect;
+export type InsertFaucetRevenue = z.infer<typeof insertFaucetRevenueSchema>;
+export type FaucetRevenue = typeof faucetRevenue.$inferSelect;
+export type InsertFaucetWallet = z.infer<typeof insertFaucetWalletSchema>;
+export type FaucetWallet = typeof faucetWallets.$inferSelect;
