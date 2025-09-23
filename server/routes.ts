@@ -14,7 +14,7 @@ import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
 import { eq, desc, sql, and, gte } from 'drizzle-orm';
 import { db } from './db';
-import { rewards, walletAccounts, dailyCheckins, cashoutRequests, fundingDeposits, reserveTransactions } from '@shared/schema';
+import { rewards, walletAccounts, dailyCheckins, cashoutRequests, fundingDeposits, reserveTransactions, users } from '@shared/schema';
 import { getFaucetPayService } from "./services/faucetpay";
 import { FAUCETPAY_CONFIG } from "./constants";
 
@@ -141,7 +141,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Get funding deposits within period
     const fundingData = await db
       .select({
-        usdAmount: fundingDeposits.usdAmount,
+        amount: fundingDeposits.amount,
         createdAt: fundingDeposits.createdAt
       })
       .from(fundingDeposits)
@@ -1090,9 +1090,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bootstrap endpoint - promote current user to admin if no admins exist
-  app.post("/api/bootstrap/admin", isAuthenticated, async (req, res) => {
+  app.post("/api/bootstrap/admin", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(401).json({ error: "User ID not found" });
+      }
       
       // Check if there are any existing admins
       const existingAdmins = await db.select().from(users).where(eq(users.role, 'admin'));
@@ -1227,10 +1230,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Check if user can claim for a specific currency
-  app.get("/api/faucet/claim-status/:currency", isAuthenticated, async (req, res) => {
+  app.get("/api/faucet/claim-status/:currency", isAuthenticated, async (req: any, res) => {
     try {
       const { currency } = req.params;
-      const userId = req.user?.id;
+      const userId = req.user?.claims?.sub;
 
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
@@ -1252,11 +1255,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Process faucet claim
-  app.post("/api/faucet/claim", isAuthenticated, async (req, res) => {
+  app.post("/api/faucet/claim", isAuthenticated, async (req: any, res) => {
     try {
       const { currency, faucetpayAddress, deviceFingerprint } = faucetClaimSchema.parse(req.body);
-      const userId = req.user?.id;
-      const userEmail = req.user?.email;
+      const userId = req.user?.claims?.sub;
+      const userEmail = req.user?.claims?.email;
 
       if (!userId || !req.user) {
         return res.status(401).json({ error: "Authentication required" });
@@ -1334,7 +1337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Create or update user's faucet wallet
         const existingWallet = await storage.getFaucetWallet(userId, currency);
-        if (existingWallet) {
+        if (existingWallet && userId) {
           await storage.updateFaucetWallet(userId, currency, {
             totalEarned: (parseFloat(existingWallet.totalEarned) + rewardAmount).toFixed(8),
             totalClaims: (existingWallet.totalClaims || 0) + 1,
@@ -1402,9 +1405,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get user's faucet claim history
-  app.get("/api/faucet/claims", isAuthenticated, async (req, res) => {
+  app.get("/api/faucet/claims", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = req.user?.claims?.sub;
       const currency = req.query.currency as string;
       const limit = parseInt(req.query.limit as string) || 50;
 
