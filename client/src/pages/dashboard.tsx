@@ -11,11 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Users, ClipboardList, CheckCircle, DollarSign, Eye, Mail, Phone, UserCheck, Briefcase, Clock, UserPlus, Wallet, TrendingUp, AlertTriangle, Activity, PiggyBank } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
+import MobileLeadManager from "@/components/mobile-lead-manager";
 
 // Employee Dashboard Component
 function EmployeeDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
 
   const { data: availableJobs = [], isLoading: availableLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/available"],
@@ -72,6 +75,11 @@ function EmployeeDashboard() {
         </div>
       </div>
     );
+  }
+
+  // Return mobile interface for mobile devices
+  if (isMobile) {
+    return <MobileLeadManager />;
   }
 
   return (
