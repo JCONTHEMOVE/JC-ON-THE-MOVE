@@ -24,5 +24,6 @@ export function useAuth() {
     isAuthenticated: !!user,
     isBusinessOwner: user?.role === 'business_owner',
     isEmployee: user?.role === 'employee',
+    isAdmin: user?.role === 'admin',
   };
 }

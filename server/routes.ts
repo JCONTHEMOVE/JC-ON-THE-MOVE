@@ -268,6 +268,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
+  const requireAdmin = async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== 'admin') {
+        return res.status(403).json({ message: "Administrator access required" });
+      }
+      req.currentUser = user;
+      next();
+    } catch (error) {
+      res.status(500).json({ message: "Access control error" });
+    }
+  };
+
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
