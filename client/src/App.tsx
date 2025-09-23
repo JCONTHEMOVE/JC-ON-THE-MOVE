@@ -10,6 +10,7 @@ import HomePage from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
 import RewardsPage from "@/pages/rewards";
 import TreasuryDashboard from "@/pages/treasury-dashboard";
+import AdminDashboard from "@/pages/admin-dashboard";
 import NotFound from "@/pages/not-found";
 
 // Landing page for unauthenticated users
@@ -36,6 +37,7 @@ function AuthenticatedApp() {
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/rewards" component={RewardsPage} />
           <Route path="/treasury" component={TreasuryDashboard} />
+          <Route path="/admin" component={AdminDashboard} />
           <Route component={NotFound} />
         </Switch>
       </main>
