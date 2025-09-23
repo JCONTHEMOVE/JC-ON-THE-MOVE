@@ -219,9 +219,9 @@ function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions =
             )}
             
 
-            {/* Contact Actions - Only show for accepted jobs */}
-            {!showAcceptActions && (
-              <div className="flex items-center gap-2 pt-2">
+            {/* Contact Actions - Show for all jobs */}
+            <div className="flex items-center gap-2 pt-2">
+              {lead.phone && (
                 <Button 
                   variant="outline" 
                   size="sm" 
@@ -234,6 +234,8 @@ function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions =
                     Call
                   </a>
                 </Button>
+              )}
+              {lead.phone && (
                 <Button 
                   variant="outline" 
                   size="sm" 
@@ -241,11 +243,16 @@ function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions =
                   asChild
                   data-testid={`text-customer-${lead.id}`}
                 >
-                  <a href={`sms:${lead.phone}`} className="flex items-center justify-center gap-2">
+                  <a 
+                    href={`sms:${lead.phone}?body=${encodeURIComponent(generateSMSTemplate(lead))}`} 
+                    className="flex items-center justify-center gap-2"
+                  >
                     <MessageSquare className="h-4 w-4" />
                     Text
                   </a>
                 </Button>
+              )}
+              {lead.email && (
                 <Button 
                   variant="outline" 
                   size="sm" 
@@ -258,8 +265,8 @@ function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions =
                     Email
                   </a>
                 </Button>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Details Preview */}
             {lead.details && (
@@ -273,6 +280,32 @@ function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions =
     </div>
   );
 }
+
+// Helper function to safely format service type for professional messaging
+const formatServiceType = (serviceType?: string): string => {
+  if (!serviceType || serviceType.trim() === '') {
+    return 'service';
+  }
+  return serviceType.charAt(0).toUpperCase() + serviceType.slice(1);
+};
+
+// Helper function to safely format customer name for professional messaging
+const formatCustomerName = (firstName?: string, lastName?: string): string => {
+  if (firstName && firstName.trim()) {
+    return firstName.trim();
+  }
+  if (lastName && lastName.trim()) {
+    return lastName.trim();
+  }
+  return 'there';
+};
+
+// Helper function to generate professional SMS template
+const generateSMSTemplate = (lead: Lead): string => {
+  const customerName = formatCustomerName(lead.firstName, lead.lastName);
+  const serviceType = formatServiceType(lead.serviceType);
+  return `Hi ${customerName}, this is JC ON THE MOVE regarding your ${serviceType} request. Please let us know if you have any questions!`;
+};
 
 export default function MobileLeadManager() {
   const { toast } = useToast();
