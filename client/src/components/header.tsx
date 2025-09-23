@@ -63,13 +63,22 @@ export default function Header() {
                       </Link>
                     )}
                     {isAdmin && (
-                      <Link
-                        href="/admin"
-                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                        data-testid="button-admin"
-                      >
-                        Admin
-                      </Link>
+                      <>
+                        <Link
+                          href="/admin"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-admin"
+                        >
+                          Admin
+                        </Link>
+                        <Link
+                          href="/admin-moonshot"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-moonshot"
+                        >
+                          Moonshot Funding
+                        </Link>
+                      </>
                     )}
                     <a
                       href="/#home"
@@ -196,14 +205,24 @@ export default function Header() {
                     </Link>
                   )}
                   {isAdmin && (
-                    <Link
-                      href="/admin"
-                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                      data-testid="button-mobile-admin"
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      Admin
-                    </Link>
+                    <>
+                      <Link
+                        href="/admin"
+                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                        data-testid="button-mobile-admin"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Admin
+                      </Link>
+                      <Link
+                        href="/admin-moonshot"
+                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                        data-testid="button-mobile-moonshot"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Moonshot Funding
+                      </Link>
+                    </>
                   )}
                   <a
                     href="/#home"
