@@ -39,7 +39,7 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false, // Allow cookies over HTTP for Replit development
+      secure: process.env.NODE_ENV === 'production', // Use secure cookies in production with custom domains
       sameSite: 'lax', // CSRF protection
       maxAge: sessionTtl,
     },
@@ -135,6 +135,13 @@ export async function setupAuth(app: Express) {
   // Add localhost for development if not already present
   if (process.env.NODE_ENV === 'development' && !domains.includes('localhost:5000')) {
     domains.push('localhost:5000');
+  }
+  
+  // Add custom domain if not already included (for production)
+  if (!domains.includes('jconthemove.com') && !domains.includes('www.jconthemove.com')) {
+    domains.push('jconthemove.com');
+    domains.push('www.jconthemove.com');
+    console.log('Added custom domains: jconthemove.com, www.jconthemove.com');
   }
   
   for (const domain of domains) {
