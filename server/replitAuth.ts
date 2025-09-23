@@ -39,7 +39,7 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Conditional secure for dev/prod
+      secure: false, // Allow cookies over HTTP for Replit development
       sameSite: 'lax', // CSRF protection
       maxAge: sessionTtl,
     },
@@ -157,8 +157,8 @@ export async function setupAuth(app: Express) {
   app.get("/api/login", (req, res, next) => {
     // Handle localhost with port for development
     const hostname = req.hostname === 'localhost' ? 'localhost:5000' : req.hostname;
+    console.log(`Login attempt for hostname: ${hostname}, original: ${req.hostname}`);
     passport.authenticate(`replitauth:${hostname}`, {
-      prompt: "login consent",
       scope: ["openid", "email", "profile", "offline_access"],
     })(req, res, next);
   });
@@ -166,6 +166,7 @@ export async function setupAuth(app: Express) {
   app.get("/api/callback", (req, res, next) => {
     // Handle localhost with port for development
     const hostname = req.hostname === 'localhost' ? 'localhost:5000' : req.hostname;
+    console.log(`Callback for hostname: ${hostname}, original: ${req.hostname}`);
     passport.authenticate(`replitauth:${hostname}`, {
       successReturnToOrRedirect: "/",
       failureRedirect: "/api/login",
