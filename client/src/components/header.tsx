@@ -53,6 +53,13 @@ export default function Header() {
                     >
                       Rewards
                     </Link>
+                    <Link
+                      href="/faucet"
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-faucet"
+                    >
+                      Faucet
+                    </Link>
                     {isBusinessOwner && (
                       <Link
                         href="/treasury"

@@ -9,6 +9,7 @@ import Footer from "@/components/footer";
 import HomePage from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
 import RewardsPage from "@/pages/rewards";
+import FaucetPage from "@/pages/faucet";
 import TreasuryDashboard from "@/pages/treasury-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
 import AdminMoonshotPage from "@/pages/admin-moonshot";
@@ -37,6 +38,7 @@ function AuthenticatedApp() {
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/rewards" component={RewardsPage} />
+          <Route path="/faucet" component={FaucetPage} />
           <Route path="/treasury" component={TreasuryDashboard} />
           <Route path="/admin" component={AdminDashboard} />
           <Route path="/admin-moonshot" component={AdminMoonshotPage} />
