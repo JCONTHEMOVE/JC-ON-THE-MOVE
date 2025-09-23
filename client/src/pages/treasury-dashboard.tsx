@@ -91,7 +91,7 @@ export default function TreasuryDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
-  const { isAuthenticated, isBusinessOwner, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, hasAdminAccess, isLoading: authLoading } = useAuth();
   const [depositAmount, setDepositAmount] = useState('');
   const [depositMethod, setDepositMethod] = useState('manual');
   const [depositNotes, setDepositNotes] = useState('');
@@ -115,7 +115,7 @@ export default function TreasuryDashboard() {
     }
   }, [authLoading, isAuthenticated, setLocation]);
 
-  if (!isBusinessOwner) {
+  if (!hasAdminAccess) {
     return (
       <div className="min-h-screen bg-muted/30 flex items-center justify-center">
         <div className="text-center max-w-md">
@@ -123,7 +123,7 @@ export default function TreasuryDashboard() {
             <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-3" />
             <h2 className="text-xl font-semibold text-destructive mb-2">Access Denied</h2>
             <p className="text-muted-foreground mb-4">
-              The Treasury dashboard is only accessible to business owners. You need business owner privileges to view this page.
+              The Treasury dashboard is only accessible to administrators and business owners. You need elevated privileges to view this page.
             </p>
           </div>
           <Link href="/dashboard">

@@ -88,16 +88,16 @@ interface SystemHealth {
 }
 
 export default function AdminDashboard() {
-  const { isAdmin, isLoading: authLoading } = useAuth();
+  const { hasAdminAccess, isLoading: authLoading } = useAuth();
 
   const { data: systemConfig, isLoading: configLoading } = useQuery<SystemConfig>({
     queryKey: ["/api/admin/system/config"],
-    enabled: !!isAdmin,
+    enabled: !!hasAdminAccess,
   });
 
   const { data: systemHealth, isLoading: healthLoading } = useQuery<SystemHealth>({
     queryKey: ["/api/admin/system/health"],
-    enabled: !!isAdmin,
+    enabled: !!hasAdminAccess,
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
@@ -112,7 +112,7 @@ export default function AdminDashboard() {
     );
   }
 
-  if (!isAdmin) {
+  if (!hasAdminAccess) {
     return (
       <div className="min-h-screen bg-muted/30 flex items-center justify-center">
         <div className="text-center max-w-md">
@@ -120,7 +120,7 @@ export default function AdminDashboard() {
             <Shield className="h-12 w-12 text-destructive mx-auto mb-3" />
             <h2 className="text-xl font-semibold text-destructive mb-2">Administrator Access Required</h2>
             <p className="text-muted-foreground mb-4">
-              You need administrator privileges to access this dashboard.
+              You need administrator or business owner privileges to access this dashboard.
             </p>
           </div>
           <div className="space-x-2">
