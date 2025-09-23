@@ -3,6 +3,21 @@ import { pgTable, text, varchar, timestamp, index, jsonb, decimal, integer, date
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Define photo structure for job documentation
+export const jobPhotoSchema = z.object({
+  id: z.string().uuid(),
+  url: z.string().url(),
+  type: z.enum(["before", "after", "progress", "issue"]),
+  description: z.string().optional(),
+  timestamp: z.string().datetime(),
+  location: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+  }).optional(),
+});
+
+export type JobPhoto = z.infer<typeof jobPhotoSchema>;
+
 export const leads = pgTable("leads", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   firstName: text("first_name").notNull(),
@@ -17,6 +32,7 @@ export const leads = pgTable("leads", {
   details: text("details"),
   status: text("status").notNull().default("new"), // 'new', 'contacted', 'quoted', 'accepted', 'in_progress', 'completed'
   assignedToUserId: varchar("assigned_to_user_id").references(() => users.id),
+  photos: jsonb("photos").default("[]"), // Array of photo objects with metadata
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
 

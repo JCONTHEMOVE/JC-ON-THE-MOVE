@@ -31,6 +31,9 @@ export interface IStorage {
   getAvailableLeads(): Promise<Lead[]>; // Leads not assigned to any employee
   getAssignedLeads(employeeId: string): Promise<Lead[]>; // Leads assigned to specific employee
   
+  // Photo management operations
+  addJobPhoto(leadId: string, photoData: any): Promise<Lead | undefined>;
+  
   createContact(contact: InsertContact): Promise<Contact>;
   getContacts(): Promise<Contact[]>;
   
@@ -667,6 +670,18 @@ export class DatabaseStorage implements IStorage {
       .from(leads)
       .where(eq(leads.assignedToUserId, employeeId))
       .orderBy(desc(leads.createdAt));
+  }
+
+  async addJobPhoto(leadId: string, photoData: any): Promise<Lead | undefined> {
+    // Add photo to lead's photos array using proper JSONB array operations
+    const [lead] = await db
+      .update(leads)
+      .set({
+        photos: sql`COALESCE(photos, '[]'::jsonb) || jsonb_build_array(${JSON.stringify(photoData)}::jsonb)`
+      })
+      .where(eq(leads.id, leadId))
+      .returning();
+    return lead || undefined;
   }
 
   async createContact(insertContact: InsertContact): Promise<Contact> {

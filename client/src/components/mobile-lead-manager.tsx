@@ -22,9 +22,12 @@ import {
   Trash2,
   Navigation,
   MessageSquare,
-  Route
+  Route,
+  Camera
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
+import { PhotoCapture } from "@/components/photo-capture";
+import { JobPhoto } from "@shared/schema";
 
 interface SwipeCardProps {
   lead: Lead;
@@ -274,6 +277,8 @@ export default function MobileLeadManager() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"available" | "accepted">("available");
   const [jobDistances, setJobDistances] = useState<Map<string, number>>(new Map());
+  const [showPhotoCapture, setShowPhotoCapture] = useState(false);
+  const [selectedJobForPhotos, setSelectedJobForPhotos] = useState<Lead | null>(null);
   
   // Get user's current location
   const { latitude, longitude, error: locationError } = useGeolocation({
@@ -403,8 +408,25 @@ export default function MobileLeadManager() {
     }
     
     toast({
-      title: "Opening navigation",
+      title: "Opening navigation", 
       description: "Launching maps with directions to job location",
+    });
+  };
+
+  const handlePhotosClick = (leadId: string) => {
+    const job = myJobs.find(j => j.id === leadId);
+    if (job) {
+      setSelectedJobForPhotos(job);
+      setShowPhotoCapture(true);
+    }
+  };
+
+  const handlePhotoAdded = (photo: JobPhoto) => {
+    // Update the local job data to reflect the new photo
+    queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
+    toast({
+      title: "Photo added successfully",
+      description: `${photo.type} photo has been added to the job.`,
     });
   };
 
@@ -494,16 +516,27 @@ export default function MobileLeadManager() {
                     userLocation={userLocation}
                     distance={jobDistances.get(job.id) || null}
                   />
-                  {/* Navigation Button */}
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="absolute top-4 right-4 p-2"
-                    onClick={() => handleNavigate(job.id)}
-                    data-testid={`navigate-to-job-${job.id}`}
-                  >
-                    <Navigation className="h-4 w-4" />
-                  </Button>
+                  {/* Action Buttons */}
+                  <div className="absolute top-4 right-4 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="p-2"
+                      onClick={() => handlePhotosClick(job.id)}
+                      data-testid={`photos-job-${job.id}`}
+                    >
+                      <Camera className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="p-2"
+                      onClick={() => handleNavigate(job.id)}
+                      data-testid={`navigate-to-job-${job.id}`}
+                    >
+                      <Navigation className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))
             )}
@@ -549,6 +582,19 @@ export default function MobileLeadManager() {
           </Button>
         </div>
       </div>
+
+      {/* Photo Capture Modal */}
+      {showPhotoCapture && selectedJobForPhotos && (
+        <PhotoCapture
+          leadId={selectedJobForPhotos.id}
+          existingPhotos={(selectedJobForPhotos.photos as JobPhoto[]) || []}
+          onClose={() => {
+            setShowPhotoCapture(false);
+            setSelectedJobForPhotos(null);
+          }}
+          onPhotoAdded={handlePhotoAdded}
+        />
+      )}
     </div>
   );
 }

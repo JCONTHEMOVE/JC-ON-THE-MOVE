@@ -449,6 +449,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Photo management for jobs
+  app.post("/api/leads/:id/photos", isAuthenticated, requireEmployee, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const employeeId = req.currentUser.id;
+      
+      // Verify the employee is assigned to this job
+      const lead = await storage.getLead(id);
+      if (!lead) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      
+      if (lead.assignedToUserId !== employeeId) {
+        return res.status(403).json({ error: "You can only add photos to your assigned jobs" });
+      }
+      
+      // Validate photo data using schema
+      const { jobPhotoSchema } = await import("@shared/schema");
+      const validatedPhoto = jobPhotoSchema.parse(req.body);
+      
+      const updatedLead = await storage.addJobPhoto(id, validatedPhoto);
+      if (!updatedLead) {
+        return res.status(404).json({ error: "Failed to add photo" });
+      }
+
+      res.json({ success: true, photo: validatedPhoto, updatedLead });
+    } catch (error) {
+      console.error("Error adding job photo:", error);
+      if (error instanceof Error && error.message.includes("Invalid")) {
+        return res.status(400).json({ error: "Invalid photo data" });
+      }
+      res.status(500).json({ error: "Failed to add photo" });
+    }
+  });
+
   // Rewards system routes
   
   // Daily check-in
