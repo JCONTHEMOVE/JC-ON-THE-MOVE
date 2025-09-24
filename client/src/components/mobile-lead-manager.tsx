@@ -28,7 +28,8 @@ import {
   WifiOff,
   RefreshCw,
   AlertCircle,
-  Map
+  Map,
+  DollarSign
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
@@ -317,7 +318,7 @@ const generateSMSTemplate = (lead: Lead): string => {
 export default function MobileLeadManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map">("available");
+  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury">("available");
   const [jobDistances, setJobDistances] = useState<Record<string, number>>({});
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
   const [selectedJobForPhotos, setSelectedJobForPhotos] = useState<Lead | null>(null);
@@ -351,6 +352,19 @@ export default function MobileLeadManager() {
     queryKey: ["/api/leads/my-jobs"],
     enabled: isOnline,
     staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  // Treasury data queries
+  const { data: treasuryStatus } = useQuery({
+    queryKey: ["/api/treasury/status"],
+    enabled: isOnline && activeTab === "treasury",
+    staleTime: 30 * 1000, // 30 seconds
+  });
+
+  const { data: treasuryTransactions } = useQuery({
+    queryKey: ["/api/treasury/transactions"],
+    enabled: isOnline && activeTab === "treasury",
+    staleTime: 60 * 1000, // 1 minute
   });
 
   // Use cached data when offline
@@ -688,6 +702,59 @@ export default function MobileLeadManager() {
               ))
             )}
           </div>
+        ) : activeTab === "treasury" ? (
+          <div className="space-y-4">
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold mb-2">Treasury</h2>
+              <p className="text-sm text-muted-foreground">
+                Financial overview and crypto rewards
+              </p>
+            </div>
+            
+            {treasuryStatus ? (
+              <div className="space-y-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="text-center">
+                        <p className="text-sm text-muted-foreground">Available Funding</p>
+                        <p className="text-lg font-bold text-green-600">
+                          ${treasuryStatus.stats?.availableFunding?.toFixed(2) || '0.00'}
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm text-muted-foreground">Token Reserve</p>
+                        <p className="text-lg font-bold text-blue-600">
+                          {treasuryStatus.stats?.tokenReserve?.toFixed(2) || '0.00'}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-center">
+                      <p className="text-sm text-muted-foreground mb-2">Treasury Health</p>
+                      <Badge variant={treasuryStatus.health?.status === 'healthy' ? 'default' : 'destructive'}>
+                        {treasuryStatus.health?.status || 'Unknown'}
+                      </Badge>
+                      {treasuryStatus.health?.message && (
+                        <p className="text-sm text-muted-foreground mt-2">
+                          {treasuryStatus.health.message}
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <DollarSign className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">Loading treasury data...</p>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="h-full">
             <JobMapView
@@ -755,6 +822,18 @@ export default function MobileLeadManager() {
                   {availableJobs.length + myJobs.length}
                 </Badge>
               )}
+            </div>
+          </Button>
+          
+          <Button
+            variant={activeTab === "treasury" ? "default" : "ghost"}
+            className="flex-1 mx-1"
+            onClick={() => setActiveTab("treasury")}
+            data-testid="tab-treasury"
+          >
+            <div className="flex flex-col items-center gap-1">
+              <DollarSign className="h-4 w-4" />
+              <span className="text-xs">Treasury</span>
             </div>
           </Button>
         </div>
