@@ -385,13 +385,13 @@ export default function MobileLeadManager() {
   // Treasury data queries
   const { data: treasuryStatus, isLoading: treasuryStatusLoading } = useQuery<TreasuryStatus>({
     queryKey: ["/api/treasury/status"],
-    enabled: isOnline && activeTab === "treasury",
+    enabled: isOnline, // Always fetch when online, not just when tab is active
     staleTime: 30 * 1000, // 30 seconds
   });
 
   const { data: treasuryTransactions, isLoading: treasuryTransactionsLoading } = useQuery({
     queryKey: ["/api/treasury/transactions"],
-    enabled: isOnline && activeTab === "treasury",
+    enabled: isOnline, // Always fetch when online, not just when tab is active  
     staleTime: 60 * 1000, // 1 minute
   });
 
