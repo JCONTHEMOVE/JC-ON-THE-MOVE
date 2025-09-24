@@ -23,9 +23,14 @@ import {
   Navigation,
   MessageSquare,
   Route,
-  Camera
+  Camera,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  AlertCircle
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
+import { useOfflineStorage } from "@/hooks/use-offline-storage";
 import { PhotoCapture } from "@/components/photo-capture";
 import { NotificationBell } from "@/components/notification-bell";
 import { NotificationList } from "@/components/notification-list";
@@ -316,6 +321,17 @@ export default function MobileLeadManager() {
   const [selectedJobForPhotos, setSelectedJobForPhotos] = useState<Lead | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   
+  // Offline storage capabilities
+  const { 
+    isOnline, 
+    pendingActions, 
+    isSyncing, 
+    hasPendingActions,
+    getCachedJobs,
+    addOfflineAction,
+    syncPendingActions 
+  } = useOfflineStorage();
+  
   // Get user's current location
   const { latitude, longitude, error: locationError } = useGeolocation({
     enableHighAccuracy: true,
@@ -325,11 +341,19 @@ export default function MobileLeadManager() {
 
   const { data: availableJobs = [], isLoading: availableLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/available"],
+    enabled: isOnline,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
   const { data: myJobs = [], isLoading: myJobsLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/my-jobs"],
+    enabled: isOnline,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
+
+  // Use cached data when offline
+  const displayAvailableJobs = isOnline ? availableJobs : getCachedJobs().filter(job => job.status === 'available');
+  const displayMyJobs = isOnline ? myJobs : getCachedJobs().filter(job => job.assignedToUserId);
 
   // Calculate distances when location and jobs are available
   useEffect(() => {
@@ -387,16 +411,33 @@ export default function MobileLeadManager() {
 
   const acceptJobMutation = useMutation({
     mutationFn: async (jobId: string) => {
+      if (!isOnline) {
+        // Add to offline queue
+        const actionId = addOfflineAction({
+          type: 'accept_job',
+          leadId: jobId,
+          data: {},
+        });
+        return { offline: true, actionId };
+      }
       const response = await apiRequest("POST", `/api/leads/${jobId}/accept`);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/available"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
-      toast({
-        title: "Job accepted! 🎉",
-        description: "You can now view it in your accepted jobs.",
-      });
+    onSuccess: (result) => {
+      if (result?.offline) {
+        toast({
+          title: "Job queued for acceptance",
+          description: "The job will be accepted when you're back online.",
+          variant: "default",
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/available"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
+        toast({
+          title: "Job accepted! 🎉",
+          description: "You can now view it in your accepted jobs.",
+        });
+      }
     },
     onError: (error: Error) => {
       if (error.message.includes('401')) return;
@@ -484,11 +525,34 @@ export default function MobileLeadManager() {
       {/* Header */}
       <div className="bg-primary text-primary-foreground p-4 shadow-lg">
         <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {isOnline ? (
+              <Wifi className="h-4 w-4 text-green-300" />
+            ) : (
+              <WifiOff className="h-4 w-4 text-orange-300" />
+            )}
+            <span className="text-xs opacity-75">
+              {isOnline ? 'Online' : 'Offline'}
+            </span>
+          </div>
           <div className="flex-1 text-center">
             <h1 className="text-xl font-bold">JC ON THE MOVE</h1>
             <p className="text-sm opacity-90 mt-1">Mobile Job Manager</p>
           </div>
-          <div className="ml-4">
+          <div className="flex items-center gap-2">
+            {hasPendingActions && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={syncPendingActions}
+                disabled={!isOnline || isSyncing}
+                className="text-primary-foreground hover:bg-primary-foreground/10"
+                data-testid="sync-pending-actions"
+              >
+                <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                {pendingActions.length}
+              </Button>
+            )}
             <NotificationBell onClick={() => setShowNotifications(true)} />
           </div>
         </div>
