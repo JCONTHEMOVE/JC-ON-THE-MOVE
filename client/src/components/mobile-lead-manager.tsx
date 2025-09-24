@@ -35,6 +35,34 @@ import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-g
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
 import { PhotoCapture } from "@/components/photo-capture";
 import { NotificationBell } from "@/components/notification-bell";
+
+// Treasury types
+interface TreasuryStatus {
+  stats: {
+    totalFunding: number;
+    totalDistributed: number;
+    availableFunding: number;
+    tokenReserve: number;
+    liabilityRatio: number;
+    isHealthy: boolean;
+  };
+  funding: {
+    canDistributeRewards: boolean;
+    currentBalance: number;
+    minimumBalance: number;
+    warningThreshold: number;
+  };
+  health: {
+    status: 'healthy' | 'warning' | 'critical';
+    message: string;
+    recommendations: string[];
+  };
+  estimatedFundingDays: {
+    estimatedDays: number;
+    dailyBurnRate: number;
+    recommendation: string;
+  };
+}
 import { NotificationList } from "@/components/notification-list";
 import { JobMapView } from "@/components/job-map-view";
 import { JobPhoto } from "@shared/schema";
@@ -355,7 +383,7 @@ export default function MobileLeadManager() {
   });
 
   // Treasury data queries
-  const { data: treasuryStatus, isLoading: treasuryStatusLoading } = useQuery({
+  const { data: treasuryStatus, isLoading: treasuryStatusLoading } = useQuery<TreasuryStatus>({
     queryKey: ["/api/treasury/status"],
     enabled: isOnline && activeTab === "treasury",
     staleTime: 30 * 1000, // 30 seconds
