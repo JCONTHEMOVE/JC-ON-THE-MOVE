@@ -27,13 +27,15 @@ import {
   Wifi,
   WifiOff,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Map
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
 import { PhotoCapture } from "@/components/photo-capture";
 import { NotificationBell } from "@/components/notification-bell";
 import { NotificationList } from "@/components/notification-list";
+import { JobMapView } from "@/components/job-map-view";
 import { JobPhoto } from "@shared/schema";
 
 interface SwipeCardProps {
@@ -315,7 +317,7 @@ const generateSMSTemplate = (lead: Lead): string => {
 export default function MobileLeadManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"available" | "accepted">("available");
+  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map">("available");
   const [jobDistances, setJobDistances] = useState<Map<string, number>>(new Map());
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
   const [selectedJobForPhotos, setSelectedJobForPhotos] = useState<Lead | null>(null);
@@ -507,6 +509,39 @@ export default function MobileLeadManager() {
     });
   };
 
+  const handleCallCustomer = (leadId: string) => {
+    const lead = [...availableJobs, ...myJobs].find(job => job.id === leadId);
+    if (!lead) return;
+    
+    // Format phone number for calling
+    const phoneNumber = lead.phone.replace(/\D/g, '');
+    const callUrl = `tel:${phoneNumber}`;
+    
+    window.location.href = callUrl;
+    
+    toast({
+      title: "Calling customer",
+      description: `Calling ${lead.firstName} ${lead.lastName}`,
+    });
+  };
+
+  const handleMessageCustomer = (leadId: string) => {
+    const lead = [...availableJobs, ...myJobs].find(job => job.id === leadId);
+    if (!lead) return;
+    
+    // Format phone number for SMS
+    const phoneNumber = lead.phone.replace(/\D/g, '');
+    const message = encodeURIComponent(`Hi ${lead.firstName}, this is JC ON THE MOVE regarding your ${lead.serviceType} moving service. I'm on my way to your location.`);
+    const smsUrl = `sms:${phoneNumber}?body=${message}`;
+    
+    window.location.href = smsUrl;
+    
+    toast({
+      title: "Opening message app",
+      description: `Sending message to ${lead.firstName} ${lead.lastName}`,
+    });
+  };
+
   if (availableLoading || myJobsLoading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
@@ -602,7 +637,7 @@ export default function MobileLeadManager() {
               />
             ))}
           </div>
-        ) : (
+        ) : activeTab === "accepted" ? (
           <div className="space-y-4">
             <div className="text-center mb-6">
               <h2 className="text-xl font-bold mb-2">My Jobs</h2>
@@ -654,6 +689,19 @@ export default function MobileLeadManager() {
               ))
             )}
           </div>
+        ) : (
+          <div className="h-full">
+            <JobMapView
+              availableJobs={availableJobs}
+              myJobs={myJobs}
+              userLocation={userLocation}
+              onAcceptJob={(jobId) => acceptJobMutation.mutate(jobId)}
+              onNavigateToJob={handleNavigate}
+              onCallCustomer={handleCallCustomer}
+              onMessageCustomer={handleMessageCustomer}
+              onPhotosClick={handlePhotosClick}
+            />
+          </div>
         )}
       </div>
 
@@ -667,10 +715,10 @@ export default function MobileLeadManager() {
             data-testid="tab-available-jobs"
           >
             <div className="flex flex-col items-center gap-1">
-              <Briefcase className="h-5 w-5" />
+              <Briefcase className="h-4 w-4" />
               <span className="text-xs">Available</span>
               {availableJobs.length > 0 && (
-                <Badge variant="secondary" className="text-xs px-1 py-0 min-w-[20px] h-5">
+                <Badge variant="secondary" className="text-xs px-1 py-0 min-w-[18px] h-4">
                   {availableJobs.length}
                 </Badge>
               )}
@@ -684,11 +732,28 @@ export default function MobileLeadManager() {
             data-testid="tab-my-jobs"
           >
             <div className="flex flex-col items-center gap-1">
-              <User className="h-5 w-5" />
+              <User className="h-4 w-4" />
               <span className="text-xs">My Jobs</span>
               {myJobs.length > 0 && (
-                <Badge variant="secondary" className="text-xs px-1 py-0 min-w-[20px] h-5">
+                <Badge variant="secondary" className="text-xs px-1 py-0 min-w-[18px] h-4">
                   {myJobs.length}
+                </Badge>
+              )}
+            </div>
+          </Button>
+          
+          <Button
+            variant={activeTab === "map" ? "default" : "ghost"}
+            className="flex-1 mx-1"
+            onClick={() => setActiveTab("map")}
+            data-testid="tab-map-view"
+          >
+            <div className="flex flex-col items-center gap-1">
+              <Map className="h-4 w-4" />
+              <span className="text-xs">Map</span>
+              {(availableJobs.length + myJobs.length) > 0 && (
+                <Badge variant="secondary" className="text-xs px-1 py-0 min-w-[18px] h-4">
+                  {availableJobs.length + myJobs.length}
                 </Badge>
               )}
             </div>
