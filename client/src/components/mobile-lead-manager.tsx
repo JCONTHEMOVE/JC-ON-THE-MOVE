@@ -355,13 +355,13 @@ export default function MobileLeadManager() {
   });
 
   // Treasury data queries
-  const { data: treasuryStatus } = useQuery({
+  const { data: treasuryStatus, isLoading: treasuryStatusLoading } = useQuery({
     queryKey: ["/api/treasury/status"],
     enabled: isOnline && activeTab === "treasury",
     staleTime: 30 * 1000, // 30 seconds
   });
 
-  const { data: treasuryTransactions } = useQuery({
+  const { data: treasuryTransactions, isLoading: treasuryTransactionsLoading } = useQuery({
     queryKey: ["/api/treasury/transactions"],
     enabled: isOnline && activeTab === "treasury",
     staleTime: 60 * 1000, // 1 minute
@@ -711,7 +711,12 @@ export default function MobileLeadManager() {
               </p>
             </div>
             
-            {treasuryStatus ? (
+            {treasuryStatusLoading ? (
+              <div className="text-center py-12">
+                <DollarSign className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">Loading treasury data...</p>
+              </div>
+            ) : treasuryStatus ? (
               <div className="space-y-4">
                 <Card>
                   <CardContent className="p-4">
@@ -748,10 +753,15 @@ export default function MobileLeadManager() {
                   </CardContent>
                 </Card>
               </div>
+            ) : !isOnline ? (
+              <div className="text-center py-12">
+                <DollarSign className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">Treasury data unavailable offline</p>
+              </div>
             ) : (
               <div className="text-center py-12">
                 <DollarSign className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">Loading treasury data...</p>
+                <p className="text-muted-foreground">No treasury data available</p>
               </div>
             )}
           </div>
