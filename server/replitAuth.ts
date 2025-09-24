@@ -59,56 +59,26 @@ function updateUserSession(
 async function upsertUser(
   claims: any,
 ) {
-  // Get real-time JCMOVES price for signup bonus calculation
-  let currentTokenPrice: number | undefined;
-  let riskLimits: { shouldHaltDistributions: boolean; maxSafeTokens: number; riskLevel: string } | undefined;
-  
   try {
-    const priceData = await cryptoService.getCurrentPrice();
-    currentTokenPrice = priceData.price;
+    // Simplified user creation during authentication
+    // Crypto API calls are moved to background/separate processes to prevent login failures
+    await storage.upsertUser({
+      id: claims["sub"],
+      email: claims["email"],
+      firstName: claims["first_name"],
+      lastName: claims["last_name"],
+      profileImageUrl: claims["profile_image_url"],
+    });
     
-    // CRITICAL: Get volatility and risk assessment for circuit breaker enforcement
-    const volatilityCheck = await cryptoService.checkPriceVolatility();
-    
-    // Simple risk assessment logic (mirroring treasury service logic)
-    let shouldHalt = false;
-    let maxSafeTokens = 1000000; // Large default
-    
-    if (Math.abs(volatilityCheck.changePercent) > 20) {
-      shouldHalt = true; // Extreme volatility
-    } else if (Math.abs(volatilityCheck.changePercent) > 10) {
-      maxSafeTokens = 500; // High volatility - reduce signup bonus if it exceeds this
-    } else if (Math.abs(volatilityCheck.changePercent) > 5) {
-      maxSafeTokens = 750; // Medium volatility - mild reduction
-    }
-    
-    riskLimits = {
-      shouldHaltDistributions: shouldHalt,
-      maxSafeTokens,
-      riskLevel: Math.abs(volatilityCheck.changePercent) > 20 ? 'extreme' : 
-                Math.abs(volatilityCheck.changePercent) > 10 ? 'high' :
-                Math.abs(volatilityCheck.changePercent) > 5 ? 'medium' : 'low'
-    };
+    // Note: Crypto price checks and risk assessment are now handled separately
+    // to prevent authentication failures when external APIs are down
+    console.log(`User authenticated successfully: ${claims["email"]}`);
     
   } catch (error) {
-    console.error("Failed to get real-time JCMOVES price/volatility for signup bonus:", error);
-    
-    // CRITICAL: Fail-safe behavior - HALT distributions when telemetry fails
-    riskLimits = {
-      shouldHaltDistributions: true,
-      maxSafeTokens: 0,
-      riskLevel: 'unknown_error'
-    };
-    console.warn("Circuit breaker activated due to telemetry failure - signup bonus will be halted as safety measure");
+    console.error("Failed to upsert user during authentication:", error);
+    // Re-throw the error to properly handle authentication failure
+    throw error;
   }
-  
-  await storage.upsertUser({
-    id: claims["sub"],
-    email: claims["email"],
-    firstName: claims["first_name"],
-    lastName: claims["last_name"],
-    profileImageUrl: claims["profile_image_url"],
-  }, currentTokenPrice, riskLimits);
 }
 
 export async function setupAuth(app: Express) {
