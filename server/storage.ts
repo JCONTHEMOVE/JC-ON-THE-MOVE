@@ -82,182 +82,43 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
-  async upsertUser(userData: UpsertUser, tokenPrice?: number, riskLimits?: { shouldHaltDistributions: boolean; maxSafeTokens: number; riskLevel: string }): Promise<User> {
-    // Check if this is a new user (first time registration)
-    // Look up by ID first, then by email if ID is not provided
-    let existingUser = null;
-    if (userData.id) {
-      existingUser = await this.getUser(userData.id);
-    } else if (userData.email) {
-      const [userByEmail] = await db.select().from(users).where(eq(users.email, userData.email));
-      existingUser = userByEmail || null;
-    }
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    console.log('Attempting to upsert user:', userData.email);
     
-    const isNewUser = !existingUser;
-
-    // Always use email as conflict target for upserts since email is unique and always provided
-    const [user] = await db
-      .insert(users)
-      .values(userData)
-      .onConflictDoUpdate({
-        target: users.email,
-        set: {
+    try {
+      // Simple upsert - either create new user or update existing one
+      const [user] = await db
+        .insert(users)
+        .values({
+          id: userData.id,
+          email: userData.email,
           firstName: userData.firstName,
           lastName: userData.lastName,
           profileImageUrl: userData.profileImageUrl,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-
-    // If this is a new user, create wallet and attempt signup bonus from treasury
-    if (isNewUser) {
-      // CRITICAL: Always create wallet first, regardless of signup bonus
-      try {
-        await db.insert(walletAccounts).values({
-          userId: user.id,
-          tokenBalance: '0.0',
-          totalEarned: '0.0'
-        }).onConflictDoNothing();
-      } catch (walletError) {
-        console.error(`Failed to create wallet for user ${userData.email || userData.id}:`, walletError);
-      }
-
-      // Then attempt to give them signup bonus from treasury
-      try {
-        // CRITICAL: Check circuit breakers before signup bonus distribution
-        if (riskLimits?.shouldHaltDistributions) {
-          console.warn(`Signup bonus halted for user ${userData.email || userData.id} due to extreme market volatility (${riskLimits.riskLevel})`);
-          return user; // Return user without signup bonus
-        }
-        
-        // Get current price for USD-to-token conversion
-        const currentPrice = tokenPrice ?? TREASURY_CONFIG.FALLBACK_TOKEN_PRICE;
-        
-        // Convert $5.00 USD reward to JCMOVES tokens using real-time pricing
-        const signupUsdValue = TREASURY_CONFIG.SIGNUP_BONUS_USD;
-        const signupTokens = signupUsdValue / currentPrice; // Calculate tokens from USD value
-        
-        // Enforce safe distribution limits based on volatility
-        if (riskLimits && signupTokens > riskLimits.maxSafeTokens) {
-          console.warn(`Signup bonus (${signupTokens.toFixed(0)} tokens ≈ $${signupUsdValue}) exceeds safe limit (${riskLimits.maxSafeTokens} tokens) due to ${riskLimits.riskLevel} volatility for user ${userData.email || userData.id}`);
-          return user; // Return user without signup bonus
-        }
-        const fundingCheck = await this.checkFundingAvailability(signupTokens, currentPrice);
-        
-        if (fundingCheck.available) {
-          // Atomic signup bonus: treasury deduction + wallet creation + reward record in single transaction
-          await db.transaction(async (tx) => {
-            // Lock treasury account for update
-            const [treasury] = await tx
-              .select()
-              .from(treasuryAccounts)
-              .where(eq(treasuryAccounts.isActive, true))
-              .orderBy(treasuryAccounts.createdAt)
-              .limit(1)
-              .for('update');
-
-            if (!treasury) {
-              throw new Error("No active treasury account found");
-            }
-
-            const currentBalance = parseFloat(treasury.availableFunding);
-            const currentTokenReserve = parseFloat(treasury.tokenReserve);
-            const cashValue = signupTokens * currentPrice; // Use real-time JCMOVES price
-            const minimumBalance = TREASURY_CONFIG.MINIMUM_BALANCE;
-
-            // Verify funding availability within transaction
-            if (currentBalance < cashValue || currentTokenReserve < signupTokens) {
-              throw new Error(`Insufficient funding for signup bonus: ${signupTokens} tokens ($${cashValue.toFixed(2)})`);
-            }
-
-            const newBalance = currentBalance - cashValue;
-            if (newBalance < minimumBalance) {
-              throw new Error(`Signup bonus would leave balance below minimum threshold ($${minimumBalance})`);
-            }
-
-            const newTokenReserve = currentTokenReserve - signupTokens;
-
-            // Update treasury account
-            await tx
-              .update(treasuryAccounts)
-              .set({
-                availableFunding: newBalance.toFixed(2),
-                tokenReserve: newTokenReserve.toFixed(8),
-                totalDistributed: (parseFloat(treasury.totalDistributed) + cashValue).toFixed(2),
-                updatedAt: new Date()
-              })
-              .where(eq(treasuryAccounts.id, treasury.id));
-
-            // Create reserve transaction record
-            const [treasuryTransaction] = await tx
-              .insert(reserveTransactions)
-              .values({
-                treasuryAccountId: treasury.id,
-                transactionType: 'distribution',
-                relatedEntityType: 'signup_bonus',
-                relatedEntityId: user.id,
-                tokenAmount: signupTokens.toFixed(8),
-                cashValue: cashValue.toFixed(2),
-                balanceAfter: newBalance.toFixed(2),
-                tokenReserveAfter: newTokenReserve.toFixed(8),
-                description: `Signup bonus for new user: ${user.email || user.id}`
-              })
-              .returning();
-
-            // Update existing wallet with signup bonus tokens
-            await tx
-              .update(walletAccounts)
-              .set({
-                tokenBalance: signupTokens.toFixed(8),
-                totalEarned: signupTokens.toFixed(8)
-              })
-              .where(eq(walletAccounts.userId, user.id));
-
-            // Create signup bonus reward record
-            await tx.insert(rewards).values({
-              userId: user.id,
-              rewardType: 'signup_bonus', 
-              tokenAmount: signupTokens.toFixed(1),
-              cashValue: cashValue.toFixed(2),
-              status: 'earned',
-              metadata: { 
-                signupBonus: true, 
-                automaticReward: true, 
-                treasuryFunded: true,
-                treasuryTransactionId: treasuryTransaction.id
-              }
-            }).onConflictDoNothing();
-          });
-
-          console.log(`New user registered: ${user.email || user.id} - Awarded $${signupUsdValue} (${signupTokens.toFixed(8)} JCMOVES) signup bonus (treasury funded)`);
-        } else {
-          // Treasury insufficient - create wallet but no bonus tokens
-          await db.insert(walletAccounts).values({
-            userId: user.id,
-            tokenBalance: '0.0',
-            totalEarned: '0.0'
-          }).onConflictDoNothing();
-
-          console.warn(`New user registered: ${user.email || user.id} - Signup bonus SKIPPED due to insufficient treasury funding (${fundingCheck.currentBalance.toFixed(2)} < ${fundingCheck.requiredValue.toFixed(2)})`);
-        }
-      } catch (error) {
-        console.error(`Failed to process signup bonus for user ${user.id}:`, error);
-        
-        // Create basic wallet even if bonus fails
-        try {
-          await db.insert(walletAccounts).values({
-            userId: user.id,
-            tokenBalance: '0.0',
-            totalEarned: '0.0'
-          }).onConflictDoNothing();
-        } catch (walletError) {
-          console.error(`Failed to create wallet for user ${user.id}:`, walletError);
-        }
-      }
+          role: 'business_owner', // Default role for new users
+        })
+        .onConflictDoUpdate({
+          target: users.email,
+          set: {
+            firstName: userData.firstName,
+            lastName: userData.lastName,
+            profileImageUrl: userData.profileImageUrl,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+      
+      console.log('User upserted successfully:', user.email, 'with ID:', user.id);
+      return user;
+    } catch (error) {
+      console.error('Failed to upsert user:', error);
+      throw error;
     }
+  }
 
-    return user;
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user || undefined;
   }
 
   async createLead(insertLead: InsertLead): Promise<Lead> {
