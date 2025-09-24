@@ -318,7 +318,7 @@ export default function MobileLeadManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map">("available");
-  const [jobDistances, setJobDistances] = useState<Map<string, number>>(new Map());
+  const [jobDistances, setJobDistances] = useState<Record<string, number>>({});
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
   const [selectedJobForPhotos, setSelectedJobForPhotos] = useState<Lead | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -363,11 +363,11 @@ export default function MobileLeadManager() {
     
     const calculateJobDistances = async () => {
       const allJobs = [...availableJobs, ...myJobs];
-      const jobsNeedingDistance = allJobs.filter(job => !jobDistances.has(job.id));
+      const jobsNeedingDistance = allJobs.filter(job => !(job.id in jobDistances));
       
       if (jobsNeedingDistance.length === 0) return;
       
-      const newDistances = new Map<string, number>();
+      const newDistances: Record<string, number> = {};
       
       // Batch process with delay to avoid rate limiting
       for (let i = 0; i < jobsNeedingDistance.length; i++) {
@@ -387,24 +387,23 @@ export default function MobileLeadManager() {
               coords.lat,
               coords.lng
             );
-            newDistances.set(job.id, distance);
+            newDistances[job.id] = distance;
           } else {
             // Mark as failed geocoding to prevent endless loading
-            newDistances.set(job.id, -1);
+            newDistances[job.id] = -1;
           }
         } catch (error) {
           console.error(`Failed to calculate distance for job ${job.id}:`, error);
           // Mark as failed geocoding to prevent endless loading  
-          newDistances.set(job.id, -1);
+          newDistances[job.id] = -1;
         }
       }
       
-      if (newDistances.size > 0) {
-        setJobDistances(prev => {
-          const updated = new Map(prev);
-          newDistances.forEach((value, key) => updated.set(key, value));
-          return updated;
-        });
+      if (Object.keys(newDistances).length > 0) {
+        setJobDistances(prev => ({
+          ...prev,
+          ...newDistances
+        }));
       }
     };
     
@@ -633,7 +632,7 @@ export default function MobileLeadManager() {
                 onTap={handleJobTap}
                 showAcceptActions={true}
                 userLocation={userLocation}
-                distance={jobDistances.get(job.id) || null}
+                distance={jobDistances[job.id] || null}
               />
             ))}
           </div>
@@ -662,7 +661,7 @@ export default function MobileLeadManager() {
                     onTap={handleJobTap}
                     showAcceptActions={false}
                     userLocation={userLocation}
-                    distance={jobDistances.get(job.id) || null}
+                    distance={jobDistances[job.id] || null}
                   />
                   {/* Action Buttons */}
                   <div className="absolute top-4 right-4 flex gap-2">
