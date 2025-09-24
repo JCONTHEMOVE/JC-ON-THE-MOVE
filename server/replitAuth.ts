@@ -107,6 +107,20 @@ export async function setupAuth(app: Express) {
     domains.push('localhost:5000');
   }
   
+  // Add the actual Replit domains for this app
+  const replitDomain = `${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
+  if (!domains.includes(replitDomain)) {
+    domains.push(replitDomain);
+  }
+  
+  // Also add the .replit.app domain which is commonly used
+  const replitAppDomain = 'jconthemove.replit.app';
+  if (!domains.includes(replitAppDomain)) {
+    domains.push(replitAppDomain);
+  }
+  
+  console.log('Configured authentication domains:', domains);
+  
   // Add custom domain if not already included (for production)
   if (!domains.includes('jconthemove.com') && !domains.includes('www.jconthemove.com')) {
     domains.push('jconthemove.com');
