@@ -35,6 +35,7 @@ import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-g
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
 import { PhotoCapture } from "@/components/photo-capture";
 import { NotificationBell } from "@/components/notification-bell";
+import { useAuth } from "@/hooks/useAuth";
 
 // Treasury types
 interface TreasuryStatus {
@@ -346,7 +347,21 @@ const generateSMSTemplate = (lead: Lead): string => {
 export default function MobileLeadManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury">("available");
+  const { canAccessTreasury } = useAuth();
+  // Initialize tab based on user permissions
+  const getInitialTab = (): "available" | "accepted" | "map" | "treasury" => {
+    return "available"; // Always start with available tab
+  };
+  
+  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury">(getInitialTab());
+  
+  // Prevent employees from accessing treasury tab
+  const handleTabChange = (tab: "available" | "accepted" | "map" | "treasury") => {
+    if (tab === "treasury" && !canAccessTreasury) {
+      return; // Block access to treasury for employees
+    }
+    setActiveTab(tab);
+  };
   const [jobDistances, setJobDistances] = useState<Record<string, number>>({});
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
   const [selectedJobForPhotos, setSelectedJobForPhotos] = useState<Lead | null>(null);
@@ -382,16 +397,16 @@ export default function MobileLeadManager() {
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
-  // Treasury data queries
+  // Treasury data queries - only fetch if user has access
   const { data: treasuryStatus, isLoading: treasuryStatusLoading } = useQuery<TreasuryStatus>({
     queryKey: ["/api/treasury/status"],
-    enabled: isOnline, // Always fetch when online, not just when tab is active
+    enabled: isOnline && canAccessTreasury, // Only fetch if user has treasury access
     staleTime: 30 * 1000, // 30 seconds
   });
 
   const { data: treasuryTransactions, isLoading: treasuryTransactionsLoading } = useQuery({
     queryKey: ["/api/treasury/transactions"],
-    enabled: isOnline, // Always fetch when online, not just when tab is active  
+    enabled: isOnline && canAccessTreasury, // Only fetch if user has treasury access
     staleTime: 60 * 1000, // 1 minute
   });
 
@@ -730,7 +745,7 @@ export default function MobileLeadManager() {
               ))
             )}
           </div>
-        ) : activeTab === "treasury" ? (
+        ) : activeTab === "treasury" && canAccessTreasury ? (
           <div className="space-y-4">
             <div className="text-center mb-6">
               <h2 className="text-xl font-bold mb-2">Treasury</h2>
@@ -815,7 +830,7 @@ export default function MobileLeadManager() {
           <Button
             variant={activeTab === "available" ? "default" : "ghost"}
             className="flex-1 mx-1"
-            onClick={() => setActiveTab("available")}
+            onClick={() => handleTabChange("available")}
             data-testid="tab-available-jobs"
           >
             <div className="flex flex-col items-center gap-1">
@@ -832,7 +847,7 @@ export default function MobileLeadManager() {
           <Button
             variant={activeTab === "accepted" ? "default" : "ghost"}
             className="flex-1 mx-1"
-            onClick={() => setActiveTab("accepted")}
+            onClick={() => handleTabChange("accepted")}
             data-testid="tab-my-jobs"
           >
             <div className="flex flex-col items-center gap-1">
@@ -849,7 +864,7 @@ export default function MobileLeadManager() {
           <Button
             variant={activeTab === "map" ? "default" : "ghost"}
             className="flex-1 mx-1"
-            onClick={() => setActiveTab("map")}
+            onClick={() => handleTabChange("map")}
             data-testid="tab-map-view"
           >
             <div className="flex flex-col items-center gap-1">
@@ -863,17 +878,19 @@ export default function MobileLeadManager() {
             </div>
           </Button>
           
-          <Button
-            variant={activeTab === "treasury" ? "default" : "ghost"}
-            className="flex-1 mx-1"
-            onClick={() => setActiveTab("treasury")}
-            data-testid="tab-treasury"
-          >
-            <div className="flex flex-col items-center gap-1">
-              <DollarSign className="h-4 w-4" />
-              <span className="text-xs">Treasury</span>
-            </div>
-          </Button>
+          {canAccessTreasury && (
+            <Button
+              variant={activeTab === "treasury" ? "default" : "ghost"}
+              className="flex-1 mx-1"
+              onClick={() => handleTabChange("treasury")}
+              data-testid="tab-treasury"
+            >
+              <div className="flex flex-col items-center gap-1">
+                <DollarSign className="h-4 w-4" />
+                <span className="text-xs">Treasury</span>
+              </div>
+            </Button>
+          )}
         </div>
       </div>
 
