@@ -26,7 +26,7 @@ Preferred communication style: Simple, everyday language.
 ## Database Schema
 - **leads**: Stores quote requests with customer info, service type, addresses, status tracking, and employee assignments
 - **contacts**: Stores general contact form submissions
-- **users**: Role-based user authentication system with business_owner and employee roles
+- **users**: Role-based user authentication system with admin, employee, and customer roles
 - **Status Management**: Lead progression through states (new → contacted → quoted → confirmed → available → accepted → in_progress → completed)
 - **Job Assignment**: Employee assignment tracking with assignedToUserId field for job delegation
 

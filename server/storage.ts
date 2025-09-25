@@ -96,7 +96,7 @@ export class DatabaseStorage implements IStorage {
           firstName: userData.firstName,
           lastName: userData.lastName,
           profileImageUrl: userData.profileImageUrl,
-          role: 'business_owner', // Default role for new users
+          role: 'admin', // Default role for new users
         })
         .onConflictDoUpdate({
           target: users.email,
@@ -287,7 +287,7 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  // Admin and business_owner referral management functions
+  // Admin referral management functions
   async getAllReferralStats(): Promise<{ totalReferrals: number; totalRewardsPaid: number; topReferrers: any[]; recentActivity: any[] }> {
     // Get total referral count across all users
     const totalReferralsResult = await db
@@ -361,8 +361,8 @@ export class DatabaseStorage implements IStorage {
     let weeklyLimit = 15;
     let monthlyLimit = 50;
 
-    // Admin and business_owner have equivalent high-level access
-    if (user.role === 'business_owner' || user.role === 'admin') {
+    // Admin has high-level access
+    if (user.role === 'admin') {
       dailyLimit = 50;
       weeklyLimit = 200;
       monthlyLimit = 500;

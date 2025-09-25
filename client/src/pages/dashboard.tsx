@@ -735,15 +735,15 @@ function BusinessOwnerDashboard() {
                               >
                                 <SelectTrigger className="w-40">
                                   <SelectValue>
-                                    <Badge variant={(employee.role === 'business_owner' || employee.role === 'admin') ? 'default' : 'secondary'}>
-                                      {employee.role === 'business_owner' ? 'Owner' : employee.role === 'admin' ? 'Admin' : 'Employee'}
+                                    <Badge variant={employee.role === 'admin' ? 'default' : 'secondary'}>
+                                      {employee.role === 'admin' ? 'Admin' : employee.role === 'customer' ? 'Customer' : 'Employee'}
                                     </Badge>
                                   </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="employee">Employee</SelectItem>
-                                  <SelectItem value="business_owner">Business Owner</SelectItem>
                                   <SelectItem value="admin">Administrator</SelectItem>
+                                  <SelectItem value="customer">Customer</SelectItem>
                                 </SelectContent>
                               </Select>
                             </td>
