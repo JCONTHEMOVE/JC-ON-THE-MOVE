@@ -27,21 +27,21 @@ export function useAuth() {
     },
   });
 
-  // Helper function to check if user has admin/business owner level permissions
-  const hasAdminAccess = user?.role === 'admin' || user?.role === 'business_owner';
+  // Helper function to check if user has admin level permissions
+  const hasAdminAccess = user?.role === 'admin';
   
   return {
     user,
     isLoading,
     isAuthenticated: !!user,
-    isBusinessOwner: user?.role === 'business_owner',
     isEmployee: user?.role === 'employee',
     isAdmin: user?.role === 'admin',
-    // New unified permission checks - admin and business_owner have equivalent access
-    hasAdminAccess, // Both admin and business_owner have this
+    isCustomer: user?.role === 'customer',
+    // Admin permission checks - only admin role has these privileges
+    hasAdminAccess, // Only admin has this
     hasManagementAccess: hasAdminAccess, // Alias for clarity
-    canManageInvitations: hasAdminAccess, // Both can manage invitations
-    canAccessTreasury: hasAdminAccess, // Both can access treasury
-    canViewAllLeads: hasAdminAccess, // Both can view all leads
+    canManageInvitations: hasAdminAccess, // Only admin can manage invitations
+    canAccessTreasury: hasAdminAccess, // Only admin can access treasury
+    canViewAllLeads: hasAdminAccess, // Only admin can view all leads
   };
 }
