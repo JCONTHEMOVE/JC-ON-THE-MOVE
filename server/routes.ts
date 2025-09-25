@@ -242,6 +242,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Customer quote tracking - public endpoint for customers to track their quote requests
+  app.get("/api/leads/track/:email", async (req, res) => {
+    try {
+      const email = req.params.email;
+      if (!email) {
+        return res.status(400).json({ error: "Email address is required" });
+      }
+      
+      const customerLeads = await storage.getLeadsByEmail(email);
+      res.json(customerLeads);
+    } catch (error) {
+      console.error("Error fetching customer leads:", error);
+      res.status(500).json({ error: "Failed to retrieve quote requests" });
+    }
+  });
+
   // Role-based access control middleware
   const requireBusinessOwner = async (req: any, res: any, next: any) => {
     try {

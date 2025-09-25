@@ -15,6 +15,7 @@ import AdminDashboard from "@/pages/admin-dashboard";
 import AdminMoonshotPage from "@/pages/admin-moonshot";
 import NotFound from "@/pages/not-found";
 import MobileLeadManager from "@/components/mobile-lead-manager";
+import CustomerMobileInterface from "@/components/customer-mobile-interface";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -88,7 +89,17 @@ function Router() {
     );
   }
 
-  return isAuthenticated ? <AuthenticatedApp /> : <LandingPage />;
+  return (
+    <Switch>
+      {/* Customer interface - accessible to all users without authentication */}
+      <Route path="/customer" component={CustomerMobileInterface} />
+      
+      {/* Authenticated vs unauthenticated routing */}
+      <Route>
+        {isAuthenticated ? <AuthenticatedApp /> : <LandingPage />}
+      </Route>
+    </Switch>
+  );
 }
 
 function App() {
