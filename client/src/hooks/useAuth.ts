@@ -25,9 +25,6 @@ export function useAuth() {
         }
         const userData = await response.json();
         console.log('Authentication successful, user:', userData?.email);
-        console.log('Full user data received:', userData);
-        console.log('User role:', userData?.role);
-        console.log('canAccessTreasury will be:', userData?.role === 'admin');
         return userData;
       } catch (error) {
         console.error('Auth fetch error:', error);
@@ -37,7 +34,7 @@ export function useAuth() {
   });
 
   // Helper function to check if user has admin level permissions
-  const hasAdminAccess = user?.role === 'admin';
+  const hasAdminAccess = user?.role === 'admin' || user?.role === 'business_owner';
   
   return {
     user,
