@@ -879,19 +879,18 @@ export default function MobileLeadManager() {
             </div>
           </Button>
           
-          {canAccessTreasury && (
-            <Button
-              variant={activeTab === "treasury" ? "default" : "ghost"}
-              className="flex-1 mx-1"
-              onClick={() => handleTabChange("treasury")}
-              data-testid="tab-treasury"
-            >
-              <div className="flex flex-col items-center gap-1">
-                <DollarSign className="h-4 w-4" />
-                <span className="text-xs">Treasury</span>
-              </div>
-            </Button>
-          )}
+          <Button
+            variant={activeTab === "treasury" ? "default" : "ghost"}
+            className="flex-1 mx-1"
+            onClick={() => handleTabChange("treasury")}
+            data-testid="tab-treasury"
+            style={{backgroundColor: 'red', border: '2px solid yellow'}}
+          >
+            <div className="flex flex-col items-center gap-1">
+              <DollarSign className="h-4 w-4" />
+              <span className="text-xs">Treasury</span>
+            </div>
+          </Button>
         </div>
       </div>
 
