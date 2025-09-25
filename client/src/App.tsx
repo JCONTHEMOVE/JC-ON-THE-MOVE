@@ -14,6 +14,7 @@ import TreasuryDashboard from "@/pages/treasury-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
 import AdminMoonshotPage from "@/pages/admin-moonshot";
 import NotFound from "@/pages/not-found";
+import MobileLeadManager from "@/components/mobile-lead-manager";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -28,23 +29,48 @@ function LandingPage() {
   );
 }
 
-// Main app for authenticated users
-function AuthenticatedApp() {
+// Wrapper for legacy desktop pages that need Header
+function DesktopPageWrapper({ component: Component }: { component: any }) {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
       <Header />
       <main>
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/dashboard" component={Dashboard} />
-          <Route path="/rewards" component={RewardsPage} />
-          <Route path="/faucet" component={FaucetPage} />
-          <Route path="/treasury" component={TreasuryDashboard} />
-          <Route path="/admin" component={AdminDashboard} />
-          <Route path="/admin-moonshot" component={AdminMoonshotPage} />
-          <Route component={NotFound} />
-        </Switch>
+        <Component />
       </main>
+    </div>
+  );
+}
+
+// Main app for authenticated users - Mobile-first interface
+function AuthenticatedApp() {
+  return (
+    <div className="min-h-screen bg-background text-foreground font-sans">
+      <Switch>
+        {/* Mobile-first routing - primary interface for all users */}
+        <Route path="/" component={MobileLeadManager} />
+        <Route path="/mobile" component={MobileLeadManager} />
+        
+        {/* Desktop/legacy routes for backwards compatibility */}
+        <Route path="/dashboard">
+          <DesktopPageWrapper component={Dashboard} />
+        </Route>
+        <Route path="/rewards">
+          <DesktopPageWrapper component={RewardsPage} />
+        </Route>
+        <Route path="/faucet">
+          <DesktopPageWrapper component={FaucetPage} />
+        </Route>
+        <Route path="/treasury">
+          <DesktopPageWrapper component={TreasuryDashboard} />
+        </Route>
+        <Route path="/admin">
+          <DesktopPageWrapper component={AdminDashboard} />
+        </Route>
+        <Route path="/admin-moonshot">
+          <DesktopPageWrapper component={AdminMoonshotPage} />
+        </Route>
+        <Route component={NotFound} />
+      </Switch>
     </div>
   );
 }
