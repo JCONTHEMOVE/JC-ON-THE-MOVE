@@ -8,7 +8,13 @@ export function useAuth() {
     refetchInterval: 30000, // Refetch every 30 seconds instead of constant polling
     queryFn: async () => {
       try {
-        const response = await fetch("/api/auth/user");
+        const response = await fetch("/api/auth/user", { 
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+          }
+        });
         if (response.status === 401) {
           // 401 is expected for unauthenticated users - return null instead of throwing
           return null;
