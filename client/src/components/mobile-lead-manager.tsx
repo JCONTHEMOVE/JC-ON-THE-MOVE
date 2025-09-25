@@ -347,7 +347,12 @@ const generateSMSTemplate = (lead: Lead): string => {
 export default function MobileLeadManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { canAccessTreasury } = useAuth();
+  const { canAccessTreasury, user, isAuthenticated } = useAuth();
+  
+  // Debug authentication status
+  console.log('Auth Debug - isAuthenticated:', isAuthenticated);
+  console.log('Auth Debug - user role:', user?.role);
+  console.log('Auth Debug - canAccessTreasury:', canAccessTreasury);
   
   // Initialize tab based on user permissions
   const getInitialTab = (): "available" | "accepted" | "map" | "treasury" => {
