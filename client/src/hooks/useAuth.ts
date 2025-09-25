@@ -25,6 +25,9 @@ export function useAuth() {
         }
         const userData = await response.json();
         console.log('Authentication successful, user:', userData?.email);
+        console.log('Full user data received:', userData);
+        console.log('User role:', userData?.role);
+        console.log('canAccessTreasury will be:', userData?.role === 'admin');
         return userData;
       } catch (error) {
         console.error('Auth fetch error:', error);

@@ -348,6 +348,9 @@ export default function MobileLeadManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { canAccessTreasury } = useAuth();
+  
+  // Debug logging
+  console.log('MobileLeadManager render - canAccessTreasury:', canAccessTreasury);
   // Initialize tab based on user permissions
   const getInitialTab = (): "available" | "accepted" | "map" | "treasury" => {
     return "available"; // Always start with available tab
@@ -826,7 +829,7 @@ export default function MobileLeadManager() {
 
       {/* Bottom Navigation */}
       <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border p-4">
-        <div className="flex items-center justify-around max-w-md mx-auto">
+        <div className="flex items-center justify-around max-w-lg mx-auto">
           <Button
             variant={activeTab === "available" ? "default" : "ghost"}
             className="flex-1 mx-1"
@@ -878,19 +881,29 @@ export default function MobileLeadManager() {
             </div>
           </Button>
           
-          {canAccessTreasury && (
-            <Button
-              variant={activeTab === "treasury" ? "default" : "ghost"}
-              className="flex-1 mx-1"
-              onClick={() => handleTabChange("treasury")}
-              data-testid="tab-treasury"
-            >
-              <div className="flex flex-col items-center gap-1">
-                <DollarSign className="h-4 w-4" />
-                <span className="text-xs">Treasury</span>
-              </div>
-            </Button>
-          )}
+          {(() => {
+            console.log('Treasury tab render check - canAccessTreasury:', canAccessTreasury);
+            console.log('Treasury tab render check - should render:', canAccessTreasury);
+            if (canAccessTreasury) {
+              console.log('Treasury tab SHOULD BE RENDERED');
+              return (
+                <Button
+                  variant={activeTab === "treasury" ? "default" : "ghost"}
+                  className="flex-1 mx-1"
+                  onClick={() => handleTabChange("treasury")}
+                  data-testid="tab-treasury"
+                >
+                  <div className="flex flex-col items-center gap-1">
+                    <DollarSign className="h-4 w-4" />
+                    <span className="text-xs">Treasury</span>
+                  </div>
+                </Button>
+              );
+            } else {
+              console.log('Treasury tab NOT rendered - canAccessTreasury is false');
+              return null;
+            }
+          })()}
         </div>
       </div>
 
