@@ -96,7 +96,7 @@ export class DatabaseStorage implements IStorage {
           firstName: userData.firstName,
           lastName: userData.lastName,
           profileImageUrl: userData.profileImageUrl,
-          role: 'admin', // Default role for new users
+          role: 'employee', // Default role for new users - admin access must be granted explicitly
         })
         .onConflictDoUpdate({
           target: users.email,
