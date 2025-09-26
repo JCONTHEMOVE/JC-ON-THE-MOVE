@@ -93,10 +93,17 @@ export async function setupAuth(app: Express) {
     tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
     verified: passport.AuthenticateCallback
   ) => {
-    const user = {};
-    updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
-    verified(null, user);
+    try {
+      console.log('🔐 Authentication verify called for user:', tokens.claims()?.email);
+      const user = {};
+      updateUserSession(user, tokens);
+      await upsertUser(tokens.claims());
+      console.log('✅ User upserted successfully, calling verified callback');
+      verified(null, user);
+    } catch (error) {
+      console.error('❌ Authentication verification failed:', error);
+      verified(error);
+    }
   };
 
   // Get domains from environment and add localhost for development
@@ -142,15 +149,19 @@ export async function setupAuth(app: Express) {
     passport.use(strategy);
   }
 
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
+  passport.serializeUser((user: Express.User, cb) => {
+    console.log('📦 Serializing user for session');
+    cb(null, user);
+  });
+  passport.deserializeUser((user: Express.User, cb) => {
+    console.log('📂 Deserializing user from session');
+    cb(null, user);
+  });
 
   app.get("/api/login", (req, res, next) => {
     // Handle localhost with port for development
     const hostname = req.hostname === 'localhost' ? 'localhost:5000' : req.hostname;
     console.log(`Login attempt for hostname: ${hostname}, original: ${req.hostname}`);
-    console.log(`Available strategies:`, passport._strategies ? Object.keys(passport._strategies) : 'none');
-    console.log(`Looking for strategy: replitauth:${hostname}`);
     
     passport.authenticate(`replitauth:${hostname}`, {
       scope: ["openid", "email", "profile", "offline_access"],
@@ -161,12 +172,11 @@ export async function setupAuth(app: Express) {
     // Handle localhost with port for development
     const hostname = req.hostname === 'localhost' ? 'localhost:5000' : req.hostname;
     console.log(`Callback for hostname: ${hostname}, original: ${req.hostname}`);
-    console.log(`Available strategies:`, passport._strategies ? Object.keys(passport._strategies) : 'none');
-    console.log(`Looking for strategy: replitauth:${hostname}`);
     
     passport.authenticate(`replitauth:${hostname}`, {
       successReturnToOrRedirect: "/",
       failureRedirect: "/api/login",
+      failureFlash: false
     })(req, res, next);
   });
 
