@@ -549,7 +549,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Notification routes
-  app.get("/api/notifications", isAuthenticated, async (req: any, res) => {
+  app.get("/api/notifications", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
       const userId = req.currentUser.id;
       const limit = parseInt(req.query.limit as string) || 50;
@@ -562,7 +562,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/notifications/unread-count", isAuthenticated, async (req: any, res) => {
+  app.get("/api/notifications/unread-count", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
       const userId = req.currentUser.id;
       const count = await storage.getUnreadNotificationCount(userId);
@@ -573,7 +573,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/notifications/:id/read", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/notifications/:id/read", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
       const { id } = req.params;
       const notification = await storage.markNotificationAsRead(id);
@@ -589,7 +589,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/notifications/mark-all-read", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/notifications/mark-all-read", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
       const userId = req.currentUser.id;
       await storage.markAllNotificationsAsRead(userId);
