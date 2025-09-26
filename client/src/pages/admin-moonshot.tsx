@@ -246,7 +246,7 @@ export default function AdminMoonshotPage() {
                     </p>
                     {treasuryStatus.estimatedFundingDays && (
                       <p className="text-sm text-blue-600 dark:text-blue-300">
-                        Estimated funding days: {treasuryStatus.estimatedFundingDays}
+                        Estimated funding days: {treasuryStatus.estimatedFundingDays.estimatedDays || 'N/A'}
                       </p>
                     )}
                   </div>
