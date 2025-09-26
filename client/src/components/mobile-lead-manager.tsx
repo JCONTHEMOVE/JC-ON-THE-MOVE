@@ -360,6 +360,7 @@ export default function MobileLeadManager() {
   // Prevent employees from accessing treasury tab
   const handleTabChange = (tab: "available" | "accepted" | "map" | "treasury") => {
     if (tab === "treasury" && !canAccessTreasury) {
+      console.log('Treasury access denied - canAccessTreasury:', canAccessTreasury, 'user role:', user?.role);
       return; // Block access to treasury for employees
     }
     setActiveTab(tab);
@@ -880,7 +881,7 @@ export default function MobileLeadManager() {
             </div>
           </Button>
           
-          {(canAccessTreasury || user?.role === 'admin') && (
+          {canAccessTreasury && (
             <Button
               variant={activeTab === "treasury" ? "default" : "ghost"}
               className="flex-1 mx-1"

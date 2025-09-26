@@ -36,6 +36,13 @@ export function useAuth() {
   // Helper function to check if user has admin level permissions
   const hasAdminAccess = user?.role === 'admin' || user?.role === 'business_owner';
   
+  // Debug logging to track auth issues
+  if (user) {
+    console.log('Auth Debug - user role:', user.role);
+    console.log('Auth Debug - hasAdminAccess:', hasAdminAccess);
+    console.log('Auth Debug - canAccessTreasury:', hasAdminAccess);
+  }
+  
   return {
     user,
     isLoading,
@@ -43,11 +50,11 @@ export function useAuth() {
     isEmployee: user?.role === 'employee',
     isAdmin: user?.role === 'admin',
     isCustomer: user?.role === 'customer',
-    // Admin permission checks - only admin role has these privileges
-    hasAdminAccess, // Only admin has this
-    hasManagementAccess: hasAdminAccess, // Alias for clarity
-    canManageInvitations: hasAdminAccess, // Only admin can manage invitations
-    canAccessTreasury: hasAdminAccess, // Only admin can access treasury
-    canViewAllLeads: hasAdminAccess, // Only admin can view all leads
+    // Treasury access for both admin and business_owner roles
+    hasAdminAccess,
+    hasManagementAccess: hasAdminAccess,
+    canManageInvitations: hasAdminAccess,
+    canAccessTreasury: hasAdminAccess, // Both admin and business_owner can access treasury
+    canViewAllLeads: hasAdminAccess,
   };
 }
