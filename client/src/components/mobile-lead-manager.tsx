@@ -880,7 +880,7 @@ export default function MobileLeadManager() {
             </div>
           </Button>
           
-          {canAccessTreasury && (
+          {(canAccessTreasury || user?.role === 'admin') && (
             <Button
               variant={activeTab === "treasury" ? "default" : "ghost"}
               className="flex-1 mx-1"
