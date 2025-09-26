@@ -311,7 +311,7 @@ export default function TreasuryDashboard() {
         ) : treasurySummary ? (
           <>
             {/* Treasury Health Alert */}
-            {treasurySummary.health.status !== 'healthy' && (
+            {treasurySummary.health && treasurySummary.health.status !== 'healthy' && (
               <div className="mb-6">
                 <Card className="border-l-4 border-l-yellow-500">
                   <CardHeader>
