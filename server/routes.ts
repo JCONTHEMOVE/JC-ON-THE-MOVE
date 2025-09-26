@@ -100,7 +100,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         activeUsers: sql<number>`count(distinct ${rewards.userId})`,
       })
       .from(rewards)
-      .where(gte(rewards.earnedDate, thirtyDaysAgoISO));
+      .where(sql`${rewards.earnedDate} >= ${thirtyDaysAgoISO}`);
 
     // Get distribution trends (simplified without date grouping for compatibility)
     const recentRewards = await db
@@ -110,7 +110,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         earnedDate: rewards.earnedDate
       })
       .from(rewards)
-      .where(gte(rewards.earnedDate, thirtyDaysAgoISO))
+      .where(sql`${rewards.earnedDate} >= ${thirtyDaysAgoISO}`)
       .orderBy(desc(rewards.earnedDate));
 
     return {
@@ -141,11 +141,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Get funding deposits within period
     const fundingData = await db
       .select({
-        amount: fundingDeposits.amount,
+        amount: fundingDeposits.depositAmount,
         createdAt: fundingDeposits.createdAt
       })
       .from(fundingDeposits)
-      .where(gte(fundingDeposits.createdAt, fromDateISO))
+      .where(sql`${fundingDeposits.createdAt} >= ${fromDateISO}`)
       .orderBy(desc(fundingDeposits.createdAt));
 
     // Get distribution transactions within period
@@ -157,7 +157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .from(reserveTransactions)
       .where(and(
         eq(reserveTransactions.transactionType, 'distribution'),
-        gte(reserveTransactions.createdAt, fromDateISO)
+        sql`${reserveTransactions.createdAt} >= ${fromDateISO}`
       ))
       .orderBy(desc(reserveTransactions.createdAt));
 
@@ -181,20 +181,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Count recent deposits
       db.select({ count: sql<number>`count(*)` })
         .from(fundingDeposits)
-        .where(gte(fundingDeposits.createdAt, sevenDaysAgoISO)),
+        .where(sql`${fundingDeposits.createdAt} >= ${sevenDaysAgoISO}`),
       
       // Count recent distributions  
       db.select({ count: sql<number>`count(*)` })
         .from(reserveTransactions)
         .where(and(
           eq(reserveTransactions.transactionType, 'distribution'),
-          gte(reserveTransactions.createdAt, sevenDaysAgoISO)
+          sql`${reserveTransactions.createdAt} >= ${sevenDaysAgoISO}`
         )),
       
       // Count active users this week
       db.select({ count: sql<number>`count(distinct ${rewards.userId})` })
         .from(rewards)
-        .where(gte(rewards.earnedDate, sevenDaysAgoISO))
+        .where(sql`${rewards.earnedDate} >= ${sevenDaysAgoISO}`)
     ]);
 
     return {
