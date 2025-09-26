@@ -30,9 +30,9 @@ import { Link } from "wouter";
 
 interface Lead {
   id: string;
-  customerFirstName: string;
-  customerLastName: string;
-  customerEmail: string;
+  firstName: string;
+  lastName: string;
+  email: string;
   serviceType: string;
   status: string;
   createdAt: string;
@@ -184,7 +184,7 @@ export default function AdminDashboardFull() {
               {leads?.slice(0, 5).map((lead) => (
                 <div key={lead.id} className="flex justify-between items-center">
                   <div>
-                    <p className="font-medium">{lead.customerFirstName} {lead.customerLastName}</p>
+                    <p className="font-medium">{lead.firstName} {lead.lastName}</p>
                     <p className="text-sm text-muted-foreground">{lead.serviceType}</p>
                   </div>
                   <Badge variant={lead.status === 'new' ? 'default' : 'secondary'}>
@@ -294,8 +294,8 @@ export default function AdminDashboardFull() {
               leads?.map((lead) => (
                 <div key={lead.id} className="flex justify-between items-center p-4 border rounded-lg">
                   <div>
-                    <p className="font-medium">{lead.customerFirstName} {lead.customerLastName}</p>
-                    <p className="text-sm text-muted-foreground">{lead.customerEmail}</p>
+                    <p className="font-medium">{lead.firstName} {lead.lastName}</p>
+                    <p className="text-sm text-muted-foreground">{lead.email}</p>
                     <p className="text-sm">{lead.serviceType}</p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(lead.createdAt).toLocaleDateString()}
@@ -362,7 +362,7 @@ export default function AdminDashboardFull() {
               {leads?.filter(lead => lead.assignedToUserId).slice(0, 5).map((lead) => (
                 <div key={lead.id} className="flex justify-between items-center">
                   <div>
-                    <p className="font-medium">{lead.customerFirstName} {lead.customerLastName}</p>
+                    <p className="font-medium">{lead.firstName} {lead.lastName}</p>
                     <p className="text-sm text-muted-foreground">{lead.serviceType}</p>
                   </div>
                   <Badge variant="outline">Assigned</Badge>
