@@ -29,7 +29,9 @@ import {
   RefreshCw,
   AlertCircle,
   Map,
-  DollarSign
+  DollarSign,
+  Settings,
+  LogOut
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
@@ -351,14 +353,14 @@ export default function MobileLeadManager() {
   
   
   // Initialize tab based on user permissions
-  const getInitialTab = (): "available" | "accepted" | "map" | "treasury" => {
+  const getInitialTab = (): "available" | "accepted" | "map" | "treasury" | "settings" => {
     return "available"; // Always start with available tab
   };
   
-  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury">(getInitialTab());
+  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury" | "settings">(getInitialTab());
   
   // Prevent employees from accessing treasury tab
-  const handleTabChange = (tab: "available" | "accepted" | "map" | "treasury") => {
+  const handleTabChange = (tab: "available" | "accepted" | "map" | "treasury" | "settings") => {
     if (tab === "treasury" && !canAccessTreasury && user?.role !== 'business_owner') {
       return; // Block access to treasury for employees
     }
@@ -810,6 +812,68 @@ export default function MobileLeadManager() {
               </div>
             )}
           </div>
+        ) : activeTab === "settings" ? (
+          <div className="space-y-4">
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold mb-2">Settings</h2>
+              <p className="text-sm text-muted-foreground">
+                Account settings and app preferences
+              </p>
+            </div>
+
+            {/* User Info */}
+            {user && (
+              <Card>
+                <CardContent className="p-4">
+                  <div className="text-center">
+                    <User className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
+                    <p className="font-medium">{user.email}</p>
+                    <Badge variant="secondary" className="mt-1">
+                      {user.role === 'admin' ? 'Administrator' : 
+                       user.role === 'business_owner' ? 'Business Owner' : 
+                       user.role === 'employee' ? 'Employee' : 'Customer'}
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Settings Options */}
+            <div className="space-y-3">
+              <Button
+                variant="outline"
+                className="w-full justify-start h-12"
+                onClick={() => window.location.href = '/api/logout'}
+                data-testid="button-logout"
+              >
+                <LogOut className="h-4 w-4 mr-3" />
+                Log Out
+              </Button>
+            </div>
+
+            {/* App Info */}
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-center text-sm text-muted-foreground">
+                  <p className="font-medium mb-1">JC ON THE MOVE</p>
+                  <p>Mobile Job Manager</p>
+                  <div className="flex items-center justify-center gap-2 mt-2">
+                    {isOnline ? (
+                      <>
+                        <Wifi className="h-4 w-4 text-green-600" />
+                        <span className="text-green-600">Online</span>
+                      </>
+                    ) : (
+                      <>
+                        <WifiOff className="h-4 w-4 text-red-600" />
+                        <span className="text-red-600">Offline</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         ) : (
           <div className="h-full">
             <JobMapView
@@ -893,6 +957,18 @@ export default function MobileLeadManager() {
               </div>
             </Button>
           )}
+          
+          <Button
+            variant={activeTab === "settings" ? "default" : "ghost"}
+            className="flex-1 mx-1"
+            onClick={() => handleTabChange("settings")}
+            data-testid="tab-settings"
+          >
+            <div className="flex flex-col items-center gap-1">
+              <Settings className="h-4 w-4" />
+              <span className="text-xs">Settings</span>
+            </div>
+          </Button>
         </div>
       </div>
 
