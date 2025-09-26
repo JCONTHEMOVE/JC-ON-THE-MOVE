@@ -13,6 +13,7 @@ export interface IStorage {
   // User role management
   updateUserRole(userId: string, role: string): Promise<User | undefined>;
   getEmployees(): Promise<User[]>;
+  getAllUsers(): Promise<User[]>;
   
   // Referral operations
   generateReferralCode(userId: string): Promise<string>;
@@ -189,6 +190,13 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(eq(users.role, 'employee'))
       .orderBy(users.firstName, users.lastName);
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db
+      .select()
+      .from(users)
+      .orderBy(desc(users.createdAt));
   }
 
   // Referral operations

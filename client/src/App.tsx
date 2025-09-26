@@ -11,7 +11,7 @@ import Dashboard from "@/pages/dashboard";
 import RewardsPage from "@/pages/rewards";
 import FaucetPage from "@/pages/faucet";
 import TreasuryDashboard from "@/pages/treasury-dashboard";
-import AdminDashboard from "@/pages/admin-dashboard";
+import AdminDashboardFull from "@/pages/admin-dashboard-full";
 import AdminMoonshotPage from "@/pages/admin-moonshot";
 import NotFound from "@/pages/not-found";
 import MobileLeadManager from "@/components/mobile-lead-manager";
@@ -65,7 +65,7 @@ function AuthenticatedApp() {
           <DesktopPageWrapper component={TreasuryDashboard} />
         </Route>
         <Route path="/admin">
-          <DesktopPageWrapper component={AdminDashboard} />
+          <AdminDashboardFull />
         </Route>
         <Route path="/admin-moonshot">
           <DesktopPageWrapper component={AdminMoonshotPage} />

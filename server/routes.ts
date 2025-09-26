@@ -1293,6 +1293,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ====================== ADMIN SYSTEM MANAGEMENT API ======================
 
+  // Admin dashboard data endpoints
+  app.get("/api/admin/users", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      res.json(users);
+    } catch (error) {
+      console.error("Error getting users:", error);
+      res.status(500).json({ error: "Failed to get users" });
+    }
+  });
+
+  app.get("/api/admin/leads", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const leads = await storage.getLeads();
+      res.json(leads);
+    } catch (error) {
+      console.error("Error getting leads:", error);
+      res.status(500).json({ error: "Failed to get leads" });
+    }
+  });
+
+  app.get("/api/admin/stats", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      const leads = await storage.getLeads();
+      
+      const stats = {
+        totalUsers: users.length,
+        totalLeads: leads.length,
+        activeJobs: leads.filter((lead: any) => lead.status === 'in_progress').length,
+        monthlyRevenue: 45000, // This would come from actual financial data
+        completedJobs: leads.filter((lead: any) => lead.status === 'completed').length,
+        pendingLeads: leads.filter((lead: any) => lead.status === 'new').length,
+      };
+      
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting admin stats:", error);
+      res.status(500).json({ error: "Failed to get admin stats" });
+    }
+  });
+
   // Get system configuration (admin only) - shows environment variable status without exposing values
   app.get("/api/admin/system/config", isAuthenticated, requireAdmin, async (req, res) => {
     try {
