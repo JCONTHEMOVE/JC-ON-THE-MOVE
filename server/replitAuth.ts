@@ -32,6 +32,11 @@ export function getSession() {
     ttl: sessionTtl,
     tableName: "sessions",
   });
+  
+  // Determine if we should use secure cookies based on the actual protocol
+  const isSecureContext = process.env.NODE_ENV === 'production' && 
+                          !process.env.REPLIT_DOMAINS?.includes('replit.app');
+  
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
@@ -39,9 +44,10 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Use secure cookies in production with custom domains
+      secure: isSecureContext, // Only secure for custom domains in production
       sameSite: 'lax', // CSRF protection
       maxAge: sessionTtl,
+      domain: undefined, // Let browser handle domain automatically
     },
   });
 }
