@@ -36,14 +36,7 @@ export function useAuth() {
   // Helper function to check if user has admin level permissions
   const hasAdminAccess = user?.role === 'admin' || user?.role === 'business_owner';
   
-  // Debug logging to track auth issues
-  if (user) {
-    console.log('Auth Debug - user role:', user.role);
-    console.log('Auth Debug - hasAdminAccess:', hasAdminAccess);
-    console.log('Auth Debug - canAccessTreasury:', hasAdminAccess);
-  }
-  
-  // Temporary bypass for testing Treasury functionality
+  // Business owner access for Treasury functionality
   const isKnownBusinessOwner = user?.email === 'upmichiganstatemovers@gmail.com' || user?.role === 'business_owner';
   
   return {

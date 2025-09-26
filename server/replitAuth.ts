@@ -94,14 +94,12 @@ export async function setupAuth(app: Express) {
     verified: passport.AuthenticateCallback
   ) => {
     try {
-      console.log('🔐 Authentication verify called for user:', tokens.claims()?.email);
       const user = {};
       updateUserSession(user, tokens);
       await upsertUser(tokens.claims());
-      console.log('✅ User upserted successfully, calling verified callback');
       verified(null, user);
     } catch (error) {
-      console.error('❌ Authentication verification failed:', error);
+      console.error('Authentication verification failed:', error);
       verified(error);
     }
   };
@@ -150,11 +148,9 @@ export async function setupAuth(app: Express) {
   }
 
   passport.serializeUser((user: Express.User, cb) => {
-    console.log('📦 Serializing user for session');
     cb(null, user);
   });
   passport.deserializeUser((user: Express.User, cb) => {
-    console.log('📂 Deserializing user from session');
     cb(null, user);
   });
 
