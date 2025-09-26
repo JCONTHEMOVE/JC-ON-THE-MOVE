@@ -263,13 +263,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
-      // Only admin role has administrative access
-      if (!user || user.role !== 'admin') {
-        return res.status(403).json({ message: "Administrator access required" });
+      
+      // Allow both admin and business_owner roles for treasury access
+      const hasBusinessOwnerAccess = user && (user.role === 'admin' || user.role === 'business_owner');
+      
+      // Also allow upmichiganstatemovers@gmail.com as the known business owner
+      const isKnownBusinessOwner = user?.email === 'upmichiganstatemovers@gmail.com';
+      
+      if (!hasBusinessOwnerAccess && !isKnownBusinessOwner) {
+        console.log(`Access denied for user ${user?.email} with role ${user?.role}`);
+        return res.status(403).json({ message: "Business owner access required" });
       }
+      
+      console.log(`Treasury access granted for user ${user?.email} with role ${user?.role}`);
       req.currentUser = user;
       next();
     } catch (error) {
+      console.error("Business owner access control error:", error);
       res.status(500).json({ message: "Access control error" });
     }
   };
@@ -307,18 +317,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      console.log(`Fetching user data for userId: ${userId}`);
+      console.log(`✅ Authentication successful - Fetching user data for userId: ${userId}`);
       const user = await storage.getUser(userId);
-      console.log(`User data retrieved:`, user ? 'found' : 'not found');
+      console.log(`User data retrieved:`, user ? `found - ${user.email} with role ${user.role}` : 'not found');
       
       if (!user) {
-        console.error(`User not found in database for userId: ${userId}`);
+        console.error(`❌ User not found in database for userId: ${userId}`);
         return res.status(404).json({ message: "User not found" });
       }
       
+      console.log(`📤 Returning user data for ${user.email}`);
       res.json(user);
     } catch (error) {
-      console.error("Error fetching user:", error);
+      console.error("❌ Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
