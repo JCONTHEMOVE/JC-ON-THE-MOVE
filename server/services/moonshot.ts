@@ -29,7 +29,7 @@ export const moonshotAccountTransferSchema = z.object({
   accountId: z.string().min(1, "Moonshot account ID is required"),
   tokenSymbol: z.string().default("SOL"),
   tokenAmount: z.string().min(1, "Token amount is required"),
-  treasuryAccountId: z.string().min(1, "Treasury account ID is required"),
+  treasuryAccountId: z.string().optional().default(""),
   notes: z.string().optional(),
 });
 
