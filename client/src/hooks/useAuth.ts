@@ -43,6 +43,9 @@ export function useAuth() {
     console.log('Auth Debug - canAccessTreasury:', hasAdminAccess);
   }
   
+  // Temporary bypass for testing Treasury functionality
+  const isKnownBusinessOwner = user?.email === 'upmichiganstatemovers@gmail.com' || user?.role === 'business_owner';
+  
   return {
     user,
     isLoading,
@@ -54,7 +57,7 @@ export function useAuth() {
     hasAdminAccess,
     hasManagementAccess: hasAdminAccess,
     canManageInvitations: hasAdminAccess,
-    canAccessTreasury: hasAdminAccess, // Both admin and business_owner can access treasury
+    canAccessTreasury: hasAdminAccess || isKnownBusinessOwner, // Both admin and business_owner can access treasury
     canViewAllLeads: hasAdminAccess,
   };
 }

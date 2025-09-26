@@ -881,7 +881,7 @@ export default function MobileLeadManager() {
             </div>
           </Button>
           
-          {(canAccessTreasury || user?.role === 'business_owner') && (
+          {(canAccessTreasury || user?.role === 'business_owner' || user?.email === 'upmichiganstatemovers@gmail.com') && (
             <Button
               variant={activeTab === "treasury" ? "default" : "ghost"}
               className="flex-1 mx-1"
