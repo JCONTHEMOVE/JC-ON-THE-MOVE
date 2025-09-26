@@ -427,8 +427,8 @@ export class TreasuryService {
       },
       marketMetrics: {
         volatility: Math.abs(volatility.changePercent),
-        marketCap: marketData?.marketCap,
-        volume24h: marketData?.volume24h,
+        marketCap: marketData?.marketCap?.toString(),
+        volume24h: marketData?.volume24h?.toString(),
         priceChange24h: marketData?.priceChange24h
       },
       riskAssessment
