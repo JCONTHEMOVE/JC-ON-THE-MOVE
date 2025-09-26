@@ -772,7 +772,7 @@ export default function MobileLeadManager() {
                       <div className="text-center">
                         <p className="text-sm text-muted-foreground">Available Funding</p>
                         <p className="text-lg font-bold text-green-600">
-                          ${(treasuryStatus.stats?.availableFunding || 0).toFixed(2)}
+                          ${(treasuryStatus.stats?.totalFunding || 0).toFixed(2)}
                         </p>
                       </div>
                       <div className="text-center">
