@@ -405,8 +405,8 @@ export default function MobileLeadManager() {
   const { data: treasuryStatus, isLoading: treasuryStatusLoading } = useQuery<TreasuryStatus>({
     queryKey: ["/api/treasury/status"],
     enabled: isOnline && canAccessTreasury, // Only fetch if user has treasury access
-    staleTime: 0, // Force fresh data every time
-    refetchInterval: 5000, // Refresh every 5 seconds for testing
+    staleTime: 30 * 1000, // 30 seconds
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 
   const { data: treasuryTransactions, isLoading: treasuryTransactionsLoading } = useQuery({
