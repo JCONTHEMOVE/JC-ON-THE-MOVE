@@ -38,58 +38,85 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  let server;
+  try {
+    // Initialize server with comprehensive error handling
+    console.log('Initializing application server...');
+    server = await registerRoutes(app);
+    console.log('Application routes registered successfully');
 
-  // Serve static files from attached_assets directory
-  app.use('/attached_assets', express.static(path.resolve(process.cwd(), 'attached_assets')));
+    // Serve static files from attached_assets directory
+    app.use('/attached_assets', express.static(path.resolve(process.cwd(), 'attached_assets')));
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
-
-  // Error handling middleware should be last to catch all errors
-  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-    // If headers are already sent, pass to default Express error handler
-    if (res.headersSent) {
-      return next(err);
-    }
-
-    const status = err.status || err.statusCode || 500;
-    
-    // Sanitize error messages for production 5xx errors
-    let message: string;
-    if (status >= 500 && process.env.NODE_ENV === "production") {
-      message = "Internal Server Error";
+    // Setup Vite for development or serve static files for production
+    if (app.get("env") === "development") {
+      console.log('Setting up Vite development server...');
+      await setupVite(app, server);
+      console.log('Vite development server configured successfully');
     } else {
-      message = err.message || "Internal Server Error";
+      console.log('Configuring static file serving for production...');
+      serveStatic(app);
+      console.log('Static file serving configured successfully');
     }
 
-    // Log the error for debugging and monitoring
-    console.error(`Error ${status} on ${req.method} ${req.path}:`, err.message);
+    // Error handling middleware should be last to catch all errors
+    app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+      // If headers are already sent, pass to default Express error handler
+      if (res.headersSent) {
+        return next(err);
+      }
+
+      const status = err.status || err.statusCode || 500;
+      
+      // Sanitize error messages for production 5xx errors
+      let message: string;
+      if (status >= 500 && process.env.NODE_ENV === "production") {
+        message = "Internal Server Error";
+      } else {
+        message = err.message || "Internal Server Error";
+      }
+
+      // Log the error for debugging and monitoring
+      console.error(`Error ${status} on ${req.method} ${req.path}:`, err.message);
+      
+      // In development, log the full stack trace
+      if (process.env.NODE_ENV === "development") {
+        console.error("Full error stack:", err.stack);
+      }
+
+      res.status(status).json({ message });
+    });
+
+    // ALWAYS serve the app on the port specified in the environment variable PORT
+    // Other ports are firewalled. Default to 5000 if not specified.
+    // this serves both the API and the client.
+    // It is the only port that is not firewalled.
+    const port = parseInt(process.env.PORT || '5000', 10);
     
-    // In development, log the full stack trace
-    if (process.env.NODE_ENV === "development") {
-      console.error("Full error stack:", err.stack);
+    console.log(`Starting server on port ${port}...`);
+    server.listen({
+      port,
+      host: "0.0.0.0",
+      reusePort: true,
+    }, () => {
+      console.log('✅ JC ON THE MOVE application started successfully');
+      log(`serving on port ${port}`);
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to initialize JC ON THE MOVE application:');
+    console.error('Error details:', error);
+    
+    // In deployment, log detailed error but continue gracefully
+    if (process.env.NODE_ENV === 'production') {
+      console.error('Application startup failed in production. Check configuration.');
+      console.error('Common issues: Invalid environment variables, database connection, or service configurations');
     }
-
-    res.status(status).json({ message });
-  });
-
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-  });
+    
+    // Don't exit in development for better debugging
+    if (process.env.NODE_ENV !== 'development') {
+      console.error('Exiting due to startup failure...');
+      process.exit(1);
+    }
+  }
 })();
