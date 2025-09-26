@@ -771,13 +771,13 @@ export default function MobileLeadManager() {
                       <div className="text-center">
                         <p className="text-sm text-muted-foreground">Available Funding</p>
                         <p className="text-lg font-bold text-green-600">
-                          ${treasuryStatus.stats?.availableFunding?.toFixed(2) || '0.00'}
+                          ${parseFloat(treasuryStatus.stats?.availableFunding?.toString() || '0').toFixed(2)}
                         </p>
                       </div>
                       <div className="text-center">
                         <p className="text-sm text-muted-foreground">Token Reserve</p>
                         <p className="text-lg font-bold text-blue-600">
-                          {treasuryStatus.stats?.tokenReserve?.toFixed(2) || '0.00'}
+                          {parseFloat(treasuryStatus.stats?.tokenReserve?.toString() || '0').toFixed(2)}
                         </p>
                       </div>
                     </div>
