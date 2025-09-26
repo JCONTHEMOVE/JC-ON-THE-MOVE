@@ -893,10 +893,10 @@ export default function MobileLeadManager() {
 
       {/* Bottom Navigation */}
       <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border p-2">
-        <div className="flex items-center justify-evenly max-w-2xl mx-auto gap-0.5">
+        <div className="grid grid-cols-5 gap-1 max-w-2xl mx-auto">
           <Button
             variant={activeTab === "available" ? "default" : "ghost"}
-            className="flex-1 mx-0.5"
+            className="w-full px-2 py-2"
             onClick={() => handleTabChange("available")}
             data-testid="tab-available-jobs"
           >
@@ -913,7 +913,7 @@ export default function MobileLeadManager() {
           
           <Button
             variant={activeTab === "accepted" ? "default" : "ghost"}
-            className="flex-1 mx-0.5"
+            className="w-full px-2 py-2"
             onClick={() => handleTabChange("accepted")}
             data-testid="tab-my-jobs"
           >
@@ -930,7 +930,7 @@ export default function MobileLeadManager() {
           
           <Button
             variant={activeTab === "map" ? "default" : "ghost"}
-            className="flex-1 mx-0.5"
+            className="w-full px-2 py-2"
             onClick={() => handleTabChange("map")}
             data-testid="tab-map-view"
           >
@@ -948,7 +948,7 @@ export default function MobileLeadManager() {
           {(canAccessTreasury || user?.role === 'business_owner' || user?.email === 'upmichiganstatemovers@gmail.com') && (
             <Button
               variant={activeTab === "treasury" ? "default" : "ghost"}
-              className="flex-1 mx-0.5"
+              className="w-full px-2 py-2"
               onClick={() => handleTabChange("treasury")}
               data-testid="tab-treasury"
             >
@@ -961,7 +961,7 @@ export default function MobileLeadManager() {
           
           <Button
             variant={activeTab === "settings" ? "default" : "ghost"}
-            className="flex-1 mx-0.5"
+            className="w-full px-2 py-2"
             onClick={() => handleTabChange("settings")}
             data-testid="tab-settings"
           >
