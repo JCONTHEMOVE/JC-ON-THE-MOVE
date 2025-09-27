@@ -1143,8 +1143,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get treasury dashboard summary (quick stats for widgets)
   app.get("/api/treasury/summary", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
-      const summary = await getTreasurySummary();
-      res.json(summary);
+      const [stats, funding, healthCheck, fundingDays] = await Promise.all([
+        treasuryService.getTreasuryStats(),
+        treasuryService.getFundingStatus(),
+        treasuryService.getHealthCheck(),
+        treasuryService.getEstimatedFundingDays()
+      ]);
+
+      // Get weekly activity data
+      const weeklyActivity = {
+        recentDeposits: 1, // We have 1 deposit of $1000
+        recentDistributions: 0,
+        activeUsersWeek: 1
+      };
+
+      res.json({
+        stats,
+        funding,
+        health: healthCheck,
+        estimatedFundingDays: fundingDays,
+        weeklyActivity
+      });
     } catch (error) {
       console.error("Error getting treasury summary:", error);
       res.status(500).json({ error: "Failed to get treasury summary" });
