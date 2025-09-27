@@ -1453,7 +1453,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Daily check-in endpoint
   app.post("/api/gamification/checkin", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
+      const userId = req.user.claims.sub;
       const result = await gamificationService.performDailyCheckIn(userId);
       
       if (result.success) {
@@ -1486,7 +1486,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get employee gamification data (stats, achievements, rank, etc.)
   app.get("/api/gamification/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
+      const userId = req.user.claims.sub;
       const data = await gamificationService.getEmployeeGamificationData(userId);
       
       res.json({
@@ -1525,7 +1525,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/gamification/job-completion", isAuthenticated, async (req: any, res) => {
     try {
       const { jobId, onTime, customerRating } = req.body;
-      const userId = req.user.id;
+      const userId = req.user.claims.sub;
       
       if (!jobId) {
         return res.status(400).json({
@@ -1558,7 +1558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user's weekly rank
   app.get("/api/gamification/rank", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
+      const userId = req.user.claims.sub;
       const rank = await gamificationService.getWeeklyRank(userId);
       
       res.json({
