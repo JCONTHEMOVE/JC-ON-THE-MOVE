@@ -1090,6 +1090,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
   // Get funding deposit history
   app.get("/api/treasury/deposits", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
