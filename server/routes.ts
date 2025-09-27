@@ -9,6 +9,7 @@ import { rewardsService } from "./services/rewards";
 import { cryptoCashoutService } from "./services/crypto-cashout";
 import { moonshotService, moonshotAccountTransferSchema } from "./services/moonshot";
 import { treasuryService } from "./services/treasury";
+import { gamificationService } from "./services/gamification";
 import { insertFundingDepositSchema, insertFaucetConfigSchema, insertFaucetWalletSchema } from "@shared/schema";
 import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
@@ -1444,6 +1445,132 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting system health:", error);
       res.status(500).json({ error: "Failed to get system health status" });
+    }
+  });
+
+  // ====================== GAMIFICATION API ROUTES ======================
+
+  // Daily check-in endpoint
+  app.post("/api/gamification/checkin", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const result = await gamificationService.performDailyCheckIn(userId);
+      
+      if (result.success) {
+        res.json({
+          success: true,
+          points: result.points,
+          tokens: result.tokens,
+          streak: result.streak,
+          isNewRecord: result.isNewRecord,
+          treasuryBalance: result.treasuryBalance,
+          message: `Daily check-in successful! Earned ${result.points} points and ${result.tokens} JCMOVES tokens.`
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error,
+          streak: result.streak,
+          treasuryBalance: result.treasuryBalance
+        });
+      }
+    } catch (error) {
+      console.error("Error during daily check-in:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to process daily check-in"
+      });
+    }
+  });
+
+  // Get employee gamification data (stats, achievements, rank, etc.)
+  app.get("/api/gamification/stats", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const data = await gamificationService.getEmployeeGamificationData(userId);
+      
+      res.json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      console.error("Error getting gamification stats:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to get gamification data"
+      });
+    }
+  });
+
+  // Get weekly leaderboard
+  app.get("/api/gamification/leaderboard", isAuthenticated, async (req: any, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 10, 50); // Max 50 results
+      const leaderboard = await gamificationService.getWeeklyLeaderboard();
+      
+      res.json({
+        success: true,
+        leaderboard: leaderboard.slice(0, limit)
+      });
+    } catch (error) {
+      console.error("Error getting leaderboard:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to get leaderboard data"
+      });
+    }
+  });
+
+  // Award job completion points (internal endpoint for job workflow)
+  app.post("/api/gamification/job-completion", isAuthenticated, async (req: any, res) => {
+    try {
+      const { jobId, onTime, customerRating } = req.body;
+      const userId = req.user.id;
+      
+      if (!jobId) {
+        return res.status(400).json({
+          success: false,
+          error: "Job ID is required"
+        });
+      }
+
+      const result = await gamificationService.awardJobCompletionPoints(userId, jobId, {
+        onTime: Boolean(onTime),
+        customerRating: customerRating ? parseFloat(customerRating) : undefined
+      });
+      
+      res.json({
+        success: true,
+        points: result.points,
+        tokens: result.tokens,
+        level: result.level,
+        message: `Job completion reward: ${result.points} points and ${result.tokens} JCMOVES tokens!`
+      });
+    } catch (error) {
+      console.error("Error awarding job completion points:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to award job completion points"
+      });
+    }
+  });
+
+  // Get user's weekly rank
+  app.get("/api/gamification/rank", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const rank = await gamificationService.getWeeklyRank(userId);
+      
+      res.json({
+        success: true,
+        rank
+      });
+    } catch (error) {
+      console.error("Error getting user rank:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to get user rank"
+      });
     }
   });
 

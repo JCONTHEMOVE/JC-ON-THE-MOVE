@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, faucetConfig, faucetClaims, faucetWallets, faucetRevenue } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, isNull, and, isNotNull, sql, gt, gte } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
@@ -73,6 +73,22 @@ export interface IStorage {
   getFaucetClaims(userId?: string, currency?: string, limit?: number): Promise<FaucetClaim[]>;
   getFaucetRevenue(date?: string, currency?: string): Promise<FaucetRevenue[]>;
   updateFaucetRevenue(date: string, currency: string, updates: Partial<FaucetRevenue>): Promise<FaucetRevenue>;
+
+  // Gamification operations
+  getEmployeeStats(userId: string): Promise<EmployeeStats | undefined>;
+  createEmployeeStats(stats: InsertEmployeeStats): Promise<EmployeeStats>;
+  updateEmployeeStats(userId: string, updates: Partial<EmployeeStats>): Promise<EmployeeStats | undefined>;
+  getTodayCheckIn(userId: string, date: string): Promise<DailyCheckin | undefined>;
+  getLastCheckIn(userId: string): Promise<DailyCheckin | undefined>;
+  createDailyCheckIn(checkin: InsertDailyCheckin): Promise<DailyCheckin>;
+  createPointTransaction(transaction: InsertPointTransaction): Promise<PointTransaction>;
+  getEmployeeAchievements(userId: string, limit?: number): Promise<(EmployeeAchievement & { achievementType: AchievementType })[]>;
+  getUserAchievement(userId: string, achievementTypeId: string): Promise<EmployeeAchievement | undefined>;
+  createEmployeeAchievement(achievement: InsertEmployeeAchievement): Promise<EmployeeAchievement>;
+  getAchievementByKey(key: string): Promise<AchievementType | undefined>;
+  getWeeklyLeaderboard(limit?: number): Promise<WeeklyLeaderboard[]>;
+  getWeeklyRank(userId: string): Promise<{ rank: number; totalEmployees: number; weeklyPoints: number } | null>;
+  getWalletAccount(userId: string): Promise<WalletAccount | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1121,6 +1137,158 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return created;
     }
+  }
+
+  // Gamification operations
+  async getEmployeeStats(userId: string): Promise<EmployeeStats | undefined> {
+    const [stats] = await db
+      .select()
+      .from(employeeStats)
+      .where(eq(employeeStats.userId, userId));
+    return stats || undefined;
+  }
+
+  async createEmployeeStats(stats: InsertEmployeeStats): Promise<EmployeeStats> {
+    const [created] = await db
+      .insert(employeeStats)
+      .values(stats)
+      .returning();
+    return created;
+  }
+
+  async updateEmployeeStats(userId: string, updates: Partial<EmployeeStats>): Promise<EmployeeStats | undefined> {
+    const [updated] = await db
+      .update(employeeStats)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(employeeStats.userId, userId))
+      .returning();
+    return updated || undefined;
+  }
+
+  async getTodayCheckIn(userId: string, date: string): Promise<DailyCheckin | undefined> {
+    const [checkin] = await db
+      .select()
+      .from(dailyCheckins)
+      .where(and(eq(dailyCheckins.userId, userId), eq(dailyCheckins.checkinDate, date)));
+    return checkin || undefined;
+  }
+
+  async getLastCheckIn(userId: string): Promise<DailyCheckin | undefined> {
+    const [checkin] = await db
+      .select()
+      .from(dailyCheckins)
+      .where(eq(dailyCheckins.userId, userId))
+      .orderBy(desc(dailyCheckins.checkinDate))
+      .limit(1);
+    return checkin || undefined;
+  }
+
+  async createDailyCheckIn(checkin: InsertDailyCheckin): Promise<DailyCheckin> {
+    const [created] = await db
+      .insert(dailyCheckins)
+      .values(checkin)
+      .returning();
+    return created;
+  }
+
+  async createPointTransaction(transaction: InsertPointTransaction): Promise<PointTransaction> {
+    const [created] = await db
+      .insert(pointTransactions)
+      .values(transaction)
+      .returning();
+    return created;
+  }
+
+  async getEmployeeAchievements(userId: string, limit: number = 5): Promise<(EmployeeAchievement & { achievementType: AchievementType })[]> {
+    const results = await db
+      .select({
+        id: employeeAchievements.id,
+        userId: employeeAchievements.userId,
+        achievementTypeId: employeeAchievements.achievementTypeId,
+        earnedAt: employeeAchievements.earnedAt,
+        progress: employeeAchievements.progress,
+        notified: employeeAchievements.notified,
+        celebrationShown: employeeAchievements.celebrationShown,
+        achievementType: achievementTypes
+      })
+      .from(employeeAchievements)
+      .leftJoin(achievementTypes, eq(employeeAchievements.achievementTypeId, achievementTypes.id))
+      .where(eq(employeeAchievements.userId, userId))
+      .orderBy(desc(employeeAchievements.earnedAt))
+      .limit(limit);
+    
+    return results.map(result => ({
+      id: result.id,
+      userId: result.userId,
+      achievementTypeId: result.achievementTypeId,
+      earnedAt: result.earnedAt,
+      progress: result.progress,
+      notified: result.notified,
+      celebrationShown: result.celebrationShown,
+      achievementType: result.achievementType!
+    }));
+  }
+
+  async getUserAchievement(userId: string, achievementTypeId: string): Promise<EmployeeAchievement | undefined> {
+    const [achievement] = await db
+      .select()
+      .from(employeeAchievements)
+      .where(and(eq(employeeAchievements.userId, userId), eq(employeeAchievements.achievementTypeId, achievementTypeId)));
+    return achievement || undefined;
+  }
+
+  async createEmployeeAchievement(achievement: InsertEmployeeAchievement): Promise<EmployeeAchievement> {
+    const [created] = await db
+      .insert(employeeAchievements)
+      .values(achievement)
+      .returning();
+    return created;
+  }
+
+  async getAchievementByKey(key: string): Promise<AchievementType | undefined> {
+    const [achievement] = await db
+      .select()
+      .from(achievementTypes)
+      .where(eq(achievementTypes.name, key));
+    return achievement || undefined;
+  }
+
+  async getWeeklyLeaderboard(limit: number = 10): Promise<WeeklyLeaderboard[]> {
+    return await db
+      .select()
+      .from(weeklyLeaderboards)
+      .orderBy(desc(weeklyLeaderboards.rank))
+      .limit(limit);
+  }
+
+  async getWeeklyRank(userId: string): Promise<{ rank: number; totalEmployees: number; weeklyPoints: number } | null> {
+    const [result] = await db
+      .select()
+      .from(weeklyLeaderboards)
+      .where(eq(weeklyLeaderboards.userId, userId))
+      .orderBy(desc(weeklyLeaderboards.weekStartDate))
+      .limit(1);
+    
+    if (!result) return null;
+    
+    const totalEmployees = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(weeklyLeaderboards)
+      .where(eq(weeklyLeaderboards.weekStartDate, result.weekStartDate));
+    
+    return {
+      rank: result.rank || 0,
+      totalEmployees: totalEmployees[0]?.count || 0,
+      weeklyPoints: result.pointsEarned
+    };
+  }
+
+  async getWalletAccount(userId: string): Promise<WalletAccount | undefined> {
+    const [wallet] = await db
+      .select()
+      .from(walletAccounts)
+      .where(eq(walletAccounts.userId, userId));
+    return wallet || undefined;
   }
 }
 

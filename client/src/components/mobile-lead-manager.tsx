@@ -45,6 +45,16 @@ import { PhotoCapture } from "@/components/photo-capture";
 import { NotificationBell } from "@/components/notification-bell";
 import { useAuth } from "@/hooks/useAuth";
 
+// Helper function for ordinal suffixes (1st, 2nd, 3rd, etc.)
+function getOrdinalSuffix(num: number): string {
+  const j = num % 10;
+  const k = num % 100;
+  if (j === 1 && k !== 11) return "st";
+  if (j === 2 && k !== 12) return "nd";
+  if (j === 3 && k !== 13) return "rd";
+  return "th";
+}
+
 // Treasury types
 interface TreasuryStatus {
   stats: {
@@ -413,6 +423,46 @@ export default function MobileLeadManager() {
     enabled: isOnline && canAccessTreasury, // Only fetch if user has treasury access
     staleTime: 30 * 1000, // 30 seconds
     refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  // Gamification data queries
+  const { data: gamificationData, isLoading: gamificationLoading } = useQuery({
+    queryKey: ["/api/gamification/stats"],
+    enabled: isOnline && isAuthenticated,
+    staleTime: 60 * 1000, // 1 minute
+  });
+
+  // Daily check-in mutation
+  const dailyCheckinMutation = useMutation({
+    mutationFn: () => {
+      // Create device fingerprint for security/fraud prevention
+      const deviceFingerprint = {
+        userAgent: navigator.userAgent,
+        screenResolution: `${screen.width}x${screen.height}`,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        language: navigator.language,
+        platform: navigator.platform
+      };
+      
+      return apiRequest("/api/gamification/checkin", { 
+        method: "POST",
+        body: JSON.stringify({ deviceFingerprint })
+      });
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/stats"] });
+      toast({
+        title: "Daily Check-In Complete! 🎉",
+        description: data.message || `Earned ${data.points} points and ${data.tokens} JCMOVES tokens!`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Check-In Failed",
+        description: error.message || "Unable to complete daily check-in",
+        variant: "destructive",
+      });
+    },
   });
 
   const { data: treasuryTransactions, isLoading: treasuryTransactionsLoading } = useQuery({
@@ -828,124 +878,172 @@ export default function MobileLeadManager() {
               </p>
             </div>
 
-            {/* Daily Check-In Card */}
-            <Card>
-              <CardContent className="p-6">
-                <div className="text-center">
-                  <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
-                    <Gift className="h-10 w-10 text-white" />
-                  </div>
-                  <h3 className="text-lg font-semibold mb-2">Daily Check-In</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Last check-in: Today
-                  </p>
-                  <Button 
-                    className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600"
-                    data-testid="button-daily-checkin"
-                  >
-                    <Calendar className="h-4 w-4 mr-2" />
-                    Claim Daily Reward
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            {gamificationLoading ? (
+              <div className="text-center py-8">
+                <RefreshCw className="h-8 w-8 mx-auto text-muted-foreground mb-4 animate-spin" />
+                <p className="text-muted-foreground">Loading your rewards...</p>
+              </div>
+            ) : gamificationData ? (
+              <>
+                {/* Daily Check-In Card */}
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="text-center">
+                      <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
+                        <Gift className="h-10 w-10 text-white" />
+                      </div>
+                      <h3 className="text-lg font-semibold mb-2">Daily Check-In</h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        {gamificationData.data.canCheckIn 
+                          ? "Ready for today's check-in!" 
+                          : `Last check-in: ${gamificationData.data.lastCheckIn ? new Date(gamificationData.data.lastCheckIn).toLocaleDateString() : 'Never'}`
+                        }
+                      </p>
+                      <Button 
+                        className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:opacity-50"
+                        data-testid="button-daily-checkin"
+                        onClick={() => dailyCheckinMutation.mutate()}
+                        disabled={!gamificationData.data.canCheckIn || dailyCheckinMutation.isPending}
+                      >
+                        {dailyCheckinMutation.isPending ? (
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Calendar className="h-4 w-4 mr-2" />
+                        )}
+                        {gamificationData.data.canCheckIn ? "Claim Daily Reward" : "Already Claimed Today"}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
 
-            {/* Streak & Stats */}
-            <div className="grid grid-cols-2 gap-4">
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <Zap className="h-8 w-8 mx-auto mb-2 text-orange-500" />
-                  <p className="text-sm text-muted-foreground">Current Streak</p>
-                  <p className="text-2xl font-bold">7 days</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <Star className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
-                  <p className="text-sm text-muted-foreground">Total Points</p>
-                  <p className="text-2xl font-bold">2,450</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Token Balance */}
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">JCMOVES Balance</p>
-                    <p className="text-xl font-bold">125.5 Tokens</p>
-                    <p className="text-sm text-green-600">≈ $15.06 USD</p>
-                  </div>
-                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                    <DollarSign className="h-6 w-6 text-blue-600" />
-                  </div>
+                {/* Streak & Stats */}
+                <div className="grid grid-cols-2 gap-4">
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <Zap className="h-8 w-8 mx-auto mb-2 text-orange-500" />
+                      <p className="text-sm text-muted-foreground">Current Streak</p>
+                      <p className="text-2xl font-bold" data-testid="text-current-streak">
+                        {gamificationData.data.stats.currentStreak || 0} days
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4 text-center">
+                      <Star className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
+                      <p className="text-sm text-muted-foreground">Total Points</p>
+                      <p className="text-2xl font-bold" data-testid="text-total-points">
+                        {(gamificationData.data.stats.totalPoints || 0).toLocaleString()}
+                      </p>
+                    </CardContent>
+                  </Card>
                 </div>
-              </CardContent>
-            </Card>
 
-            {/* Recent Achievements */}
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <Trophy className="h-5 w-5 mr-2 text-yellow-500" />
-                  Recent Achievements
-                </h3>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                      <CheckCircle className="h-5 w-5 text-green-600" />
+                {/* Token Balance */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">JCMOVES Balance</p>
+                        <p className="text-xl font-bold" data-testid="text-token-balance">
+                          {gamificationData.data.tokenBalance.toFixed(1)} Tokens
+                        </p>
+                        <p className="text-sm text-green-600">
+                          ≈ ${(gamificationData.data.tokenBalance * 0.12).toFixed(2)} USD
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                        <DollarSign className="h-6 w-6 text-blue-600" />
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium">First Week Complete!</p>
-                      <p className="text-sm text-muted-foreground">7-day streak achieved • +50 tokens</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                      <Target className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium">Job Master</p>
-                      <p className="text-sm text-muted-foreground">Completed 5 jobs • +100 tokens</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
 
-            {/* Leaderboard Preview */}
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <TrendingUp className="h-5 w-5 mr-2 text-purple-500" />
-                  Weekly Leaderboard
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between p-2 bg-yellow-50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary">2nd</Badge>
-                      <span className="font-medium">You</span>
-                    </div>
-                    <span className="text-sm font-semibold">2,450 pts</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">1st</Badge>
-                      <span>Mike S.</span>
-                    </div>
-                    <span className="text-sm">2,680 pts</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">3rd</Badge>
-                      <span>Sarah L.</span>
-                    </div>
-                    <span className="text-sm">2,100 pts</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                {/* Recent Achievements */}
+                <Card>
+                  <CardContent className="p-4">
+                    <h3 className="font-semibold mb-3 flex items-center">
+                      <Trophy className="h-5 w-5 mr-2 text-yellow-500" />
+                      Recent Achievements
+                    </h3>
+                    {gamificationData.data.recentAchievements.length > 0 ? (
+                      <div className="space-y-3">
+                        {gamificationData.data.recentAchievements.map((achievement, index) => (
+                          <div key={achievement.id} className="flex items-center gap-3" data-testid={`achievement-${index}`}>
+                            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                              <Trophy className="h-5 w-5 text-green-600" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{achievement.achievementType.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {achievement.achievementType.description} • +{achievement.achievementType.tokenReward} tokens
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4">
+                        <Trophy className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                        <p className="text-sm text-muted-foreground">No achievements yet</p>
+                        <p className="text-xs text-muted-foreground">Complete jobs and maintain streaks to earn achievements!</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Leaderboard Preview */}
+                <Card>
+                  <CardContent className="p-4">
+                    <h3 className="font-semibold mb-3 flex items-center">
+                      <TrendingUp className="h-5 w-5 mr-2 text-purple-500" />
+                      Weekly Leaderboard
+                    </h3>
+                    {gamificationData.data.weeklyRank ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between p-2 bg-yellow-50 rounded-lg" data-testid="leaderboard-user-rank">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary">{gamificationData.data.weeklyRank.rank}{getOrdinalSuffix(gamificationData.data.weeklyRank.rank)}</Badge>
+                            <span className="font-medium">You</span>
+                          </div>
+                          <span className="text-sm font-semibold">
+                            {gamificationData.data.weeklyRank.weeklyPoints.toLocaleString()} pts
+                          </span>
+                        </div>
+                        <div className="text-center py-2">
+                          <p className="text-sm text-muted-foreground">
+                            Rank {gamificationData.data.weeklyRank.rank} of {gamificationData.data.weeklyRank.totalEmployees} employees
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-4">
+                        <TrendingUp className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                        <p className="text-sm text-muted-foreground">No ranking yet</p>
+                        <p className="text-xs text-muted-foreground">Complete some jobs to appear on the leaderboard!</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            ) : !isOnline ? (
+              <div className="text-center py-12">
+                <WifiOff className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">Rewards unavailable offline</p>
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <Gift className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">Unable to load rewards data</p>
+                <Button 
+                  variant="outline" 
+                  className="mt-4"
+                  onClick={() => window.location.reload()}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Try Again
+                </Button>
+              </div>
+            )}
           </div>
         ) : activeTab === "settings" ? (
           <div className="space-y-4">
