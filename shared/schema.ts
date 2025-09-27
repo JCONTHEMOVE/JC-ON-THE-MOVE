@@ -432,3 +432,155 @@ export type InsertFaucetRevenue = z.infer<typeof insertFaucetRevenueSchema>;
 export type FaucetRevenue = typeof faucetRevenue.$inferSelect;
 export type InsertFaucetWallet = z.infer<typeof insertFaucetWalletSchema>;
 export type FaucetWallet = typeof faucetWallets.$inferSelect;
+
+// Employee Gamification System
+export const employeeStats = pgTable("employee_stats", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id).unique(),
+  totalPoints: integer("total_points").notNull().default(0),
+  currentLevel: integer("current_level").notNull().default(1),
+  jobsCompleted: integer("jobs_completed").notNull().default(0),
+  currentStreak: integer("current_streak").notNull().default(0), // Current streak of consecutive job completions
+  longestStreak: integer("longest_streak").notNull().default(0), // Best streak ever achieved
+  averageRating: decimal("average_rating", { precision: 3, scale: 2 }).default("0.00"), // Customer satisfaction rating
+  totalRatings: integer("total_ratings").notNull().default(0),
+  onTimeCompletions: integer("on_time_completions").notNull().default(0),
+  monthlyGoal: integer("monthly_goal").default(10), // Jobs to complete this month
+  monthlyProgress: integer("monthly_progress").notNull().default(0),
+  totalEarnedTokens: decimal("total_earned_tokens", { precision: 18, scale: 8 }).default("0.00000000"),
+  rankTitle: text("rank_title").default("Rookie Mover"), // Dynamic rank based on performance
+  lastActivityDate: timestamp("last_activity_date").default(sql`now()`),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+export const achievementTypes = pgTable("achievement_types", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(), // "Speed Demon", "Customer Champion", "Streak Master"
+  description: text("description").notNull(),
+  category: text("category").notNull(), // "performance", "quality", "consistency", "milestones"
+  iconName: text("icon_name").notNull(), // Lucide icon name
+  iconColor: text("icon_color").notNull().default("#3b82f6"), // Hex color
+  pointsAwarded: integer("points_awarded").notNull().default(0),
+  tokenReward: decimal("token_reward", { precision: 18, scale: 8 }).default("0.00000000"),
+  requirements: jsonb("requirements").notNull(), // Conditions to earn this achievement
+  isActive: boolean("is_active").notNull().default(true),
+  rarity: text("rarity").notNull().default("common"), // "common", "rare", "epic", "legendary"
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const employeeAchievements = pgTable("employee_achievements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  achievementTypeId: varchar("achievement_type_id").notNull().references(() => achievementTypes.id),
+  earnedAt: timestamp("earned_at").notNull().default(sql`now()`),
+  progress: jsonb("progress"), // Track progress towards achievement if applicable
+  notified: boolean("notified").default(false), // Whether user has been notified
+  celebrationShown: boolean("celebration_shown").default(false), // Whether celebration animation was shown
+}, (table) => [
+  index("idx_employee_achievements_user").on(table.userId),
+  unique("unique_user_achievement").on(table.userId, table.achievementTypeId),
+]);
+
+export const pointTransactions = pgTable("point_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  points: integer("points").notNull(), // Can be positive or negative
+  transactionType: text("transaction_type").notNull(), // "job_completion", "bonus", "penalty", "achievement"
+  relatedEntityType: text("related_entity_type"), // "lead", "achievement", "bonus"
+  relatedEntityId: varchar("related_entity_id"), // ID of the related record
+  description: text("description").notNull(),
+  metadata: jsonb("metadata"), // Additional data like job details, performance metrics
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_point_transactions_user").on(table.userId, table.createdAt),
+]);
+
+export const weeklyLeaderboards = pgTable("weekly_leaderboards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  weekStartDate: date("week_start_date").notNull(),
+  weekEndDate: date("week_end_date").notNull(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  pointsEarned: integer("points_earned").notNull().default(0),
+  jobsCompleted: integer("jobs_completed").notNull().default(0),
+  averageRating: decimal("average_rating", { precision: 3, scale: 2 }).default("0.00"),
+  rank: integer("rank"), // Position in that week's leaderboard
+  tokenReward: decimal("token_reward", { precision: 18, scale: 8 }).default("0.00000000"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_weekly_leaderboard_week").on(table.weekStartDate, table.rank),
+  unique("unique_user_week").on(table.userId, table.weekStartDate),
+]);
+
+export const gamificationConfig = pgTable("gamification_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(), // "points_per_job", "level_threshold", "streak_bonus"
+  value: text("value").notNull(), // JSON stringified value
+  description: text("description"),
+  category: text("category").notNull().default("general"), // "points", "levels", "rewards", "achievements"
+  dataType: text("data_type").notNull().default("number"), // "number", "string", "boolean", "json"
+  isActive: boolean("is_active").notNull().default(true),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+});
+
+// Gamification schemas
+export const insertEmployeeStatsSchema = createInsertSchema(employeeStats).omit({
+  id: true,
+  totalPoints: true,
+  currentLevel: true,
+  jobsCompleted: true,
+  currentStreak: true,
+  longestStreak: true,
+  averageRating: true,
+  totalRatings: true,
+  onTimeCompletions: true,
+  monthlyProgress: true,
+  totalEarnedTokens: true,
+  rankTitle: true,
+  lastActivityDate: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAchievementTypeSchema = createInsertSchema(achievementTypes).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertEmployeeAchievementSchema = createInsertSchema(employeeAchievements).omit({
+  id: true,
+  earnedAt: true,
+  notified: true,
+  celebrationShown: true,
+});
+
+export const insertPointTransactionSchema = createInsertSchema(pointTransactions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertWeeklyLeaderboardSchema = createInsertSchema(weeklyLeaderboards).omit({
+  id: true,
+  rank: true,
+  tokenReward: true,
+  createdAt: true,
+});
+
+export const insertGamificationConfigSchema = createInsertSchema(gamificationConfig).omit({
+  id: true,
+  updatedAt: true,
+});
+
+// Gamification types
+export type InsertEmployeeStats = z.infer<typeof insertEmployeeStatsSchema>;
+export type EmployeeStats = typeof employeeStats.$inferSelect;
+export type InsertAchievementType = z.infer<typeof insertAchievementTypeSchema>;
+export type AchievementType = typeof achievementTypes.$inferSelect;
+export type InsertEmployeeAchievement = z.infer<typeof insertEmployeeAchievementSchema>;
+export type EmployeeAchievement = typeof employeeAchievements.$inferSelect;
+export type InsertPointTransaction = z.infer<typeof insertPointTransactionSchema>;
+export type PointTransaction = typeof pointTransactions.$inferSelect;
+export type InsertWeeklyLeaderboard = z.infer<typeof insertWeeklyLeaderboardSchema>;
+export type WeeklyLeaderboard = typeof weeklyLeaderboards.$inferSelect;
+export type InsertGamificationConfig = z.infer<typeof insertGamificationConfigSchema>;
+export type GamificationConfig = typeof gamificationConfig.$inferSelect;
