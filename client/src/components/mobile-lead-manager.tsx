@@ -31,7 +31,13 @@ import {
   Map,
   DollarSign,
   Settings,
-  LogOut
+  LogOut,
+  Gift,
+  Star,
+  Zap,
+  Trophy,
+  Target,
+  TrendingUp
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
@@ -353,14 +359,14 @@ export default function MobileLeadManager() {
   
   
   // Initialize tab based on user permissions
-  const getInitialTab = (): "available" | "accepted" | "map" | "treasury" | "settings" => {
+  const getInitialTab = (): "available" | "accepted" | "map" | "treasury" | "rewards" | "settings" => {
     return "available"; // Always start with available tab
   };
   
-  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury" | "settings">(getInitialTab());
+  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury" | "rewards" | "settings">(getInitialTab());
   
   // Prevent employees from accessing treasury tab
-  const handleTabChange = (tab: "available" | "accepted" | "map" | "treasury" | "settings") => {
+  const handleTabChange = (tab: "available" | "accepted" | "map" | "treasury" | "rewards" | "settings") => {
     if (tab === "treasury" && !canAccessTreasury && user?.role !== 'business_owner') {
       return; // Block access to treasury for employees
     }
@@ -813,6 +819,134 @@ export default function MobileLeadManager() {
               </div>
             )}
           </div>
+        ) : activeTab === "rewards" ? (
+          <div className="space-y-4">
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold mb-2">Daily Rewards</h2>
+              <p className="text-sm text-muted-foreground">
+                Check in daily to earn tokens and build your streak
+              </p>
+            </div>
+
+            {/* Daily Check-In Card */}
+            <Card>
+              <CardContent className="p-6">
+                <div className="text-center">
+                  <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
+                    <Gift className="h-10 w-10 text-white" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">Daily Check-In</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Last check-in: Today
+                  </p>
+                  <Button 
+                    className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600"
+                    data-testid="button-daily-checkin"
+                  >
+                    <Calendar className="h-4 w-4 mr-2" />
+                    Claim Daily Reward
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Streak & Stats */}
+            <div className="grid grid-cols-2 gap-4">
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <Zap className="h-8 w-8 mx-auto mb-2 text-orange-500" />
+                  <p className="text-sm text-muted-foreground">Current Streak</p>
+                  <p className="text-2xl font-bold">7 days</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <Star className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
+                  <p className="text-sm text-muted-foreground">Total Points</p>
+                  <p className="text-2xl font-bold">2,450</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Token Balance */}
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">JCMOVES Balance</p>
+                    <p className="text-xl font-bold">125.5 Tokens</p>
+                    <p className="text-sm text-green-600">≈ $15.06 USD</p>
+                  </div>
+                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <DollarSign className="h-6 w-6 text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Recent Achievements */}
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="font-semibold mb-3 flex items-center">
+                  <Trophy className="h-5 w-5 mr-2 text-yellow-500" />
+                  Recent Achievements
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium">First Week Complete!</p>
+                      <p className="text-sm text-muted-foreground">7-day streak achieved • +50 tokens</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                      <Target className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium">Job Master</p>
+                      <p className="text-sm text-muted-foreground">Completed 5 jobs • +100 tokens</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Leaderboard Preview */}
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="font-semibold mb-3 flex items-center">
+                  <TrendingUp className="h-5 w-5 mr-2 text-purple-500" />
+                  Weekly Leaderboard
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between p-2 bg-yellow-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">2nd</Badge>
+                      <span className="font-medium">You</span>
+                    </div>
+                    <span className="text-sm font-semibold">2,450 pts</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">1st</Badge>
+                      <span>Mike S.</span>
+                    </div>
+                    <span className="text-sm">2,680 pts</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">3rd</Badge>
+                      <span>Sarah L.</span>
+                    </div>
+                    <span className="text-sm">2,100 pts</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         ) : activeTab === "settings" ? (
           <div className="space-y-4">
             <div className="text-center mb-6">
@@ -893,7 +1027,7 @@ export default function MobileLeadManager() {
 
       {/* Bottom Navigation */}
       <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border p-2">
-        <div className="grid grid-cols-5 gap-1 max-w-2xl mx-auto">
+        <div className="grid grid-cols-6 gap-1 max-w-2xl mx-auto">
           <Button
             variant={activeTab === "available" ? "default" : "ghost"}
             className="w-full px-2 py-2"
@@ -958,6 +1092,18 @@ export default function MobileLeadManager() {
               </div>
             </Button>
           )}
+          
+          <Button
+            variant={activeTab === "rewards" ? "default" : "ghost"}
+            className="w-full px-2 py-2"
+            onClick={() => handleTabChange("rewards")}
+            data-testid="tab-rewards"
+          >
+            <div className="flex flex-col items-center gap-1">
+              <Gift className="h-4 w-4" />
+              <span className="text-xs">Rewards</span>
+            </div>
+          </Button>
           
           <Button
             variant={activeTab === "settings" ? "default" : "ghost"}
