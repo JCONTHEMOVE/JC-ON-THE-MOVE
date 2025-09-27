@@ -1026,7 +1026,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (transferStatus.status === "completed" && transferStatus.metadata) {
         // Create funding deposit record
         const depositAmount = transferStatus.metadata.usdValue;
-        const tokenPrice = await moonshotService.getTokenPrice(transferStatus.metadata.tokenSymbol);
+        const tokenPrice = await moonshotService.getTokenPrice();
         
         const result = await treasuryService.depositFunds(
           userId,
@@ -1562,14 +1562,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Create or update user's faucet wallet
         const existingWallet = await storage.getFaucetWallet(userId, currency);
-        if (existingWallet && userId) {
+        if (existingWallet && userId && faucetpayAddress) {
           await storage.updateFaucetWallet(userId, currency, {
             totalEarned: (parseFloat(existingWallet.totalEarned) + rewardAmount).toFixed(8),
             totalClaims: (existingWallet.totalClaims || 0) + 1,
             lastClaimTime: new Date(),
             faucetpayAddress
           });
-        } else {
+        } else if (faucetpayAddress) {
           await storage.createFaucetWallet({
             userId,
             currency,
