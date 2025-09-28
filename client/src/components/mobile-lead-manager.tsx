@@ -444,10 +444,7 @@ export default function MobileLeadManager() {
         platform: navigator.platform
       };
       
-      return apiRequest("/api/gamification/checkin", { 
-        method: "POST",
-        body: JSON.stringify({ deviceFingerprint })
-      });
+      return apiRequest("POST", "/api/gamification/checkin", { deviceFingerprint });
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/stats"] });
