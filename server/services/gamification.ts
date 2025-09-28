@@ -140,6 +140,36 @@ export class GamificationService {
         };
       }
 
+      // Create or update user's wallet account with the distributed tokens
+      try {
+        const existingWallet = await storage.getWalletByUserId(userId);
+        
+        if (existingWallet) {
+          // Update existing wallet
+          await storage.updateWalletAccount(userId, {
+            tokenBalance: (parseFloat(existingWallet.tokenBalance) + parseFloat(tokenAmount)).toFixed(8),
+            cashBalance: (parseFloat(existingWallet.cashBalance) + distributionResult.cashValue).toFixed(2),
+            totalEarned: (parseFloat(existingWallet.totalEarned) + parseFloat(tokenAmount)).toFixed(8),
+            lastActivity: new Date()
+          });
+        } else {
+          // Create new wallet account
+          await storage.createWalletAccount({
+            userId,
+            walletAddress: `0xJCMOVES_${userId.substring(0, 8)}`,
+            tokenBalance: tokenAmount,
+            cashBalance: distributionResult.cashValue.toFixed(2),
+            totalEarned: tokenAmount,
+            totalRedeemed: "0.00000000",
+            totalCashedOut: "0.00",
+            lastActivity: new Date()
+          });
+        }
+      } catch (walletError) {
+        console.error(`Wallet update error:`, walletError);
+        // Continue with check-in even if wallet update fails
+      }
+
       // Record the check-in
       await storage.createDailyCheckIn({
         userId,
