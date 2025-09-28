@@ -69,15 +69,17 @@ export const FAUCET_CONFIG = {
   },
   
   // Anti-abuse settings (stricter for self-funded)
-  MAX_CLAIMS_PER_IP_PER_HOUR: 3, // Reduced for self-funded
-  MAX_CLAIMS_PER_USER_PER_DAY: 12, // One every 2 hours max
-  RISK_SCORE_THRESHOLD: 60, // Lower threshold for better protection
+  ABUSE_PROTECTION: {
+    MAX_CLAIMS_PER_IP_PER_HOUR: 3, // Reduced for self-funded
+    MAX_CLAIMS_PER_USER_PER_DAY: 12, // One every 2 hours max
+    RISK_SCORE_THRESHOLD: 60, // Lower threshold for better protection
+  },
   
-  // Demo mode settings
+  // Demo mode settings (small realistic amounts that align with cash estimates)
   DEMO_REWARDS: {
-    BTC: 'DEMO_BTC',
-    ETH: 'DEMO_ETH', 
-    LTC: 'DEMO_LTC',
-    DOGE: 'DEMO_DOGE',
+    BTC: 200, // 200 satoshi = ~$0.10
+    ETH: 3000, // 3000 gwei = ~$0.009  
+    LTC: 30000, // 30000 litoshi = ~$0.003
+    DOGE: 3000000, // 3M koinu = ~$0.30
   }
 };

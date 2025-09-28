@@ -51,7 +51,7 @@ export class FaucetService {
         const wallet = walletMap.get(currency);
         const lastClaim = claimMap.get(currency);
         const amount = FAUCET_CONFIG.MODE === 'DEMO' ? 
-          "1000" : // Demo amount
+          FAUCET_CONFIG.DEMO_REWARDS[currency as keyof typeof FAUCET_CONFIG.DEMO_REWARDS]?.toString() || "0" :
           FAUCET_CONFIG.SELF_FUNDED_REWARDS[currency as keyof typeof FAUCET_CONFIG.SELF_FUNDED_REWARDS]?.toString() || "0";
         
         // Check if user can claim (1 hour cooldown)
@@ -131,10 +131,30 @@ export class FaucetService {
         }
       }
       
+      // Check anti-abuse limits first
+      const dailyClaimsCount = await storage.getFaucetClaimsSince(userId, new Date(Date.now() - 24 * 60 * 60 * 1000));
+      if (dailyClaimsCount.length >= FAUCET_CONFIG.ABUSE_PROTECTION.MAX_CLAIMS_PER_USER_PER_DAY) {
+        return {
+          success: false,
+          error: "Daily claim limit reached. Please try again tomorrow."
+        };
+      }
+
+      // Check IP-based limits only if we have a valid IP
+      if (ipAddress && ipAddress !== 'unknown') {
+        const ipClaims = await storage.getFaucetClaimsByIP(ipAddress, 1);
+        if (ipClaims.length >= FAUCET_CONFIG.ABUSE_PROTECTION.MAX_CLAIMS_PER_IP_PER_HOUR) {
+          return {
+            success: false,
+            error: "Too many claims from this location. Please try again later."
+          };
+        }
+      }
+
       // Calculate anti-abuse risk score
       const riskScore = await this.calculateRiskScore(userId, ipAddress);
       
-      if (riskScore > FAUCET_CONFIG.RISK_SCORE_THRESHOLD) {
+      if (riskScore > FAUCET_CONFIG.ABUSE_PROTECTION.RISK_SCORE_THRESHOLD) {
         return {
           success: false,
           error: "Claim blocked due to suspicious activity",
@@ -143,9 +163,9 @@ export class FaucetService {
       }
       
       // Get reward amount
-      // Use demo mode for now - no real crypto transactions
+      // Get reward amount based on mode
       const rewardAmount = FAUCET_CONFIG.MODE === 'DEMO' ? 
-        1000 : // Demo amount 
+        FAUCET_CONFIG.DEMO_REWARDS[currency as keyof typeof FAUCET_CONFIG.DEMO_REWARDS] :
         FAUCET_CONFIG.SELF_FUNDED_REWARDS[currency as keyof typeof FAUCET_CONFIG.SELF_FUNDED_REWARDS];
       if (!rewardAmount) {
         return {
@@ -217,7 +237,7 @@ export class FaucetService {
       // IP-based checks (if provided)
       if (ipAddress) {
         const ipClaims = await storage.getFaucetClaimsByIP(ipAddress, 1); // Last hour
-        if (ipClaims.length > FAUCET_CONFIG.MAX_CLAIMS_PER_IP_PER_HOUR) {
+        if (ipClaims.length > FAUCET_CONFIG.ABUSE_PROTECTION.MAX_CLAIMS_PER_IP_PER_HOUR) {
           riskScore += 50;
         }
       }
@@ -233,15 +253,17 @@ export class FaucetService {
    * Estimate cash value of cryptocurrency reward
    */
   private estimateCashValue(currency: string, amount: number): number {
-    // Simplified estimation - in production, you'd use real-time prices
-    const estimates = {
-      BTC: 0.025, // 50 satoshis ≈ $0.025
-      ETH: 0.003, // 1000 gwei ≈ $0.003
-      LTC: 0.001, // 10000 litoshi ≈ $0.001
-      DOGE: 0.10,  // 1M koinu ≈ $0.10
+    // Calculate USD value based on configured demo amounts and target values
+    // Demo rewards are: BTC:200 satoshi→$0.10, ETH:3000 gwei→$0.009, LTC:30000 litoshi→$0.003, DOGE:3000000 koinu→$0.30
+    const usdPerUnit = {
+      BTC: 0.10 / 200,     // $0.0005 per satoshi
+      ETH: 0.009 / 3000,   // $0.000003 per gwei
+      LTC: 0.003 / 30000,  // $0.0000001 per litoshi  
+      DOGE: 0.30 / 3000000, // $0.0000001 per koinu
     };
     
-    return estimates[currency as keyof typeof estimates] || 0.001;
+    const rate = usdPerUnit[currency as keyof typeof usdPerUnit];
+    return rate ? amount * rate : 0.001;
   }
   
   /**
