@@ -37,7 +37,8 @@ import {
   Zap,
   Trophy,
   Target,
-  TrendingUp
+  TrendingUp,
+  Coins
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
