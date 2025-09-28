@@ -122,9 +122,10 @@ export class GamificationService {
 
       // Distribute tokens from Treasury
       const distributionResult = await treasuryService.distributeTokens(
-        userId,
         parseFloat(tokenAmount),
-        `Daily check-in reward - ${newStreak} day streak`
+        `Daily check-in reward - ${newStreak} day streak`,
+        "daily_checkin",
+        userId
       );
 
       if (!distributionResult.success) {
