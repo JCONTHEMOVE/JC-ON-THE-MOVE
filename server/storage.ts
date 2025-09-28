@@ -65,12 +65,17 @@ export interface IStorage {
   createFaucetConfig(config: InsertFaucetConfig): Promise<FaucetConfig>;
   updateFaucetConfig(currency: string, updates: Partial<InsertFaucetConfig>): Promise<FaucetConfig | undefined>;
   getFaucetWallet(userId: string, currency: string): Promise<FaucetWallet | undefined>;
+  getFaucetWalletsByUserId(userId: string): Promise<FaucetWallet[]>;
+  getFaucetWalletByUserCurrency(userId: string, currency: string): Promise<FaucetWallet | undefined>;
   createFaucetWallet(wallet: InsertFaucetWallet): Promise<FaucetWallet>;
-  updateFaucetWallet(userId: string, currency: string, updates: Partial<FaucetWallet>): Promise<FaucetWallet | undefined>;
+  updateFaucetWallet(id: string, updates: Partial<FaucetWallet>): Promise<FaucetWallet | undefined>;
   canUserClaim(userId: string, currency: string): Promise<{ canClaim: boolean; nextClaimTime?: Date; secondsRemaining?: number }>;
   createFaucetClaim(claim: InsertFaucetClaim): Promise<FaucetClaim>;
   updateFaucetClaim(claimId: string, updates: Partial<FaucetClaim>): Promise<FaucetClaim | undefined>;
   getFaucetClaims(userId?: string, currency?: string, limit?: number): Promise<FaucetClaim[]>;
+  getRecentFaucetClaims(userId: string, hours: number): Promise<FaucetClaim[]>;
+  getFaucetClaimsSince(userId: string, date: Date): Promise<FaucetClaim[]>;
+  getFaucetClaimsByIP(ipAddress: string, hours: number): Promise<FaucetClaim[]>;
   getFaucetRevenue(date?: string, currency?: string): Promise<FaucetRevenue[]>;
   updateFaucetRevenue(date: string, currency: string, updates: Partial<FaucetRevenue>): Promise<FaucetRevenue>;
 

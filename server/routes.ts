@@ -10,6 +10,7 @@ import { cryptoCashoutService } from "./services/crypto-cashout";
 import { moonshotService, moonshotAccountTransferSchema } from "./services/moonshot";
 import { treasuryService } from "./services/treasury";
 import { gamificationService } from "./services/gamification";
+import { faucetService } from "./services/faucet";
 import { insertFundingDepositSchema, insertFaucetConfigSchema, insertFaucetWalletSchema } from "@shared/schema";
 import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
@@ -1575,6 +1576,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ====================== FAUCET API ROUTES ======================
+
+  // Get user's faucet status for all supported currencies
+  app.get("/api/faucet/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const faucetStatus = await faucetService.getFaucetStatus(userId);
+      
+      res.json({
+        success: true,
+        data: faucetStatus
+      });
+    } catch (error) {
+      console.error("Error getting faucet status:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to get faucet status"
+      });
+    }
+  });
+
+  // Claim faucet reward for a specific currency
+  app.post("/api/faucet/claim/:currency", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { currency } = req.params;
+      const userAgent = req.headers['user-agent'];
+      const ipAddress = req.ip || req.connection.remoteAddress;
+      
+      if (!currency) {
+        return res.status(400).json({
+          success: false,
+          error: "Currency is required"
+        });
+      }
+
+      const result = await faucetService.claimFaucetReward(userId, currency.toUpperCase(), userAgent, ipAddress);
+      
+      if (result.success) {
+        res.json({
+          success: true,
+          currency: result.currency,
+          amount: result.amount,
+          cashValue: result.cashValue,
+          nextClaimTime: result.nextClaimTime,
+          message: `Successfully claimed ${result.amount} ${result.currency}! (≈$${result.cashValue?.toFixed(4)})`
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error,
+          nextClaimTime: result.nextClaimTime
+        });
+      }
+    } catch (error) {
+      console.error("Error claiming faucet reward:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to process faucet claim"
+      });
+    }
+  });
+
+  // ====================== FAUCET ADMIN API ROUTES ======================
 
   // Faucet validation schemas
   const faucetClaimSchema = z.object({
