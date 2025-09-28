@@ -198,6 +198,50 @@ export class FaucetService {
       // Estimate cash value (simplified)
       const cashValue = this.estimateCashValue(currency, rewardAmount);
       
+      let payout_id: number | null = null;
+      let payout_user_hash: string | null = null;
+      
+      // Process payment based on mode
+      if (FAUCET_CONFIG.MODE === 'FAUCETPAY') {
+        const faucetPayService = getFaucetPayService();
+        if (!faucetPayService) {
+          return {
+            success: false,
+            error: "FaucetPay service is not configured. Please contact support."
+          };
+        }
+
+        try {
+          // Get user's FaucetPay address (this should be stored in user profile or wallet)
+          const userWallet = await storage.getFaucetWallet(userId, currency);
+          if (!userWallet?.faucetpayAddress) {
+            return {
+              success: false,
+              error: `Please set your ${currency} FaucetPay address in your profile first.`
+            };
+          }
+
+          // Send payment via FaucetPay
+          const paymentResult = await faucetPayService.sendPayment({
+            amount: rewardAmount,
+            to: userWallet.faucetpayAddress,
+            currency,
+            ipAddress,
+            referral: false
+          });
+
+          payout_id = paymentResult.payout_id;
+          payout_user_hash = paymentResult.payout_user_hash;
+          
+        } catch (paymentError: any) {
+          console.error('FaucetPay payment failed:', paymentError);
+          return {
+            success: false,
+            error: `Payment failed: ${paymentError.message}`
+          };
+        }
+      }
+
       // Create faucet claim record
       const claim = await storage.createFaucetClaim({
         userId,
@@ -207,9 +251,13 @@ export class FaucetService {
         ipAddress,
         userAgent,
         riskScore,
-        status: 'paid', // For now, mark as paid immediately
+        faucetpayPayoutId: payout_id?.toString(),
+        faucetpayUserHash: payout_user_hash,
+        status: FAUCET_CONFIG.MODE === 'FAUCETPAY' ? 'paid' : 'pending',
         metadata: {
-          source: 'internal_faucet',
+          source: 'faucetpay_integration',
+          mode: FAUCET_CONFIG.MODE,
+          payout_id,
           timestamp: Date.now()
         }
       });
