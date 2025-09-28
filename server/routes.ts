@@ -1850,7 +1850,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         currencies: enabledConfigs,
         defaultInterval: FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL,
-        isConfigured: FAUCET_CONFIG.MODE === 'DEMO' || !!process.env.FAUCETPAY_API_KEY
+        isConfigured: true, // Always configured - handles all modes (DEMO, FAUCETPAY, SELF_FUNDED)
+        mode: FAUCET_CONFIG.MODE,
+        hasFaucetPayKey: !!process.env.FAUCETPAY_API_KEY
       });
     } catch (error) {
       console.error("Error getting faucet config:", error);
