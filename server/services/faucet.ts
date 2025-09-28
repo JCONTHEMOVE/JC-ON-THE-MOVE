@@ -1,5 +1,5 @@
 import { storage } from '../storage.js';
-import { FAUCETPAY_CONFIG } from '../constants.js';
+import { FAUCET_CONFIG } from '../constants.js';
 
 export interface FaucetClaimResult {
   success: boolean;
@@ -33,10 +33,14 @@ export class FaucetService {
   async getFaucetStatus(userId: string): Promise<FaucetStatus> {
     try {
       // Get all available currencies from config
-      const currencies = FAUCETPAY_CONFIG.DEFAULT_CURRENCIES;
+      const currencies = FAUCET_CONFIG.DEFAULT_CURRENCIES;
       
-      // Get user's faucet wallets
-      const userWallets = await storage.getFaucetWalletsByUserId(userId);
+      // Get user's faucet wallets for all currencies
+      const userWallets = [];
+      for (const currency of currencies) {
+        const wallet = await storage.getFaucetWallet(userId, currency);
+        if (wallet) userWallets.push(wallet);
+      }
       const walletMap = new Map(userWallets.map(w => [w.currency, w]));
       
       // Get recent claims to check cooldowns
@@ -46,14 +50,16 @@ export class FaucetService {
       const availableCurrencies = currencies.map(currency => {
         const wallet = walletMap.get(currency);
         const lastClaim = claimMap.get(currency);
-        const amount = FAUCETPAY_CONFIG.DEFAULT_REWARDS[currency as keyof typeof FAUCETPAY_CONFIG.DEFAULT_REWARDS]?.toString() || "0";
+        const amount = FAUCET_CONFIG.MODE === 'DEMO' ? 
+          "1000" : // Demo amount
+          FAUCET_CONFIG.SELF_FUNDED_REWARDS[currency as keyof typeof FAUCET_CONFIG.SELF_FUNDED_REWARDS]?.toString() || "0";
         
         // Check if user can claim (1 hour cooldown)
         const canClaim = !lastClaim || 
-          (Date.now() - new Date(lastClaim.claimTime).getTime()) >= (FAUCETPAY_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000);
+          (Date.now() - new Date(lastClaim.claimTime).getTime()) >= (FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000);
         
         const nextClaimTime = lastClaim ? 
-          new Date(new Date(lastClaim.claimTime).getTime() + (FAUCETPAY_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000)) : 
+          new Date(new Date(lastClaim.claimTime).getTime() + (FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000)) : 
           undefined;
         
         return {
@@ -100,7 +106,7 @@ export class FaucetService {
   ): Promise<FaucetClaimResult> {
     try {
       // Validate currency
-      if (!FAUCETPAY_CONFIG.DEFAULT_CURRENCIES.includes(currency)) {
+      if (!FAUCET_CONFIG.DEFAULT_CURRENCIES.includes(currency)) {
         return {
           success: false,
           error: `Unsupported currency: ${currency}`
@@ -113,7 +119,7 @@ export class FaucetService {
       
       if (lastClaimForCurrency) {
         const timeSinceLastClaim = Date.now() - new Date(lastClaimForCurrency.claimTime).getTime();
-        const cooldownTime = FAUCETPAY_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000; // Convert to milliseconds
+        const cooldownTime = FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000; // Convert to milliseconds
         
         if (timeSinceLastClaim < cooldownTime) {
           const nextClaimTime = new Date(new Date(lastClaimForCurrency.claimTime).getTime() + cooldownTime);
@@ -128,7 +134,7 @@ export class FaucetService {
       // Calculate anti-abuse risk score
       const riskScore = await this.calculateRiskScore(userId, ipAddress);
       
-      if (riskScore > FAUCETPAY_CONFIG.RISK_SCORE_THRESHOLD) {
+      if (riskScore > FAUCET_CONFIG.RISK_SCORE_THRESHOLD) {
         return {
           success: false,
           error: "Claim blocked due to suspicious activity",
@@ -137,7 +143,10 @@ export class FaucetService {
       }
       
       // Get reward amount
-      const rewardAmount = FAUCETPAY_CONFIG.DEFAULT_REWARDS[currency as keyof typeof FAUCETPAY_CONFIG.DEFAULT_REWARDS];
+      // Use demo mode for now - no real crypto transactions
+      const rewardAmount = FAUCET_CONFIG.MODE === 'DEMO' ? 
+        1000 : // Demo amount 
+        FAUCET_CONFIG.SELF_FUNDED_REWARDS[currency as keyof typeof FAUCET_CONFIG.SELF_FUNDED_REWARDS];
       if (!rewardAmount) {
         return {
           success: false,
@@ -168,7 +177,7 @@ export class FaucetService {
       await this.updateUserFaucetWallet(userId, currency, rewardAmount);
       
       // Calculate next claim time
-      const nextClaimTime = new Date(Date.now() + (FAUCETPAY_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000));
+      const nextClaimTime = new Date(Date.now() + (FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000));
       
       return {
         success: true,
@@ -208,7 +217,7 @@ export class FaucetService {
       // IP-based checks (if provided)
       if (ipAddress) {
         const ipClaims = await storage.getFaucetClaimsByIP(ipAddress, 1); // Last hour
-        if (ipClaims.length > FAUCETPAY_CONFIG.MAX_CLAIMS_PER_IP_PER_HOUR) {
+        if (ipClaims.length > FAUCET_CONFIG.MAX_CLAIMS_PER_IP_PER_HOUR) {
           riskScore += 50;
         }
       }

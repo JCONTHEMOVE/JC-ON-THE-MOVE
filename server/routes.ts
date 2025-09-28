@@ -18,7 +18,7 @@ import { eq, desc, sql, and, gte } from 'drizzle-orm';
 import { db } from './db';
 import { rewards, walletAccounts, dailyCheckins, cashoutRequests, fundingDeposits, reserveTransactions, users } from '@shared/schema';
 import { getFaucetPayService } from "./services/faucetpay";
-import { FAUCETPAY_CONFIG } from "./constants";
+import { FAUCET_CONFIG } from "./constants";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -1655,8 +1655,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json({
         currencies: enabledConfigs,
-        defaultInterval: FAUCETPAY_CONFIG.DEFAULT_CLAIM_INTERVAL,
-        isConfigured: !!process.env.FAUCETPAY_API_KEY
+        defaultInterval: FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL,
+        isConfigured: FAUCET_CONFIG.MODE === 'DEMO' || !!process.env.FAUCETPAY_API_KEY
       });
     } catch (error) {
       console.error("Error getting faucet config:", error);
@@ -1793,7 +1793,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updateFaucetRevenue(today, currency, {
           totalClaims: 1,
           totalRewards: rewardAmount.toFixed(8),
-          totalRevenue: FAUCETPAY_CONFIG.ESTIMATED_AD_REVENUE_PER_CLAIM.toFixed(2),
+          totalRevenue: "0.05", // Self-funded faucet revenue estimate
           uniqueUsers: 1,
           adViews: 1
         });

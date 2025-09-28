@@ -41,25 +41,43 @@ export const REWARD_TYPES = {
   REFERRAL_BONUS: 'referral_bonus',
 } as const;
 
-export const FAUCETPAY_CONFIG = {
+export const FAUCET_CONFIG = {
+  // Faucet operation mode
+  MODE: 'DEMO', // 'FAUCETPAY' | 'SELF_FUNDED' | 'DEMO'
+  
   // Default faucet settings
   DEFAULT_CURRENCIES: ['BTC', 'ETH', 'LTC', 'DOGE'],
   DEFAULT_CLAIM_INTERVAL: 3600, // 1 hour in seconds
   
-  // Reward amounts in smallest units (satoshis, gwei, etc.)
-  DEFAULT_REWARDS: {
-    BTC: 50, // 50 satoshis (~$0.025 at $50k BTC)
-    ETH: 1000, // 1000 gwei (~$0.003 at $3k ETH)
-    LTC: 10000, // 10000 litoshi (~$0.001 at $100 LTC)
-    DOGE: 1000000, // 1M koinu (~$0.10 at $0.10 DOGE)
+  // Self-funded reward amounts (reasonable starting amounts)
+  SELF_FUNDED_REWARDS: {
+    BTC: 100, // 100 satoshis (~$0.05 at $50k BTC)
+    ETH: 2000, // 2000 gwei (~$0.006 at $3k ETH)  
+    LTC: 20000, // 20000 litoshi (~$0.002 at $100 LTC)
+    DOGE: 2000000, // 2M koinu (~$0.20 at $0.10 DOGE)
   },
   
-  // Anti-abuse settings
-  MAX_CLAIMS_PER_IP_PER_HOUR: 5,
-  MAX_CLAIMS_PER_USER_PER_DAY: 24, // One per hour max
-  RISK_SCORE_THRESHOLD: 75, // Block claims above this risk score
+  // Wallet management
+  WALLET_CONFIG: {
+    // Minimum balance alerts (in USD equivalent)
+    LOW_BALANCE_WARNING: 10.0, // Warn when wallet below $10
+    CRITICAL_BALANCE_ALERT: 5.0, // Alert when below $5
+    
+    // Transaction settings
+    MAX_DAILY_PAYOUTS_USD: 50.0, // Daily limit to prevent abuse
+    TRANSACTION_FEE_BUFFER: 1.5, // 1.5x estimated fees for safety
+  },
   
-  // Revenue tracking
-  ESTIMATED_AD_REVENUE_PER_CLAIM: 0.001, // $0.001 estimated revenue per claim
-  REVENUE_SHARE_PERCENTAGE: 0.30, // 30% of ad revenue goes to users
+  // Anti-abuse settings (stricter for self-funded)
+  MAX_CLAIMS_PER_IP_PER_HOUR: 3, // Reduced for self-funded
+  MAX_CLAIMS_PER_USER_PER_DAY: 12, // One every 2 hours max
+  RISK_SCORE_THRESHOLD: 60, // Lower threshold for better protection
+  
+  // Demo mode settings
+  DEMO_REWARDS: {
+    BTC: 'DEMO_BTC',
+    ETH: 'DEMO_ETH', 
+    LTC: 'DEMO_LTC',
+    DOGE: 'DEMO_DOGE',
+  }
 };
