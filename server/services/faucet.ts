@@ -44,8 +44,8 @@ export class FaucetService {
       }
       const walletMap = new Map(userWallets.map(w => [w.currency, w]));
       
-      // Get recent claims to check cooldowns
-      const recentClaims = await storage.getRecentFaucetClaims(userId, 24); // Last 24 hours
+      // Get recent claims to check cooldowns  
+      const recentClaims = await storage.getFaucetClaims(userId, undefined, 24); // Last 24 hours
       const claimMap = new Map(recentClaims.map(c => [c.currency, c]));
       
       const availableCurrencies = await Promise.all(currencies.map(async (currency) => {
@@ -64,10 +64,10 @@ export class FaucetService {
         
         // Check if user can claim (1 hour cooldown)
         const canClaim = !lastClaim || 
-          (Date.now() - new Date(lastClaim.claimTime).getTime()) >= (FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000);
+          (Date.now() - new Date(lastClaim.createdAt).getTime()) >= (FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000);
         
         const nextClaimTime = lastClaim ? 
-          new Date(new Date(lastClaim.claimTime).getTime() + (FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000)) : 
+          new Date(new Date(lastClaim.createdAt).getTime() + (FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000)) : 
           undefined;
         
         return {
@@ -75,9 +75,9 @@ export class FaucetService {
           amount,
           canClaim,
           nextClaimTime: canClaim ? undefined : nextClaimTime,
-          lastClaimTime: lastClaim ? new Date(lastClaim.claimTime) : undefined
+          lastClaimTime: lastClaim ? new Date(lastClaim.createdAt) : undefined
         };
-      });
+      }));
       
       // Calculate total earnings
       const totalEarnings: { [currency: string]: string } = {};
@@ -122,11 +122,11 @@ export class FaucetService {
       }
       
       // Check recent claims for cooldown
-      const recentClaims = await storage.getRecentFaucetClaims(userId, 24);
+      const recentClaims = await storage.getFaucetClaims(userId, undefined, 24);
       const lastClaimForCurrency = recentClaims.find(claim => claim.currency === currency);
       
       if (lastClaimForCurrency) {
-        const timeSinceLastClaim = Date.now() - new Date(lastClaimForCurrency.claimTime).getTime();
+        const timeSinceLastClaim = Date.now() - new Date(lastClaimForCurrency.createdAt).getTime();
         const cooldownTime = FAUCET_CONFIG.DEFAULT_CLAIM_INTERVAL * 1000; // Convert to milliseconds
         
         if (timeSinceLastClaim < cooldownTime) {
@@ -140,7 +140,8 @@ export class FaucetService {
       }
       
       // Check anti-abuse limits first
-      const dailyClaimsCount = await storage.getFaucetClaimsSince(userId, new Date(Date.now() - 24 * 60 * 60 * 1000));
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const dailyClaimsCount = await storage.getFaucetClaims(userId, undefined, 100);
       if (dailyClaimsCount.length >= FAUCET_CONFIG.ABUSE_PROTECTION.MAX_CLAIMS_PER_USER_PER_DAY) {
         return {
           success: false,
@@ -250,7 +251,6 @@ export class FaucetService {
         cashValue: cashValue.toString(),
         ipAddress,
         userAgent,
-        riskScore,
         faucetpayPayoutId: payout_id?.toString(),
         faucetpayUserHash: payout_user_hash,
         status: FAUCET_CONFIG.MODE === 'FAUCETPAY' ? 'paid' : 'pending',

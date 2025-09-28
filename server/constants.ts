@@ -42,7 +42,7 @@ export const REWARD_TYPES = {
 } as const;
 
 export const FAUCET_CONFIG = {
-  // Faucet operation mode
+  // Faucet operation mode - PRODUCTION MODE ENABLED!
   MODE: 'FAUCETPAY', // 'FAUCETPAY' | 'SELF_FUNDED' | 'DEMO'
   
   // Default faucet settings

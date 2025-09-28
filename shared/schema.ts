@@ -394,6 +394,65 @@ export const faucetWallets = pgTable("faucet_wallets", {
   index("idx_faucet_wallet_user").on(table.userId),
 ]);
 
+// ====================== ADVERTISING TABLES ======================
+// Real advertising system for crypto faucet monetization with Bitmedia/Cointraffic
+
+export const adImpressions = pgTable("ad_impressions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
+  sessionId: text("session_id"), // Anonymous tracking for non-logged users
+  placementId: text("placement_id").notNull(),
+  network: text("network").notNull(), // 'bitmedia', 'cointraffic', 'aads'
+  adType: text("ad_type").notNull(), // 'banner', 'video', 'popup', 'interstitial'
+  adUnitId: text("ad_unit_id"), // Network-specific ad unit ID
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  revenue: decimal("revenue", { precision: 10, scale: 6 }).default("0"), // in USD
+  cpm: decimal("cpm", { precision: 10, scale: 6 }).default("0"), // cost per mille
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_ad_impressions_user").on(table.userId),
+  index("idx_ad_impressions_network").on(table.network),
+  index("idx_ad_impressions_placement").on(table.placementId),
+  index("idx_ad_impressions_date").on(table.createdAt),
+]);
+
+export const adClicks = pgTable("ad_clicks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  impressionId: varchar("impression_id").notNull().references(() => adImpressions.id),
+  userId: varchar("user_id").references(() => users.id),
+  placementId: text("placement_id").notNull(),
+  network: text("network").notNull(),
+  clickUrl: text("click_url"),
+  revenue: decimal("revenue", { precision: 10, scale: 6 }).default("0"), // in USD
+  cpc: decimal("cpc", { precision: 10, scale: 6 }).default("0"), // cost per click
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_ad_clicks_impression").on(table.impressionId),
+  index("idx_ad_clicks_user").on(table.userId),
+  index("idx_ad_clicks_network").on(table.network),
+]);
+
+export const adCompletions = pgTable("ad_completions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  impressionId: varchar("impression_id").notNull().references(() => adImpressions.id),
+  sessionId: text("session_id").notNull(), // For verification against bypass attempts
+  network: text("network").notNull(),
+  completionType: text("completion_type").notNull(), // 'view', 'click', 'conversion'
+  verified: boolean("verified").default(false),
+  verificationMethod: text("verification_method"), // 'callback', 'timeout', 'manual'
+  revenue: decimal("revenue", { precision: 10, scale: 6 }).default("0"),
+  faucetClaimId: varchar("faucet_claim_id").references(() => faucetClaims.id), // Link to faucet claim
+  expiresAt: timestamp("expires_at").notNull(), // Ad completion expires (prevent reuse)
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_ad_completions_user").on(table.userId),
+  index("idx_ad_completions_session").on(table.sessionId),
+  index("idx_ad_completions_verified").on(table.verified),
+  index("idx_ad_completions_expires").on(table.expiresAt),
+]);
+
 // Faucet system schemas
 export const insertFaucetConfigSchema = createInsertSchema(faucetConfig).omit({
   id: true,
@@ -406,6 +465,8 @@ export const insertFaucetClaimSchema = createInsertSchema(faucetClaims).omit({
   claimTime: true,
   status: true,
   riskScore: true,
+}).extend({
+  sessionId: z.string().optional(), // For ad completion verification
 });
 
 export const insertFaucetRevenueSchema = createInsertSchema(faucetRevenue).omit({

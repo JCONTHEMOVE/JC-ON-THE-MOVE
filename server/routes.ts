@@ -18,6 +18,7 @@ import { eq, desc, sql, and, gte } from 'drizzle-orm';
 import { db } from './db';
 import { rewards, walletAccounts, dailyCheckins, cashoutRequests, fundingDeposits, reserveTransactions, users } from '@shared/schema';
 import { getFaucetPayService } from "./services/faucetpay";
+import { getAdvertisingService } from "./services/advertising";
 import { FAUCET_CONFIG } from "./constants";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1638,6 +1639,152 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ====================== ADVERTISING API ROUTES ======================
+
+  // Track ad impression
+  app.post("/api/advertising/impression", async (req, res) => {
+    try {
+      const { placementId, network } = req.body;
+      
+      if (!placementId || !network) {
+        return res.status(400).json({ error: "placementId and network are required" });
+      }
+
+      const advertisingService = getAdvertisingService();
+      const impressionId = await advertisingService.trackImpression(
+        placementId, 
+        network,
+        req.user?.id,
+        req.body.sessionId,
+        req.body.userAgent,
+        req.ip
+      );
+      
+      res.json({ success: true, impressionId });
+    } catch (error) {
+      console.error("Error tracking ad impression:", error);
+      res.status(500).json({ error: "Failed to track impression" });
+    }
+  });
+
+  // Track ad click
+  app.post("/api/advertising/click", async (req, res) => {
+    try {
+      const { impressionId, placementId, network, clickUrl } = req.body;
+      
+      if (!impressionId || !placementId || !network) {
+        return res.status(400).json({ error: "impressionId, placementId and network are required" });
+      }
+
+      const advertisingService = getAdvertisingService();
+      const clickId = await advertisingService.trackClick(
+        impressionId,
+        placementId, 
+        network,
+        req.user?.id,
+        clickUrl
+      );
+      
+      res.json({ success: true, clickId });
+    } catch (error) {
+      console.error("Error tracking ad click:", error);
+      res.status(500).json({ error: "Failed to track click" });
+    }
+  });
+
+  // Get advertising configuration for frontend
+  app.get("/api/advertising/config", async (req, res) => {
+    try {
+      const advertisingService = getAdvertisingService();
+      
+      res.json({
+        enabled: advertisingService.isConfigured(),
+        networks: advertisingService.getEnabledNetworks(),
+        scripts: advertisingService.getAdScripts()
+      });
+    } catch (error) {
+      console.error("Error getting advertising config:", error);
+      res.status(500).json({ error: "Failed to get advertising configuration" });
+    }
+  });
+
+  // Get ad placement for specific location
+  app.get("/api/advertising/placement/:placementId", async (req, res) => {
+    try {
+      const { placementId } = req.params;
+      const { type = 'banner' } = req.query;
+      
+      const advertisingService = getAdvertisingService();
+      const placement = advertisingService.getAdPlacement(
+        placementId, 
+        type as 'banner' | 'video' | 'popup' | 'interstitial'
+      );
+      
+      if (!placement) {
+        return res.status(404).json({ error: "No ads available" });
+      }
+      
+      res.json(placement);
+    } catch (error) {
+      console.error("Error getting ad placement:", error);
+      res.status(500).json({ error: "Failed to get ad placement" });
+    }
+  });
+
+  // Admin: Get advertising statistics (business owner only)
+  app.get("/api/advertising/admin/stats", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const advertisingService = getAdvertisingService();
+      const stats = await advertisingService.getAdvertisingStats();
+      
+      res.json({ stats });
+    } catch (error) {
+      console.error("Error getting advertising stats:", error);
+      res.status(500).json({ error: "Failed to get advertising statistics" });
+    }
+  });
+
+  // Admin: Get estimated revenue (business owner only)  
+  app.get("/api/advertising/admin/revenue", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { dailyImpressions = 1000 } = req.query;
+      
+      const advertisingService = getAdvertisingService();
+      const estimatedRevenue = await advertisingService.getEstimatedRevenue(Number(dailyImpressions));
+      
+      res.json({ estimatedRevenue });
+    } catch (error) {
+      console.error("Error getting estimated revenue:", error);
+      res.status(500).json({ error: "Failed to get estimated revenue" });
+    }
+  });
+
+  // Track ad completion for faucet claim validation
+  app.post("/api/advertising/completion", isAuthenticated, async (req, res) => {
+    try {
+      const { impressionId, sessionId, network, completionType = 'view' } = req.body;
+      const userId = req.user!.id;
+      
+      if (!impressionId || !sessionId || !network) {
+        return res.status(400).json({ error: "impressionId, sessionId, and network are required" });
+      }
+
+      const advertisingService = getAdvertisingService();
+      const completionId = await advertisingService.trackAdCompletion(
+        userId,
+        impressionId,
+        sessionId,
+        network,
+        completionType
+      );
+      
+      res.json({ success: true, completionId });
+    } catch (error) {
+      console.error("Error tracking ad completion:", error);
+      res.status(500).json({ error: "Failed to track ad completion" });
+    }
+  });
+
   // ====================== FAUCET ADMIN API ROUTES ======================
 
   // Faucet validation schemas
@@ -1704,6 +1851,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const faucetPayService = getFaucetPayService();
       if (!faucetPayService) {
         return res.status(503).json({ error: "Faucet service is not configured" });
+      }
+
+      // ============= SERVER-SIDE AD COMPLETION VALIDATION =============
+      // Check if user has completed required advertisement viewing
+      const { sessionId } = req.body;
+      if (sessionId) {
+        const advertisingService = getAdvertisingService();
+        const adCompleted = await advertisingService.verifyAdCompletion(userId, sessionId);
+        
+        if (!adCompleted) {
+          return res.status(400).json({
+            error: "Ad completion required",
+            message: "You must watch and complete an advertisement before claiming rewards. Please watch the ad and try again."
+          });
+        }
+        
+        console.log(`✅ Ad completion verified for user ${userId} with session ${sessionId}`);
+      } else {
+        console.log(`⚠️ No session ID provided for faucet claim - skipping ad verification for user ${userId}`);
       }
 
       // Check if user can claim
