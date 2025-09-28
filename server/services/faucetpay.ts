@@ -1,4 +1,4 @@
-import { FAUCETPAY_CONFIG } from "../constants";
+// FaucetPay API service - provides integration with FaucetPay.io
 
 interface FaucetPayBalance {
   status: number;

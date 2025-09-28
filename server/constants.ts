@@ -43,7 +43,7 @@ export const REWARD_TYPES = {
 
 export const FAUCET_CONFIG = {
   // Faucet operation mode
-  MODE: 'DEMO', // 'FAUCETPAY' | 'SELF_FUNDED' | 'DEMO'
+  MODE: 'FAUCETPAY', // 'FAUCETPAY' | 'SELF_FUNDED' | 'DEMO'
   
   // Default faucet settings
   DEFAULT_CURRENCIES: ['BTC', 'ETH', 'LTC', 'DOGE'],

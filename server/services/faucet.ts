@@ -1,5 +1,6 @@
 import { storage } from '../storage.js';
 import { FAUCET_CONFIG } from '../constants.js';
+import { getFaucetPayService } from './faucetpay.js';
 
 export interface FaucetClaimResult {
   success: boolean;
@@ -47,12 +48,19 @@ export class FaucetService {
       const recentClaims = await storage.getRecentFaucetClaims(userId, 24); // Last 24 hours
       const claimMap = new Map(recentClaims.map(c => [c.currency, c]));
       
-      const availableCurrencies = currencies.map(currency => {
+      const availableCurrencies = await Promise.all(currencies.map(async (currency) => {
         const wallet = walletMap.get(currency);
         const lastClaim = claimMap.get(currency);
-        const amount = FAUCET_CONFIG.MODE === 'DEMO' ? 
-          FAUCET_CONFIG.DEMO_REWARDS[currency as keyof typeof FAUCET_CONFIG.DEMO_REWARDS]?.toString() || "0" :
-          FAUCET_CONFIG.SELF_FUNDED_REWARDS[currency as keyof typeof FAUCET_CONFIG.SELF_FUNDED_REWARDS]?.toString() || "0";
+        let amount = "0";
+        if (FAUCET_CONFIG.MODE === 'DEMO') {
+          amount = FAUCET_CONFIG.DEMO_REWARDS[currency as keyof typeof FAUCET_CONFIG.DEMO_REWARDS]?.toString() || "0";
+        } else if (FAUCET_CONFIG.MODE === 'FAUCETPAY') {
+          // For FaucetPay, get amount from database config
+          const configs = await storage.getFaucetConfig(currency);
+          amount = configs.length > 0 ? configs[0].rewardAmount : "0";
+        } else {
+          amount = FAUCET_CONFIG.SELF_FUNDED_REWARDS[currency as keyof typeof FAUCET_CONFIG.SELF_FUNDED_REWARDS]?.toString() || "0";
+        }
         
         // Check if user can claim (1 hour cooldown)
         const canClaim = !lastClaim || 
@@ -164,9 +172,22 @@ export class FaucetService {
       
       // Get reward amount
       // Get reward amount based on mode
-      const rewardAmount = FAUCET_CONFIG.MODE === 'DEMO' ? 
-        FAUCET_CONFIG.DEMO_REWARDS[currency as keyof typeof FAUCET_CONFIG.DEMO_REWARDS] :
-        FAUCET_CONFIG.SELF_FUNDED_REWARDS[currency as keyof typeof FAUCET_CONFIG.SELF_FUNDED_REWARDS];
+      let rewardAmount: number;
+      if (FAUCET_CONFIG.MODE === 'DEMO') {
+        rewardAmount = FAUCET_CONFIG.DEMO_REWARDS[currency as keyof typeof FAUCET_CONFIG.DEMO_REWARDS];
+      } else if (FAUCET_CONFIG.MODE === 'FAUCETPAY') {
+        // For FaucetPay, get reward from config table (stored in database)
+        const configs = await storage.getFaucetConfig(currency);
+        if (!configs.length || !configs[0].isEnabled) {
+          return {
+            success: false,
+            error: `${currency} faucet is not available`
+          };
+        }
+        rewardAmount = parseFloat(configs[0].rewardAmount);
+      } else {
+        rewardAmount = FAUCET_CONFIG.SELF_FUNDED_REWARDS[currency as keyof typeof FAUCET_CONFIG.SELF_FUNDED_REWARDS];
+      }
       if (!rewardAmount) {
         return {
           success: false,
