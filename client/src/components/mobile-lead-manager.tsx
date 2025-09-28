@@ -1025,9 +1025,7 @@ export default function MobileLeadManager() {
                     <Button 
                       className="w-full" 
                       onClick={() => {
-                        const link = document.createElement('a');
-                        link.href = '/faucet';
-                        link.click();
+                        window.location.href = '/faucet';
                       }}
                       data-testid="button-open-faucet"
                     >
