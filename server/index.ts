@@ -4,6 +4,11 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
+
+// CRITICAL SECURITY: Handle webhook routes BEFORE global JSON parser
+// This preserves raw body bytes needed for HMAC signature validation
+app.use('/api/advertising/webhook', express.raw({ type: 'application/json' }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 

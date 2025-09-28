@@ -1785,6 +1785,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // SECURITY ENDPOINT: Check server-verified ad completion (prevents console spoofing)
+  app.get("/api/advertising/check-completion/:sessionId", async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      
+      if (!sessionId) {
+        return res.status(400).json({ error: "sessionId is required" });
+      }
+
+      const advertisingService = getAdvertisingService();
+      
+      // Check if this session has a verified completion from real webhook
+      const verified = await advertisingService.checkWebhookVerifiedCompletion(sessionId);
+      
+      res.json({ verified });
+    } catch (error) {
+      console.error("Error checking ad completion:", error);
+      res.status(500).json({ error: "Failed to check completion status" });
+    }
+  });
+
+  // SECURITY WEBHOOK: Real Bitmedia/Cointraffic webhook endpoint (production use)
+  // CRITICAL: Raw body preserved by global webhook middleware in server/index.ts
+  app.post("/api/advertising/webhook/:network", async (req, res) => {
+    try {
+      const { network } = req.params;
+      const rawBody = req.body; // Raw Buffer from global webhook middleware
+      const webhookData = JSON.parse(rawBody.toString()); // Parse for processing
+      
+      // Extract signature from headers (varies by vendor)
+      const signature = req.headers['x-signature'] || 
+                       req.headers['x-bitmedia-signature'] || 
+                       req.headers['x-cointraffic-signature'] || 
+                       req.headers['authorization'];
+      
+      console.log(`🔐 SECURITY: Received ${network} webhook with signature validation`);
+      
+      const advertisingService = getAdvertisingService();
+      await advertisingService.processWebhookCompletion(network, webhookData, signature as string, rawBody);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("❌ SECURITY: Webhook authentication failed:", error);
+      res.status(401).json({ error: "Unauthorized webhook - authentication failed" });
+    }
+  });
+
   // ====================== FAUCET ADMIN API ROUTES ======================
 
   // Faucet validation schemas

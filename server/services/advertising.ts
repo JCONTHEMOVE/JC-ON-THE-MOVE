@@ -191,14 +191,15 @@ export class AdvertisingService {
       // Create ad completion with 1-hour expiry
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
       
+      // SECURITY FIX: NEVER auto-verify completions - only webhooks can verify
       const [completion] = await db.insert(adCompletions).values({
         userId,
         impressionId,
         sessionId,
         network,
         completionType,
-        verified: true, // Mark as verified since user watched the ad
-        verificationMethod: 'timeout',
+        verified: false, // NEVER auto-verify - only webhooks can set true
+        verificationMethod: 'pending_webhook',
         revenue: '0.001', // Small revenue for demo
         expiresAt
       }).returning();
@@ -212,10 +213,11 @@ export class AdvertisingService {
   }
 
   /**
-   * Verify if user has completed required ad for faucet claim
+   * SECURITY: Verify if user has completed required ad for faucet claim (WEBHOOK-ONLY)
    */
   async verifyAdCompletion(userId: string, sessionId: string): Promise<boolean> {
     try {
+      // SECURITY FIX: Only accept webhook-verified completions for faucet claims
       const recentCompletion = await db.select()
         .from(adCompletions)
         .where(
@@ -223,13 +225,17 @@ export class AdvertisingService {
             eq(adCompletions.userId, userId),
             eq(adCompletions.sessionId, sessionId),
             eq(adCompletions.verified, true),
+            eq(adCompletions.verificationMethod, 'webhook'), // ONLY webhook verifications count!
             gte(adCompletions.expiresAt, new Date())
           )
         )
         .orderBy(desc(adCompletions.createdAt))
         .limit(1);
 
-      return recentCompletion.length > 0;
+      const isVerified = recentCompletion.length > 0;
+      console.log(`🔐 SECURITY: Faucet claim verification for ${userId}: ${isVerified ? 'APPROVED (webhook-verified)' : 'DENIED (no webhook verification)'}`);
+      
+      return isVerified;
     } catch (error) {
       console.error('Failed to verify ad completion:', error);
       return false;
@@ -341,6 +347,124 @@ export class AdvertisingService {
         </script>
       </div>
     `;
+  }
+
+  /**
+   * SECURITY: Check if session has webhook-verified completion (prevents spoofing)
+   */
+  async checkWebhookVerifiedCompletion(sessionId: string): Promise<boolean> {
+    try {
+      const verifiedCompletion = await db.select()
+        .from(adCompletions)
+        .where(
+          and(
+            eq(adCompletions.sessionId, sessionId),
+            eq(adCompletions.verified, true),
+            eq(adCompletions.verificationMethod, 'webhook'), // Only webhook verifications count
+            gte(adCompletions.expiresAt, new Date())
+          )
+        )
+        .limit(1);
+
+      return verifiedCompletion.length > 0;
+    } catch (error) {
+      console.error('Failed to check webhook verification:', error);
+      return false;
+    }
+  }
+
+  /**
+   * SECURITY: Validate webhook signature using HMAC-SHA256 on raw body (prevents forgery)
+   */
+  private validateWebhookSignature(network: string, rawBody: Buffer, signature?: string): boolean {
+    const crypto = require('crypto');
+    
+    if (!signature) {
+      console.error(`❌ SECURITY: Missing webhook signature for ${network}`);
+      return false;
+    }
+    
+    // Get production webhook secrets (FAIL CLOSED if not configured)
+    const secrets = {
+      'bitmedia': process.env.BITMEDIA_WEBHOOK_SECRET,
+      'cointraffic': process.env.COINTRAFFIC_WEBHOOK_SECRET
+    };
+    
+    const secret = secrets[network as keyof typeof secrets];
+    if (!secret) {
+      console.error(`❌ SECURITY: No webhook secret configured for ${network} - REJECTING`);
+      return false; // FAIL CLOSED - no demo mode allowed
+    }
+    
+    try {
+      // CRITICAL: Use raw body bytes exactly as vendor signed them
+      const expectedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(rawBody) // Use raw Buffer, not stringified JSON
+        .digest('hex');
+      
+      // Expected format: "sha256=<hash>" (GitHub/standard format)
+      const expectedHeader = `sha256=${expectedSignature}`;
+      
+      // Secure comparison to prevent timing attacks
+      const isValid = crypto.timingSafeEqual(
+        Buffer.from(signature, 'utf8'),
+        Buffer.from(expectedHeader, 'utf8')
+      );
+      
+      if (!isValid) {
+        console.error(`❌ SECURITY: Invalid HMAC signature for ${network}`);
+        console.error(`Expected: ${expectedHeader}`);
+        console.error(`Received: ${signature}`);
+        console.error(`Raw body length: ${rawBody.length} bytes`);
+      } else {
+        console.log(`✅ SECURITY: Valid HMAC signature verified for ${network}`);
+      }
+      
+      return isValid;
+    } catch (error) {
+      console.error(`❌ SECURITY: Signature validation error for ${network}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * SECURITY: Process real vendor webhook completion (secure method)
+   */
+  async processWebhookCompletion(network: string, webhookData: any, signature?: string, rawBody?: Buffer): Promise<void> {
+    try {
+      // SECURITY: Validate webhook signature first using raw body bytes
+      if (!rawBody || !this.validateWebhookSignature(network, rawBody, signature)) {
+        throw new Error(`Unauthorized webhook - invalid signature for ${network}`);
+      }
+
+      // Extract session/impression info from webhook
+      const { sessionId, impressionId, eventType } = webhookData;
+      
+      if (!sessionId || !impressionId) {
+        throw new Error('Invalid webhook data - missing session/impression ID');
+      }
+
+      // Update existing completion record to verified (don't create new)
+      const updateResult = await db.update(adCompletions)
+        .set({
+          verified: true, // VERIFIED BY AUTHENTICATED WEBHOOK
+          verificationMethod: 'webhook', // SECURE METHOD
+          revenue: webhookData.revenue || '0.001'
+        })
+        .where(
+          and(
+            eq(adCompletions.sessionId, sessionId),
+            eq(adCompletions.impressionId, impressionId),
+            eq(adCompletions.network, network)
+          )
+        );
+
+      console.log(`✅ SECURITY: Authenticated webhook verification for session ${sessionId}`);
+    } catch (error) {
+      console.error('Failed to process webhook completion:', error);
+      throw error;
+    }
   }
 
   /**
