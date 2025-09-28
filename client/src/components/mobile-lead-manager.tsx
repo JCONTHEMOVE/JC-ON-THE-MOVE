@@ -988,6 +988,54 @@ export default function MobileLeadManager() {
                   </CardContent>
                 </Card>
 
+                {/* Crypto Faucet */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Coins className="h-5 w-5 text-blue-600" />
+                        <h3 className="font-semibold">Crypto Faucet</h3>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        FREE CRYPTO
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Claim free Bitcoin, Ethereum, Litecoin, and Dogecoin every hour!
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div className="text-center p-3 bg-orange-50 dark:bg-orange-950 rounded-lg">
+                        <div className="text-orange-600 font-semibold text-lg">BTC</div>
+                        <div className="text-xs text-muted-foreground">Every hour</div>
+                      </div>
+                      <div className="text-center p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                        <div className="text-blue-600 font-semibold text-lg">ETH</div>
+                        <div className="text-xs text-muted-foreground">Every hour</div>
+                      </div>
+                      <div className="text-center p-3 bg-gray-50 dark:bg-gray-950 rounded-lg">
+                        <div className="text-gray-600 font-semibold text-lg">LTC</div>
+                        <div className="text-xs text-muted-foreground">Every hour</div>
+                      </div>
+                      <div className="text-center p-3 bg-yellow-50 dark:bg-yellow-950 rounded-lg">
+                        <div className="text-yellow-600 font-semibold text-lg">DOGE</div>
+                        <div className="text-xs text-muted-foreground">Every hour</div>
+                      </div>
+                    </div>
+                    <Button 
+                      className="w-full" 
+                      onClick={() => {
+                        const link = document.createElement('a');
+                        link.href = '/faucet';
+                        link.click();
+                      }}
+                      data-testid="button-open-faucet"
+                    >
+                      <Coins className="h-4 w-4 mr-2" />
+                      Open Crypto Faucet
+                    </Button>
+                  </CardContent>
+                </Card>
+
                 {/* Leaderboard Preview */}
                 <Card>
                   <CardContent className="p-4">
