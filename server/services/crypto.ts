@@ -100,7 +100,7 @@ class CryptoService {
     
     // Emergency fallback to fixed price if all APIs fail
     console.error('All price APIs failed, using emergency fallback price');
-    const fallbackPrice = 0.001; // $0.001 fallback
+    const fallbackPrice = 0.000005034116; // Real Moonshot price fallback
     this.addToPriceHistory(fallbackPrice, 'fallback');
     return { price: fallbackPrice, source: 'fallback' };
   }

@@ -7,7 +7,7 @@ export const TREASURY_CONFIG = {
   
   // Dynamic pricing (replaced fixed price with crypto pricing)
   // TOKEN_PRICE: Uses real-time JCMOVES market price from crypto service
-  FALLBACK_TOKEN_PRICE: 0.001, // Emergency fallback if all APIs fail
+  FALLBACK_TOKEN_PRICE: 0.000005034116, // Real Moonshot price as emergency fallback
   
   // Safety thresholds (in USD)
   MINIMUM_BALANCE: 50.0, // $50 minimum balance (increased for crypto volatility)
