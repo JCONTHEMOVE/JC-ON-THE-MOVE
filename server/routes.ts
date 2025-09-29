@@ -2151,7 +2151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user's crypto wallets
   app.get("/api/wallets", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.user as any)?.id;
+      const userId = req.user.claims.sub;
       const wallets = await walletService.getUserWallets(userId);
       res.json({ wallets });
     } catch (error) {
@@ -2163,7 +2163,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create wallets for user (all supported currencies)
   app.post("/api/wallets/create", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.user as any)?.id;
+      const userId = req.user.claims.sub;
       const wallets = await walletService.createAllWalletsForUser(userId);
       res.json({ 
         success: true, 
@@ -2179,7 +2179,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get wallet balance for specific currency
   app.get("/api/wallets/:currency/balance", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.user as any)?.id;
+      const userId = req.user.claims.sub;
       const { currency } = req.params;
       
       const balanceInfo = await walletService.getWalletBalance(userId, currency);
@@ -2221,7 +2221,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Record a deposit (for external deposits)
   app.post("/api/wallets/deposit", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.user as any)?.id;
+      const userId = req.user.claims.sub;
       const { currency, amount, transactionHash, source } = req.body;
 
       if (!currency || !amount || parseFloat(amount) <= 0) {
@@ -2267,7 +2267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Wallet export request endpoint  
   app.post("/api/wallets/export-request", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.user as any)?.id;
+      const userId = req.user.claims.sub;
       if (!userId) {
         return res.status(401).json({ error: "Unauthorized" });
       }
@@ -2335,7 +2335,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Sync tokens from rewards system to crypto wallets
   app.post("/api/wallets/sync-from-rewards", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.user as any)?.id;
+      const userId = req.user.claims.sub;
       if (!userId) {
         return res.status(401).json({ error: "Unauthorized" });
       }
