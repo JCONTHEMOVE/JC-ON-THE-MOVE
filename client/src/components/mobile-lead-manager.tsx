@@ -370,14 +370,14 @@ export default function MobileLeadManager() {
   
   
   // Initialize tab based on user permissions
-  const getInitialTab = (): "available" | "accepted" | "map" | "treasury" | "rewards" | "settings" => {
+  const getInitialTab = (): "available" | "accepted" | "map" | "treasury" | "rewards" | "wallets" | "settings" => {
     return "available"; // Always start with available tab
   };
   
-  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury" | "rewards" | "settings">(getInitialTab());
+  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury" | "rewards" | "wallets" | "settings">(getInitialTab());
   
   // Prevent employees from accessing treasury tab
-  const handleTabChange = (tab: "available" | "accepted" | "map" | "treasury" | "rewards" | "settings") => {
+  const handleTabChange = (tab: "available" | "accepted" | "map" | "treasury" | "rewards" | "wallets" | "settings") => {
     if (tab === "treasury" && !canAccessTreasury && user?.role !== 'business_owner') {
       return; // Block access to treasury for employees
     }
@@ -877,6 +877,8 @@ export default function MobileLeadManager() {
               </div>
             )}
           </div>
+        ) : activeTab === "wallets" ? (
+          <WalletSection userId={user?.id} />
         ) : activeTab === "rewards" ? (
           <div className="space-y-4">
             <div className="text-center mb-6">
@@ -1260,6 +1262,18 @@ export default function MobileLeadManager() {
           </Button>
           
           <Button
+            variant={activeTab === "wallets" ? "default" : "ghost"}
+            className="w-full px-2 py-2"
+            onClick={() => handleTabChange("wallets")}
+            data-testid="tab-wallets"
+          >
+            <div className="flex flex-col items-center gap-1">
+              <Coins className="h-4 w-4" />
+              <span className="text-xs">Wallets</span>
+            </div>
+          </Button>
+          
+          <Button
             variant={activeTab === "settings" ? "default" : "ghost"}
             className="w-full px-2 py-2"
             onClick={() => handleTabChange("settings")}
@@ -1291,6 +1305,576 @@ export default function MobileLeadManager() {
         open={showNotifications} 
         onOpenChange={setShowNotifications} 
       />
+    </div>
+  );
+}
+
+// Wallet Section Component
+function WalletSection({ userId }: { userId?: string }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
+  const [showTransactions, setShowTransactions] = useState(false);
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [showDeposit, setShowDeposit] = useState(false);
+
+  // Fetch user's wallets
+  const { data: wallets, isLoading: walletsLoading } = useQuery({
+    queryKey: ['/api/wallets'],
+    enabled: !!userId,
+  });
+
+  // Fetch supported currencies
+  const { data: currenciesData } = useQuery({
+    queryKey: ['/api/wallets/currencies'],
+    enabled: !!userId,
+  });
+
+  // Create wallets mutation
+  const createWalletsMutation = useMutation({
+    mutationFn: () => apiRequest('/api/wallets/create', { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/wallets'] });
+      toast({
+        title: "Wallets Created",
+        description: "Your crypto wallets have been successfully created!",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create wallets",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Record deposit mutation
+  const depositMutation = useMutation({
+    mutationFn: (data: { currency: string; amount: string; transactionHash?: string; source?: string }) =>
+      apiRequest('/api/wallets/deposit', { method: 'POST', body: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/wallets'] });
+      setShowDeposit(false);
+      toast({
+        title: "Deposit Recorded",
+        description: "Your deposit has been successfully recorded!",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to record deposit",
+        variant: "destructive",
+      });
+    },
+  });
+
+  if (!userId) {
+    return (
+      <div className="text-center py-12">
+        <Coins className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+        <p className="text-muted-foreground">Please log in to view your wallets</p>
+      </div>
+    );
+  }
+
+  if (walletsLoading) {
+    return (
+      <div className="text-center py-12">
+        <RefreshCw className="h-12 w-12 mx-auto text-muted-foreground mb-4 animate-spin" />
+        <p className="text-muted-foreground">Loading your wallets...</p>
+      </div>
+    );
+  }
+
+  if (!wallets?.wallets || wallets.wallets.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="text-center mb-6">
+          <h2 className="text-xl font-bold mb-2">Crypto Wallets</h2>
+          <p className="text-sm text-muted-foreground">
+            Create your multi-currency crypto wallets to manage JCMOVES and other cryptocurrencies
+          </p>
+        </div>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center">
+              <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
+                <Coins className="h-10 w-10 text-white" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">No Wallets Yet</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Create wallets for JCMOVES, SOL, BTC, ETH and more
+              </p>
+              <Button 
+                className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+                onClick={() => createWalletsMutation.mutate()}
+                disabled={createWalletsMutation.isPending}
+                data-testid="button-create-wallets"
+              >
+                {createWalletsMutation.isPending ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Coins className="h-4 w-4 mr-2" />
+                )}
+                Create My Wallets
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="text-center mb-6">
+        <h2 className="text-xl font-bold mb-2">My Crypto Wallets</h2>
+        <p className="text-sm text-muted-foreground">
+          Manage your multi-currency cryptocurrency portfolio
+        </p>
+      </div>
+
+      {/* Wallet Cards */}
+      <div className="space-y-3">
+        {wallets.wallets.map((wallet: any) => (
+          <Card key={wallet.id} className="overflow-hidden">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    wallet.currency.symbol === 'JCMOVES' ? 'bg-green-100 text-green-600' :
+                    wallet.currency.symbol === 'SOL' ? 'bg-purple-100 text-purple-600' :
+                    wallet.currency.symbol === 'BTC' ? 'bg-orange-100 text-orange-600' :
+                    'bg-blue-100 text-blue-600'
+                  }`}>
+                    <Coins className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">{wallet.currency.name}</h3>
+                    <p className="text-sm text-muted-foreground">{wallet.currency.symbol}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold">
+                    {parseFloat(wallet.balance).toFixed(8)} {wallet.currency.symbol}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {wallet.currency.symbol === 'JCMOVES' ? '$0.00' : 'Balance'}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="mt-3 pt-3 border-t">
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="flex-1"
+                    onClick={() => {
+                      setSelectedWallet(wallet.id);
+                      setShowTransactions(true);
+                    }}
+                    data-testid={`button-view-transactions-${wallet.currency.symbol}`}
+                  >
+                    <Clock className="h-3 w-3 mr-1" />
+                    History
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="flex-1"
+                    onClick={() => {
+                      setSelectedWallet(wallet.id);
+                      setShowDeposit(true);
+                    }}
+                    data-testid={`button-deposit-${wallet.currency.symbol}`}
+                  >
+                    <ArrowRight className="h-3 w-3 mr-1" />
+                    Deposit
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="flex-1"
+                    onClick={() => {
+                      setSelectedWallet(wallet.id);
+                      setShowTransfer(true);
+                    }}
+                    data-testid={`button-transfer-${wallet.currency.symbol}`}
+                  >
+                    <User className="h-3 w-3 mr-1" />
+                    Send
+                  </Button>
+                </div>
+              </div>
+
+              {/* Wallet Address Display */}
+              <div className="mt-3 p-2 bg-gray-50 rounded text-xs">
+                <p className="text-muted-foreground mb-1">Wallet Address:</p>
+                <p className="font-mono break-all">{wallet.walletAddress}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Action Buttons */}
+      <div className="grid grid-cols-2 gap-3 mt-6">
+        <Button 
+          variant="outline"
+          onClick={() => setShowDeposit(true)}
+          data-testid="button-global-deposit"
+        >
+          <ArrowRight className="h-4 w-4 mr-2" />
+          Deposit Funds
+        </Button>
+        <Button 
+          variant="outline"
+          onClick={() => setShowTransfer(true)}
+          data-testid="button-global-transfer"
+        >
+          <User className="h-4 w-4 mr-2" />
+          Send to User
+        </Button>
+      </div>
+
+      {/* Transaction History Modal */}
+      {showTransactions && selectedWallet && (
+        <TransactionHistory 
+          walletId={selectedWallet}
+          onClose={() => {
+            setShowTransactions(false);
+            setSelectedWallet(null);
+          }}
+        />
+      )}
+
+      {/* Deposit Modal */}
+      {showDeposit && (
+        <DepositModal
+          currencies={currenciesData?.currencies || []}
+          selectedWallet={selectedWallet}
+          onClose={() => {
+            setShowDeposit(false);
+            setSelectedWallet(null);
+          }}
+          onDeposit={(data) => depositMutation.mutate(data)}
+          isLoading={depositMutation.isPending}
+        />
+      )}
+
+      {/* Transfer Modal */}
+      {showTransfer && (
+        <TransferModal
+          currencies={currenciesData?.currencies || []}
+          selectedWallet={selectedWallet}
+          onClose={() => {
+            setShowTransfer(false);
+            setSelectedWallet(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Transaction History Component
+function TransactionHistory({ walletId, onClose }: { walletId: string; onClose: () => void }) {
+  const { data: transactions, isLoading } = useQuery({
+    queryKey: ['/api/wallets', walletId, 'transactions'],
+    queryFn: () => apiRequest(`/api/wallets/${walletId}/transactions`),
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <Card className="w-full max-w-md max-h-[80vh] overflow-hidden">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">Transaction History</h3>
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </div>
+          
+          {isLoading ? (
+            <div className="text-center py-8">
+              <RefreshCw className="h-6 w-6 mx-auto text-muted-foreground mb-2 animate-spin" />
+              <p className="text-sm text-muted-foreground">Loading transactions...</p>
+            </div>
+          ) : transactions?.transactions?.length > 0 ? (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {transactions.transactions.map((tx: any) => (
+                <div key={tx.id} className="p-3 border rounded">
+                  <div className="flex justify-between items-center">
+                    <Badge variant={tx.transactionType === 'deposit' ? 'default' : 
+                                   tx.transactionType === 'reward' ? 'secondary' : 'outline'}>
+                      {tx.transactionType}
+                    </Badge>
+                    <span className="font-medium">
+                      {tx.transactionType === 'withdrawal' ? '-' : '+'}
+                      {parseFloat(tx.amount).toFixed(8)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {new Date(tx.createdAt).toLocaleString()}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Balance: {parseFloat(tx.balanceAfter).toFixed(8)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <Clock className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">No transactions yet</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// Deposit Modal Component
+function DepositModal({ 
+  currencies, 
+  selectedWallet, 
+  onClose, 
+  onDeposit, 
+  isLoading 
+}: { 
+  currencies: any[]; 
+  selectedWallet: string | null; 
+  onClose: () => void; 
+  onDeposit: (data: any) => void; 
+  isLoading: boolean; 
+}) {
+  const [currency, setCurrency] = useState('');
+  const [amount, setAmount] = useState('');
+  const [transactionHash, setTransactionHash] = useState('');
+
+  const handleSubmit = () => {
+    if (!currency || !amount || parseFloat(amount) <= 0) {
+      return;
+    }
+    
+    onDeposit({
+      currency,
+      amount,
+      transactionHash: transactionHash || undefined,
+      source: 'manual_deposit'
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <Card className="w-full max-w-md">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">Record Deposit</h3>
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Currency</label>
+              <select 
+                className="w-full p-2 border rounded"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                data-testid="select-deposit-currency"
+              >
+                <option value="">Select currency</option>
+                {currencies.map((curr: any) => (
+                  <option key={curr.id} value={curr.symbol}>
+                    {curr.name} ({curr.symbol})
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium mb-2 block">Amount</label>
+              <input
+                type="number"
+                step="0.00000001"
+                className="w-full p-2 border rounded"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00000000"
+                data-testid="input-deposit-amount"
+              />
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium mb-2 block">Transaction Hash (Optional)</label>
+              <input
+                type="text"
+                className="w-full p-2 border rounded"
+                value={transactionHash}
+                onChange={(e) => setTransactionHash(e.target.value)}
+                placeholder="Enter transaction hash"
+                data-testid="input-transaction-hash"
+              />
+            </div>
+            
+            <Button 
+              className="w-full"
+              onClick={handleSubmit}
+              disabled={!currency || !amount || parseFloat(amount) <= 0 || isLoading}
+              data-testid="button-confirm-deposit"
+            >
+              {isLoading ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4 mr-2" />
+              )}
+              Record Deposit
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// Transfer Modal Component
+function TransferModal({ 
+  currencies, 
+  selectedWallet, 
+  onClose 
+}: { 
+  currencies: any[]; 
+  selectedWallet: string | null; 
+  onClose: () => void; 
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [currency, setCurrency] = useState('');
+  const [amount, setAmount] = useState('');
+  const [recipientId, setRecipientId] = useState('');
+  const [note, setNote] = useState('');
+
+  const transferMutation = useMutation({
+    mutationFn: (data: any) => apiRequest('/api/wallets/transfer', { method: 'POST', body: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/wallets'] });
+      onClose();
+      toast({
+        title: "Transfer Successful",
+        description: "Your transfer has been completed!",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Transfer Failed",
+        description: error.message || "Failed to complete transfer",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!currency || !amount || !recipientId || parseFloat(amount) <= 0) {
+      return;
+    }
+    
+    transferMutation.mutate({
+      currency,
+      amount,
+      toUserId: recipientId,
+      note: note || undefined
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <Card className="w-full max-w-md">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">Send to User</h3>
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Currency</label>
+              <select 
+                className="w-full p-2 border rounded"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                data-testid="select-transfer-currency"
+              >
+                <option value="">Select currency</option>
+                {currencies.map((curr: any) => (
+                  <option key={curr.id} value={curr.symbol}>
+                    {curr.name} ({curr.symbol})
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium mb-2 block">Amount</label>
+              <input
+                type="number"
+                step="0.00000001"
+                className="w-full p-2 border rounded"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00000000"
+                data-testid="input-transfer-amount"
+              />
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium mb-2 block">Recipient User ID</label>
+              <input
+                type="text"
+                className="w-full p-2 border rounded"
+                value={recipientId}
+                onChange={(e) => setRecipientId(e.target.value)}
+                placeholder="Enter user ID"
+                data-testid="input-recipient-id"
+              />
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium mb-2 block">Note (Optional)</label>
+              <input
+                type="text"
+                className="w-full p-2 border rounded"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Enter a note"
+                data-testid="input-transfer-note"
+              />
+            </div>
+            
+            <Button 
+              className="w-full"
+              onClick={handleSubmit}
+              disabled={!currency || !amount || !recipientId || parseFloat(amount) <= 0 || transferMutation.isPending}
+              data-testid="button-confirm-transfer"
+            >
+              {transferMutation.isPending ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <User className="h-4 w-4 mr-2" />
+              )}
+              Send Transfer
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
