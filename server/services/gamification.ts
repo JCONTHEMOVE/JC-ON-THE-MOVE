@@ -106,7 +106,8 @@ export class GamificationService {
 
       // Check Treasury balance and distribute tokens
       const treasuryStats = await treasuryService.getTreasuryStats();
-      const tokenValue = parseFloat(tokenAmount) * 0.12; // Current JCMOVES price
+      const currentPrice = await treasuryService.getCurrentTokenPrice();
+      const tokenValue = parseFloat(tokenAmount) * currentPrice.price;
       
       if (treasuryStats.availableFunding < tokenValue) {
         return {

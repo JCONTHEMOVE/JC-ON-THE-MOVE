@@ -433,6 +433,13 @@ export default function MobileLeadManager() {
     staleTime: 60 * 1000, // 1 minute
   });
 
+  // Token price query for real-time USD conversion
+  const { data: tokenInfo } = useQuery({
+    queryKey: ["/api/rewards/token-info"],
+    enabled: isOnline && isAuthenticated,
+    staleTime: 30 * 1000, // 30 seconds
+  });
+
   // Daily check-in mutation
   const dailyCheckinMutation = useMutation({
     mutationFn: () => {
@@ -921,7 +928,7 @@ export default function MobileLeadManager() {
                       <Zap className="h-8 w-8 mx-auto mb-2 text-orange-500" />
                       <p className="text-sm text-muted-foreground">Current Streak</p>
                       <p className="text-2xl font-bold" data-testid="text-current-streak">
-                        {gamificationData.data.stats.currentStreak || 0} days
+                        {gamificationData?.data?.stats?.currentStreak || 0} days
                       </p>
                     </CardContent>
                   </Card>
@@ -930,7 +937,7 @@ export default function MobileLeadManager() {
                       <Star className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
                       <p className="text-sm text-muted-foreground">Total Points</p>
                       <p className="text-2xl font-bold" data-testid="text-total-points">
-                        {(gamificationData.data.stats.totalPoints || 0).toLocaleString()}
+                        {(gamificationData?.data?.stats?.totalPoints || 0).toLocaleString()}
                       </p>
                     </CardContent>
                   </Card>
@@ -943,10 +950,10 @@ export default function MobileLeadManager() {
                       <div>
                         <p className="text-sm text-muted-foreground">JCMOVES Balance</p>
                         <p className="text-xl font-bold" data-testid="text-token-balance">
-                          {gamificationData.data.tokenBalance.toFixed(1)} Tokens
+                          {(gamificationData?.data?.tokenBalance || 0).toFixed(1)} Tokens
                         </p>
                         <p className="text-sm text-green-600">
-                          ≈ ${(gamificationData.data.tokenBalance * 0.12).toFixed(2)} USD
+                          ≈ ${((gamificationData?.data?.tokenBalance || 0) * (tokenInfo?.price || 0)).toFixed(4)} USD
                         </p>
                       </div>
                       <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
@@ -963,9 +970,9 @@ export default function MobileLeadManager() {
                       <Trophy className="h-5 w-5 mr-2 text-yellow-500" />
                       Recent Achievements
                     </h3>
-                    {gamificationData.data.recentAchievements.length > 0 ? (
+                    {(gamificationData?.data?.recentAchievements?.length || 0) > 0 ? (
                       <div className="space-y-3">
-                        {gamificationData.data.recentAchievements.map((achievement, index) => (
+                        {(gamificationData?.data?.recentAchievements || []).map((achievement: any, index: number) => (
                           <div key={achievement.id} className="flex items-center gap-3" data-testid={`achievement-${index}`}>
                             <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
                               <Trophy className="h-5 w-5 text-green-600" />
