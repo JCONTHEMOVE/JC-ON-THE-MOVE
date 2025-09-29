@@ -72,7 +72,7 @@ const sidebarItems = [
 
 export default function AdminDashboardFull() {
   const { hasAdminAccess, isLoading: authLoading } = useAuth();
-  const [activeSection, setActiveSection] = useState("overview");
+  const [activeSection, setActiveSection] = useState("treasury");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Data queries
