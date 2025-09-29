@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type WalletTransaction, type InsertWalletTransaction, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, walletTransactions } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, isNull, and, isNotNull, sql, gt, gte } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
@@ -97,6 +97,18 @@ export interface IStorage {
   getWalletAccount(userId: string): Promise<WalletAccount | undefined>;
   createWalletAccount(wallet: InsertWalletAccount): Promise<WalletAccount>;
   updateWalletAccount(userId: string, updates: Partial<WalletAccount>): Promise<void>;
+  
+  // Multi-currency wallet operations
+  getSupportedCurrencies(): Promise<SupportedCurrency[]>;
+  getSupportedCurrencyBySymbol(symbol: string): Promise<SupportedCurrency | undefined>;
+  createSupportedCurrency(currency: InsertSupportedCurrency): Promise<SupportedCurrency>;
+  getUserWallet(userId: string, currencyId: string): Promise<UserWallet | undefined>;
+  getUserWalletById(walletId: string): Promise<UserWallet | undefined>;
+  getUserWalletsWithCurrency(userId: string): Promise<(UserWallet & { currency: SupportedCurrency })[]>;
+  createUserWallet(wallet: InsertUserWallet): Promise<UserWallet>;
+  updateUserWalletBalance(walletId: string, newBalance: string): Promise<void>;
+  createWalletTransaction(transaction: InsertWalletTransaction): Promise<WalletTransaction>;
+  getWalletTransactions(walletId: string, limit?: number): Promise<WalletTransaction[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1336,6 +1348,75 @@ export class DatabaseStorage implements IStorage {
         lastActivity: new Date()
       })
       .where(eq(walletAccounts.userId, userId));
+  }
+
+  // Multi-currency wallet operations
+  async getSupportedCurrencies(): Promise<SupportedCurrency[]> {
+    return await db.select().from(supportedCurrencies).where(eq(supportedCurrencies.isActive, true));
+  }
+
+  async getSupportedCurrencyBySymbol(symbol: string): Promise<SupportedCurrency | undefined> {
+    const [currency] = await db.select().from(supportedCurrencies)
+      .where(and(eq(supportedCurrencies.symbol, symbol), eq(supportedCurrencies.isActive, true)));
+    return currency || undefined;
+  }
+
+  async createSupportedCurrency(currency: InsertSupportedCurrency): Promise<SupportedCurrency> {
+    const [newCurrency] = await db.insert(supportedCurrencies).values(currency).returning();
+    return newCurrency;
+  }
+
+  async getUserWallet(userId: string, currencyId: string): Promise<UserWallet | undefined> {
+    const [wallet] = await db.select().from(userWallets)
+      .where(and(eq(userWallets.userId, userId), eq(userWallets.currencyId, currencyId)));
+    return wallet || undefined;
+  }
+
+  async getUserWalletById(walletId: string): Promise<UserWallet | undefined> {
+    const [wallet] = await db.select().from(userWallets).where(eq(userWallets.id, walletId));
+    return wallet || undefined;
+  }
+
+  async getUserWalletsWithCurrency(userId: string): Promise<(UserWallet & { currency: SupportedCurrency })[]> {
+    const results = await db.select({
+      ...userWallets,
+      currency: supportedCurrencies
+    })
+    .from(userWallets)
+    .innerJoin(supportedCurrencies, eq(userWallets.currencyId, supportedCurrencies.id))
+    .where(and(eq(userWallets.userId, userId), eq(userWallets.isActive, true)));
+    
+    return results.map(result => ({
+      ...result,
+      currency: result.currency
+    }));
+  }
+
+  async createUserWallet(wallet: InsertUserWallet): Promise<UserWallet> {
+    const [newWallet] = await db.insert(userWallets).values(wallet).returning();
+    return newWallet;
+  }
+
+  async updateUserWalletBalance(walletId: string, newBalance: string): Promise<void> {
+    await db.update(userWallets)
+      .set({ 
+        balance: newBalance,
+        updatedAt: sql`now()`,
+        lastSyncedAt: sql`now()`
+      })
+      .where(eq(userWallets.id, walletId));
+  }
+
+  async createWalletTransaction(transaction: InsertWalletTransaction): Promise<WalletTransaction> {
+    const [newTransaction] = await db.insert(walletTransactions).values(transaction).returning();
+    return newTransaction;
+  }
+
+  async getWalletTransactions(walletId: string, limit: number = 50): Promise<WalletTransaction[]> {
+    return await db.select().from(walletTransactions)
+      .where(eq(walletTransactions.userWalletId, walletId))
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(limit);
   }
 }
 
