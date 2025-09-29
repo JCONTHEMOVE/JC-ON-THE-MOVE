@@ -20,6 +20,7 @@ import { rewards, walletAccounts, dailyCheckins, cashoutRequests, fundingDeposit
 import { getFaucetPayService } from "./services/faucetpay";
 import { getAdvertisingService } from "./services/advertising";
 import { FAUCET_CONFIG } from "./constants";
+import { walletService } from "./services/wallet";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -2142,6 +2143,174 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating faucet config:", error);
       res.status(500).json({ error: "Failed to update configuration" });
+    }
+  });
+
+  // ===== WALLET MANAGEMENT ROUTES =====
+  
+  // Get user's crypto wallets
+  app.get("/api/wallets", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.currentUser.id;
+      const wallets = await walletService.getUserWallets(userId);
+      res.json({ wallets });
+    } catch (error) {
+      console.error("Error fetching user wallets:", error);
+      res.status(500).json({ error: "Failed to fetch wallets" });
+    }
+  });
+
+  // Create wallets for user (all supported currencies)
+  app.post("/api/wallets/create", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.currentUser.id;
+      const wallets = await walletService.createAllWalletsForUser(userId);
+      res.json({ 
+        success: true, 
+        wallets,
+        message: `Created ${wallets.length} crypto wallets`
+      });
+    } catch (error) {
+      console.error("Error creating wallets:", error);
+      res.status(500).json({ error: "Failed to create wallets" });
+    }
+  });
+
+  // Get wallet balance for specific currency
+  app.get("/api/wallets/:currency/balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.currentUser.id;
+      const { currency } = req.params;
+      
+      const balanceInfo = await walletService.getWalletBalance(userId, currency);
+      if (!balanceInfo) {
+        return res.status(404).json({ error: "Wallet not found for this currency" });
+      }
+      
+      res.json({ 
+        currency: balanceInfo.currency.symbol,
+        balance: balanceInfo.balance,
+        currencyDetails: balanceInfo.currency
+      });
+    } catch (error) {
+      console.error("Error fetching wallet balance:", error);
+      res.status(500).json({ error: "Failed to fetch wallet balance" });
+    }
+  });
+
+  // Get wallet transactions
+  app.get("/api/wallets/:walletId/transactions", isAuthenticated, async (req: any, res) => {
+    try {
+      const { walletId } = req.params;
+      const limit = parseInt(req.query.limit as string) || 50;
+      
+      // Verify wallet belongs to user
+      const wallet = await storage.getUserWalletById(walletId);
+      if (!wallet || wallet.userId !== req.currentUser.id) {
+        return res.status(404).json({ error: "Wallet not found" });
+      }
+      
+      const transactions = await storage.getWalletTransactions(walletId, limit);
+      res.json({ transactions });
+    } catch (error) {
+      console.error("Error fetching wallet transactions:", error);
+      res.status(500).json({ error: "Failed to fetch transactions" });
+    }
+  });
+
+  // Record a deposit (for external deposits)
+  app.post("/api/wallets/deposit", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.currentUser.id;
+      const { currency, amount, transactionHash, source } = req.body;
+
+      if (!currency || !amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ error: "Invalid currency or amount" });
+      }
+
+      // Get user's wallet for this currency
+      const currencyData = await storage.getSupportedCurrencyBySymbol(currency);
+      if (!currencyData) {
+        return res.status(400).json({ error: "Currency not supported" });
+      }
+
+      const wallet = await storage.getUserWallet(userId, currencyData.id);
+      if (!wallet) {
+        return res.status(404).json({ error: "Wallet not found. Create wallets first." });
+      }
+
+      // Record the deposit transaction
+      const transaction = await walletService.recordTransaction(
+        wallet.id,
+        'deposit',
+        amount,
+        {
+          source: source || 'external',
+          transactionHash,
+          depositor: 'user',
+          timestamp: new Date().toISOString()
+        }
+      );
+
+      res.json({ 
+        success: true, 
+        transaction,
+        newBalance: transaction.balanceAfter,
+        message: `Successfully deposited ${amount} ${currency}`
+      });
+    } catch (error) {
+      console.error("Error recording deposit:", error);
+      res.status(500).json({ error: "Failed to record deposit" });
+    }
+  });
+
+  // Internal transfer between users
+  app.post("/api/wallets/transfer", isAuthenticated, async (req: any, res) => {
+    try {
+      const fromUserId = req.currentUser.id;
+      const { toUserId, currency, amount, note } = req.body;
+
+      if (!toUserId || !currency || !amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ error: "Missing required fields or invalid amount" });
+      }
+
+      if (fromUserId === toUserId) {
+        return res.status(400).json({ error: "Cannot transfer to yourself" });
+      }
+
+      // Verify recipient exists
+      const recipient = await storage.getUser(toUserId);
+      if (!recipient) {
+        return res.status(404).json({ error: "Recipient not found" });
+      }
+
+      const transferResult = await walletService.internalTransfer(
+        fromUserId,
+        toUserId,
+        currency,
+        amount,
+        note
+      );
+
+      res.json({ 
+        success: true, 
+        transfer: transferResult,
+        message: `Successfully transferred ${amount} ${currency} to ${recipient.firstName} ${recipient.lastName}`
+      });
+    } catch (error) {
+      console.error("Error processing transfer:", error);
+      res.status(500).json({ error: error.message || "Failed to process transfer" });
+    }
+  });
+
+  // Get supported currencies
+  app.get("/api/wallets/currencies", isAuthenticated, async (req, res) => {
+    try {
+      const currencies = await storage.getSupportedCurrencies();
+      res.json({ currencies });
+    } catch (error) {
+      console.error("Error fetching supported currencies:", error);
+      res.status(500).json({ error: "Failed to fetch supported currencies" });
     }
   });
 
