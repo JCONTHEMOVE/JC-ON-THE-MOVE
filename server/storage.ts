@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, isNull, and, isNotNull, sql, gt, gte } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
@@ -94,6 +94,8 @@ export interface IStorage {
   getWeeklyLeaderboard(limit?: number): Promise<WeeklyLeaderboard[]>;
   getWeeklyRank(userId: string): Promise<{ rank: number; totalEmployees: number; weeklyPoints: number } | null>;
   getWalletAccount(userId: string): Promise<WalletAccount | undefined>;
+  createWalletAccount(wallet: InsertWalletAccount): Promise<WalletAccount>;
+  updateWalletAccount(userId: string, updates: Partial<WalletAccount>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1294,6 +1296,32 @@ export class DatabaseStorage implements IStorage {
       .from(walletAccounts)
       .where(eq(walletAccounts.userId, userId));
     return wallet || undefined;
+  }
+
+  async createWalletAccount(wallet: InsertWalletAccount): Promise<WalletAccount> {
+    const [created] = await db
+      .insert(walletAccounts)
+      .values({
+        ...wallet,
+        tokenBalance: "0.00000000",
+        cashBalance: "0.00",
+        totalEarned: "0.00000000", 
+        totalRedeemed: "0.00000000",
+        totalCashedOut: "0.00",
+        lastActivity: new Date()
+      })
+      .returning();
+    return created;
+  }
+
+  async updateWalletAccount(userId: string, updates: Partial<WalletAccount>): Promise<void> {
+    await db
+      .update(walletAccounts)
+      .set({
+        ...updates,
+        lastActivity: new Date()
+      })
+      .where(eq(walletAccounts.userId, userId));
   }
 }
 

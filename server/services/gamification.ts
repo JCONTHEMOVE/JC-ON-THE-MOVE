@@ -73,7 +73,7 @@ export class GamificationService {
           success: false,
           points: 0,
           tokens: "0",
-          streak: existingCheckIn.streakCount,
+          streak: existingCheckIn.streakCount || 1,
           isNewRecord: false,
           treasuryBalance: 0,
           error: "Already checked in today"
@@ -142,27 +142,27 @@ export class GamificationService {
 
       // Create or update user's wallet account with the distributed tokens
       try {
-        const existingWallet = await storage.getWalletByUserId(userId);
+        const existingWallet = await storage.getWalletAccount(userId);
         
         if (existingWallet) {
           // Update existing wallet
           await storage.updateWalletAccount(userId, {
-            tokenBalance: (parseFloat(existingWallet.tokenBalance) + parseFloat(tokenAmount)).toFixed(8),
-            cashBalance: (parseFloat(existingWallet.cashBalance) + distributionResult.cashValue).toFixed(2),
-            totalEarned: (parseFloat(existingWallet.totalEarned) + parseFloat(tokenAmount)).toFixed(8),
-            lastActivity: new Date()
+            tokenBalance: (parseFloat(existingWallet.tokenBalance || "0") + parseFloat(tokenAmount)).toFixed(8),
+            cashBalance: (parseFloat(existingWallet.cashBalance || "0") + distributionResult.cashValue).toFixed(2),
+            totalEarned: (parseFloat(existingWallet.totalEarned || "0") + parseFloat(tokenAmount)).toFixed(8),
           });
         } else {
           // Create new wallet account
           await storage.createWalletAccount({
             userId,
             walletAddress: `0xJCMOVES_${userId.substring(0, 8)}`,
+          });
+          
+          // Update with the token amounts
+          await storage.updateWalletAccount(userId, {
             tokenBalance: tokenAmount,
             cashBalance: distributionResult.cashValue.toFixed(2),
             totalEarned: tokenAmount,
-            totalRedeemed: "0.00000000",
-            totalCashedOut: "0.00",
-            lastActivity: new Date()
           });
         }
       } catch (walletError) {
@@ -296,9 +296,10 @@ export class GamificationService {
 
     // Distribute tokens from Treasury
     await treasuryService.distributeTokens(
-      userId,
       parseFloat(tokenAmount),
-      `Job completion reward - Job #${jobId}`
+      `Job completion reward - Job #${jobId}`,
+      "job_completion",
+      userId
     );
 
     // Add points transaction
@@ -441,9 +442,10 @@ export class GamificationService {
 
     if (parseFloat(achievement.tokenReward || "0") > 0) {
       await treasuryService.distributeTokens(
-        userId,
         parseFloat(achievement.tokenReward || "0"),
-        `Achievement reward: ${achievement.name}`
+        `Achievement reward: ${achievement.name}`,
+        "achievement",
+        userId
       );
     }
 
