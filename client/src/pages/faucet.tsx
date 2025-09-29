@@ -181,6 +181,28 @@ function CurrencyFaucetCard({
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* Ember Referral Link for BTC */}
+        {config.currency === 'BTC' && (
+          <Alert className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
+            <Bitcoin className="h-4 w-4 text-orange-600" />
+            <AlertDescription className="text-orange-800 dark:text-orange-200">
+              <div className="space-y-2">
+                <div className="font-medium">Get Free Bitcoin with Ember!</div>
+                <div className="text-sm">Referral Code: <strong>MNG-POKER-LPG</strong></div>
+                <a 
+                  href="https://emberfund.onelink.me/ljTI/l4g18zii?mining_referrer_id=MNG-POKER-LPG"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center text-sm font-medium text-orange-700 dark:text-orange-300 hover:underline"
+                  data-testid="link-ember-referral"
+                >
+                  Click here to claim BTC with Ember →
+                </a>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Wallet Address Input */}
         <div className="space-y-2">
           <Label htmlFor={`wallet-${config.currency}`}>
