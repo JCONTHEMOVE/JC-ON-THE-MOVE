@@ -2332,6 +2332,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Sync tokens from rewards system to crypto wallets
+  app.post("/api/wallets/sync-from-rewards", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      // Get user's current reward balance from walletAccounts
+      const rewardWallet = await storage.getWalletAccount(userId);
+      if (!rewardWallet) {
+        return res.status(404).json({ error: "No rewards wallet found" });
+      }
+
+      const rewardBalance = parseFloat(rewardWallet.tokenBalance || '0');
+      if (rewardBalance <= 0) {
+        return res.status(400).json({ error: "No tokens to sync" });
+      }
+
+      // Get or create user's JCMOVES crypto wallet
+      const userWallets = await storage.getUserWallets(userId);
+      let jcmovesWallet = userWallets.find(w => w.currency.symbol === 'JCMOVES');
+      
+      if (!jcmovesWallet) {
+        // Create JCMOVES wallet if it doesn't exist
+        const walletService = new (await import('./services/wallet.js')).WalletService();
+        jcmovesWallet = await walletService.createUserWallet(userId, 'JCMOVES');
+      }
+
+      // Calculate new balances
+      const currentCryptoBalance = parseFloat(jcmovesWallet.balance);
+      const newCryptoBalance = currentCryptoBalance + rewardBalance;
+
+      // Transfer the tokens
+      // 1. Add to crypto wallet
+      await storage.updateWalletBalance(jcmovesWallet.id, newCryptoBalance.toString());
+      
+      // 2. Record the sync transaction
+      await storage.recordWalletTransaction({
+        userWalletId: jcmovesWallet.id,
+        transactionType: 'deposit',
+        amount: rewardBalance.toString(),
+        balanceAfter: newCryptoBalance.toString(),
+        transactionHash: null,
+        status: 'confirmed',
+        confirmations: 1,
+        metadata: {
+          syncFromRewards: true,
+          originalRewardBalance: rewardBalance.toString(),
+          syncedAt: new Date().toISOString(),
+          source: 'rewards_system'
+        }
+      });
+
+      // 3. Clear the rewards balance (set to 0)
+      await storage.updateWalletAccount(userId, {
+        tokenBalance: "0.00000000"
+      });
+
+      res.json({ 
+        success: true, 
+        message: "Tokens successfully synced to crypto wallet",
+        syncedAmount: rewardBalance,
+        newCryptoBalance: newCryptoBalance,
+        walletId: jcmovesWallet.id
+      });
+
+    } catch (error) {
+      console.error("Error syncing tokens from rewards:", error);
+      res.status(500).json({ error: "Failed to sync tokens" });
+    }
+  });
+
   // Internal transfer between users
   app.post("/api/wallets/transfer", isAuthenticated, async (req: any, res) => {
     try {

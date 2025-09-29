@@ -1332,6 +1332,12 @@ function WalletSection({ userId }: { userId?: string }) {
     enabled: !!userId,
   });
 
+  // Fetch rewards wallet balance to check for sync availability
+  const { data: rewardsWallet } = useQuery({
+    queryKey: ['/api/rewards/wallet'],
+    enabled: !!userId,
+  });
+
   // Create wallets mutation
   const createWalletsMutation = useMutation({
     mutationFn: async () => {
@@ -1352,6 +1358,38 @@ function WalletSection({ userId }: { userId?: string }) {
       toast({
         title: "Error",
         description: error.message || "Failed to create wallets",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Sync tokens from rewards to crypto wallet
+  const syncFromRewardsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/wallets/sync-from-rewards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to sync tokens');
+      }
+      
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/wallets'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rewards/wallet'] }); 
+      toast({
+        title: "Tokens Synced!",
+        description: `${data.syncedAmount.toFixed(8)} JCMOVES transferred to your crypto wallet`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Sync Failed",
+        description: error.message || "Failed to sync tokens from rewards",
         variant: "destructive",
       });
     },
@@ -1450,6 +1488,41 @@ function WalletSection({ userId }: { userId?: string }) {
           Manage your multi-currency cryptocurrency portfolio
         </p>
       </div>
+
+      {/* Sync from Rewards Banner */}
+      {rewardsWallet && parseFloat(rewardsWallet.tokenBalance || '0') > 0 && (
+        <Card className="mb-4 border-green-200 bg-gradient-to-r from-green-50 to-blue-50">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                  <Coins className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-green-800">Sync Available</h3>
+                  <p className="text-sm text-green-600">
+                    {parseFloat(rewardsWallet.tokenBalance).toFixed(8)} JCMOVES ready to sync
+                  </p>
+                </div>
+              </div>
+              <Button 
+                size="sm"
+                className="bg-green-600 hover:bg-green-700 text-white"
+                onClick={() => syncFromRewardsMutation.mutate()}
+                disabled={syncFromRewardsMutation.isPending}
+                data-testid="button-sync-from-rewards"
+              >
+                {syncFromRewardsMutation.isPending ? (
+                  <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <ArrowRight className="h-3 w-3 mr-1" />
+                )}
+                Sync to Wallet
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Wallet Cards */}
       <div className="space-y-3">
