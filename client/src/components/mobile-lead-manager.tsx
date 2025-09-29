@@ -38,7 +38,8 @@ import {
   Trophy,
   Target,
   TrendingUp,
-  Coins
+  Coins,
+  Download
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
@@ -1316,6 +1317,7 @@ function WalletSection({ userId }: { userId?: string }) {
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [showTransactions, setShowTransactions] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [showDeposit, setShowDeposit] = useState(false);
 
   // Fetch user's wallets
@@ -1507,19 +1509,35 @@ function WalletSection({ userId }: { userId?: string }) {
                     <ArrowRight className="h-3 w-3 mr-1" />
                     Deposit
                   </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    className="flex-1"
-                    onClick={() => {
-                      setSelectedWallet(wallet.id);
-                      setShowTransfer(true);
-                    }}
-                    data-testid={`button-transfer-${wallet.currency.symbol}`}
-                  >
-                    <User className="h-3 w-3 mr-1" />
-                    Send
-                  </Button>
+                  {wallet.currency.symbol === 'JCMOVES' ? (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="flex-1"
+                      onClick={() => {
+                        setSelectedWallet(wallet.id);
+                        setShowExport(true);
+                      }}
+                      data-testid={`button-export-${wallet.currency.symbol}`}
+                    >
+                      <Download className="h-3 w-3 mr-1" />
+                      Export
+                    </Button>
+                  ) : (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="flex-1"
+                      onClick={() => {
+                        setSelectedWallet(wallet.id);
+                        setShowTransfer(true);
+                      }}
+                      data-testid={`button-transfer-${wallet.currency.symbol}`}
+                    >
+                      <User className="h-3 w-3 mr-1" />
+                      Send
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -1585,6 +1603,17 @@ function WalletSection({ userId }: { userId?: string }) {
           selectedWallet={selectedWallet}
           onClose={() => {
             setShowTransfer(false);
+            setSelectedWallet(null);
+          }}
+        />
+      )}
+
+      {/* Export Modal */}
+      {showExport && (
+        <ExportModal
+          walletData={wallets?.wallets?.find((w: any) => w.id === selectedWallet)}
+          onClose={() => {
+            setShowExport(false);
             setSelectedWallet(null);
           }}
         />
@@ -1751,6 +1780,145 @@ function DepositModal({
                 <CheckCircle className="h-4 w-4 mr-2" />
               )}
               Record Deposit
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// Export Modal Component
+function ExportModal({ onClose, walletData }: { onClose: () => void; walletData: any }) {
+  const { toast } = useToast();
+  const [amount, setAmount] = useState('');
+  const [withdrawalAddress, setWithdrawalAddress] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const exportMutation = useMutation({
+    mutationFn: async (data: any) => {
+      // For now, this creates a withdrawal request that can be processed later
+      const response = await fetch('/api/wallets/export-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      onClose();
+      toast({
+        title: "Export Request Submitted",
+        description: "Your JCMOVES export request has been submitted for processing!",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Export Failed",
+        description: error.message || "Failed to submit export request",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!amount || parseFloat(amount) <= 0) {
+      toast({
+        title: "Invalid Amount",
+        description: "Please enter a valid amount to export",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (parseFloat(amount) > parseFloat(walletData?.balance || '0')) {
+      toast({
+        title: "Insufficient Balance",
+        description: "You don't have enough JCMOVES tokens",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    exportMutation.mutate({
+      amount,
+      withdrawalAddress: withdrawalAddress || undefined,
+      notes: notes || undefined,
+      currency: 'JCMOVES'
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <Card className="w-full max-w-md">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">Export JCMOVES</h3>
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Available Balance</label>
+              <div className="p-2 bg-gray-50 rounded text-sm">
+                {parseFloat(walletData?.balance || '0').toFixed(8)} JCMOVES
+              </div>
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium mb-2 block">Amount to Export</label>
+              <input
+                type="number"
+                step="0.00000001"
+                placeholder="0.00000000"
+                className="w-full p-2 border rounded"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                data-testid="input-export-amount"
+              />
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium mb-2 block">External Wallet Address (Optional)</label>
+              <input
+                type="text"
+                placeholder="Enter Solana wallet address"
+                className="w-full p-2 border rounded"
+                value={withdrawalAddress}
+                onChange={(e) => setWithdrawalAddress(e.target.value)}
+                data-testid="input-withdrawal-address"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Leave empty to request manual processing
+              </p>
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium mb-2 block">Notes (Optional)</label>
+              <textarea
+                placeholder="Additional notes or instructions"
+                className="w-full p-2 border rounded"
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                data-testid="input-export-notes"
+              />
+            </div>
+            
+            <Button 
+              className="w-full"
+              onClick={handleSubmit}
+              disabled={exportMutation.isPending}
+              data-testid="button-submit-export"
+            >
+              {exportMutation.isPending ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              Submit Export Request
             </Button>
           </div>
         </CardContent>

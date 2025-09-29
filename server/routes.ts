@@ -2264,6 +2264,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Wallet export request endpoint  
+  app.post("/api/wallets/export-request", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { amount, withdrawalAddress, notes, currency } = req.body;
+      
+      if (!amount || !currency || parseFloat(amount) <= 0) {
+        return res.status(400).json({ error: "Invalid export request data" });
+      }
+
+      if (currency !== 'JCMOVES') {
+        return res.status(400).json({ error: "Export only supported for JCMOVES tokens" });
+      }
+
+      // Get user's JCMOVES wallet
+      const userWallets = await storage.getUserWallets(userId);
+      const jcmovesWallet = userWallets.find(w => w.currency.symbol === 'JCMOVES');
+      
+      if (!jcmovesWallet) {
+        return res.status(404).json({ error: "JCMOVES wallet not found" });
+      }
+
+      const currentBalance = parseFloat(jcmovesWallet.balance);
+      const exportAmount = parseFloat(amount);
+
+      if (exportAmount > currentBalance) {
+        return res.status(400).json({ error: "Insufficient balance" });
+      }
+
+      // For now, we'll create a transaction record as a withdrawal request
+      // In a real implementation, this would integrate with external payment systems
+      const transactionResult = await storage.recordWalletTransaction({
+        userWalletId: jcmovesWallet.id,
+        transactionType: 'withdrawal',
+        amount: exportAmount.toString(),
+        balanceAfter: (currentBalance - exportAmount).toString(),
+        transactionHash: null, // Will be filled when processed
+        status: 'pending',
+        confirmations: 0,
+        metadata: {
+          withdrawalAddress: withdrawalAddress || null,
+          notes: notes || null,
+          exportRequest: true,
+          requestedAt: new Date().toISOString()
+        }
+      });
+
+      // Update wallet balance
+      await storage.updateWalletBalance(jcmovesWallet.id, (currentBalance - exportAmount).toString());
+
+      res.json({ 
+        success: true, 
+        message: "Export request submitted successfully",
+        transactionId: transactionResult.id,
+        amount: exportAmount,
+        newBalance: (currentBalance - exportAmount).toString()
+      });
+
+    } catch (error) {
+      console.error("Error processing export request:", error);
+      res.status(500).json({ error: "Failed to process export request" });
+    }
+  });
+
   // Internal transfer between users
   app.post("/api/wallets/transfer", isAuthenticated, async (req: any, res) => {
     try {
