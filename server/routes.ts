@@ -566,7 +566,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Notification routes
   app.get("/api/notifications", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
-      const userId = req.currentUser.id;
+      const userId = (req.user as any)?.id;
       const limit = parseInt(req.query.limit as string) || 50;
       
       const notifications = await storage.getUserNotifications(userId, limit);
@@ -579,7 +579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/notifications/unread-count", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
-      const userId = req.currentUser.id;
+      const userId = (req.user as any)?.id;
       const count = await storage.getUnreadNotificationCount(userId);
       res.json({ count });
     } catch (error) {
@@ -606,7 +606,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/notifications/mark-all-read", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
-      const userId = req.currentUser.id;
+      const userId = (req.user as any)?.id;
       await storage.markAllNotificationsAsRead(userId);
       res.json({ success: true });
     } catch (error) {
@@ -617,7 +617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/notifications/subscribe", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.currentUser.id;
+      const userId = (req.user as any)?.id;
       const { pushSubscriptionSchema } = await import("@shared/schema");
       const subscription = pushSubscriptionSchema.parse(req.body);
       
@@ -2151,7 +2151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user's crypto wallets
   app.get("/api/wallets", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.currentUser.id;
+      const userId = (req.user as any)?.id;
       const wallets = await walletService.getUserWallets(userId);
       res.json({ wallets });
     } catch (error) {
@@ -2163,7 +2163,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create wallets for user (all supported currencies)
   app.post("/api/wallets/create", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.currentUser.id;
+      const userId = (req.user as any)?.id;
       const wallets = await walletService.createAllWalletsForUser(userId);
       res.json({ 
         success: true, 
@@ -2179,7 +2179,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get wallet balance for specific currency
   app.get("/api/wallets/:currency/balance", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.currentUser.id;
+      const userId = (req.user as any)?.id;
       const { currency } = req.params;
       
       const balanceInfo = await walletService.getWalletBalance(userId, currency);
@@ -2221,7 +2221,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Record a deposit (for external deposits)
   app.post("/api/wallets/deposit", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.currentUser.id;
+      const userId = (req.user as any)?.id;
       const { currency, amount, transactionHash, source } = req.body;
 
       if (!currency || !amount || parseFloat(amount) <= 0) {

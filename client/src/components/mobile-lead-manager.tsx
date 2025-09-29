@@ -1332,7 +1332,13 @@ function WalletSection({ userId }: { userId?: string }) {
 
   // Create wallets mutation
   const createWalletsMutation = useMutation({
-    mutationFn: () => apiRequest('/api/wallets/create', { method: 'POST' }),
+    mutationFn: async () => {
+      const response = await fetch('/api/wallets/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/wallets'] });
       toast({
@@ -1351,8 +1357,14 @@ function WalletSection({ userId }: { userId?: string }) {
 
   // Record deposit mutation
   const depositMutation = useMutation({
-    mutationFn: (data: { currency: string; amount: string; transactionHash?: string; source?: string }) =>
-      apiRequest('/api/wallets/deposit', { method: 'POST', body: data }),
+    mutationFn: async (data: { currency: string; amount: string; transactionHash?: string; source?: string }) => {
+      const response = await fetch('/api/wallets/deposit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/wallets'] });
       setShowDeposit(false);
@@ -1585,7 +1597,10 @@ function WalletSection({ userId }: { userId?: string }) {
 function TransactionHistory({ walletId, onClose }: { walletId: string; onClose: () => void }) {
   const { data: transactions, isLoading } = useQuery({
     queryKey: ['/api/wallets', walletId, 'transactions'],
-    queryFn: () => apiRequest(`/api/wallets/${walletId}/transactions`),
+    queryFn: async () => {
+      const response = await fetch(`/api/wallets/${walletId}/transactions`);
+      return response.json();
+    },
   });
 
   return (
@@ -1762,7 +1777,14 @@ function TransferModal({
   const [note, setNote] = useState('');
 
   const transferMutation = useMutation({
-    mutationFn: (data: any) => apiRequest('/api/wallets/transfer', { method: 'POST', body: data }),
+    mutationFn: async (data: any) => {
+      const response = await fetch('/api/wallets/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/wallets'] });
       onClose();
