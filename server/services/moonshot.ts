@@ -195,7 +195,7 @@ export class MoonshotService {
 
       const timestamp = new Date().toISOString();
       const tokenAmount = parseFloat(originalRequest.tokenAmount);
-      const currentPrice = await this.getTokenPrice(originalRequest.tokenSymbol);
+      const currentPrice = await this.getTokenPrice();
       const usdValue = tokenAmount * currentPrice;
       
       const metadata: MoonshotAccountMetadata = {
