@@ -841,6 +841,9 @@ export default function MobileLeadManager() {
                         <p className="text-lg font-bold text-blue-600">
                           {(treasuryStatus.stats?.tokenReserve || 0).toLocaleString()}
                         </p>
+                        <p className="text-xs text-muted-foreground">
+                          ≈ ${((treasuryStatus.stats?.tokenReserve || 0) * (tokenInfo?.price || 0)).toFixed(4)} USD
+                        </p>
                       </div>
                     </div>
                   </CardContent>
