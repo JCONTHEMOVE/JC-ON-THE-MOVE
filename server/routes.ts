@@ -1071,6 +1071,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Record a completed token deposit from external source (like Moonshot app)
+  app.post("/api/treasury/record-token-deposit", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
+    try {
+      const { tokenAmount, transactionHash, moonshotAccountId, notes } = req.body;
+      const userId = req.user.claims.sub;
+
+      // Validation
+      if (!tokenAmount || typeof tokenAmount !== 'number' || tokenAmount <= 0) {
+        return res.status(400).json({ error: "Valid token amount is required" });
+      }
+      if (!transactionHash || typeof transactionHash !== 'string') {
+        return res.status(400).json({ error: "Transaction hash is required" });
+      }
+
+      const result = await treasuryService.depositTokensFromMoonshot(
+        userId,
+        tokenAmount,
+        transactionHash,
+        moonshotAccountId,
+        notes
+      );
+
+      if (result.success && result.deposit) {
+        res.json({
+          success: true,
+          deposit: result.deposit,
+          message: `Successfully recorded deposit of ${tokenAmount.toLocaleString()} JCMOVES tokens`
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error || "Failed to record token deposit"
+        });
+      }
+    } catch (error) {
+      console.error("Error recording token deposit:", error);
+      res.status(500).json({ 
+        success: false, 
+        error: "Failed to record token deposit" 
+      });
+    }
+  });
+
   // Get treasury status and health
   app.get("/api/treasury/status", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
