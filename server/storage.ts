@@ -85,6 +85,7 @@ export interface IStorage {
   updateEmployeeStats(userId: string, updates: Partial<EmployeeStats>): Promise<EmployeeStats | undefined>;
   getTodayCheckIn(userId: string, date: string): Promise<DailyCheckin | undefined>;
   getLastCheckIn(userId: string): Promise<DailyCheckin | undefined>;
+  getRecentCheckIn(userId: string, sinceDate: Date): Promise<DailyCheckin | undefined>;
   createDailyCheckIn(checkin: InsertDailyCheckin): Promise<DailyCheckin>;
   createPointTransaction(transaction: InsertPointTransaction): Promise<PointTransaction>;
   getEmployeeAchievements(userId: string, limit?: number): Promise<(EmployeeAchievement & { achievementType: AchievementType })[]>;
@@ -1186,6 +1187,19 @@ export class DatabaseStorage implements IStorage {
       .from(dailyCheckins)
       .where(eq(dailyCheckins.userId, userId))
       .orderBy(desc(dailyCheckins.checkinDate))
+      .limit(1);
+    return checkin || undefined;
+  }
+
+  async getRecentCheckIn(userId: string, sinceDate: Date): Promise<DailyCheckin | undefined> {
+    const [checkin] = await db
+      .select()
+      .from(dailyCheckins)
+      .where(and(
+        eq(dailyCheckins.userId, userId),
+        gte(dailyCheckins.createdAt, sinceDate)
+      ))
+      .orderBy(desc(dailyCheckins.createdAt))
       .limit(1);
     return checkin || undefined;
   }

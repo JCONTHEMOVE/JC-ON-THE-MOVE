@@ -54,29 +54,35 @@ export interface EmployeeGamificationData {
   weeklyRank: { rank: number; totalEmployees: number; weeklyPoints: number } | null;
   canCheckIn: boolean;
   lastCheckIn: Date | null;
+  nextCheckInAt: Date | null;
   nextLevelThreshold: number;
   tokenBalance: number;
 }
 
 export class GamificationService {
   /**
-   * Perform daily check-in for an employee
+   * Perform check-in for an employee (claimable 4 times per day - every 6 hours)
    */
   async performDailyCheckIn(userId: string): Promise<DailyCheckInResult> {
     try {
-      // Check if user already checked in today
-      const today = new Date().toISOString().split('T')[0];
-      const existingCheckIn = await storage.getTodayCheckIn(userId, today);
+      // Check if user already checked in within the last 6 hours
+      const now = new Date();
+      const sixHoursAgo = new Date(now.getTime() - (6 * 60 * 60 * 1000));
       
-      if (existingCheckIn) {
+      const recentCheckIn = await storage.getRecentCheckIn(userId, sixHoursAgo);
+      
+      if (recentCheckIn) {
+        const nextClaimTime = new Date(recentCheckIn.createdAt.getTime() + (6 * 60 * 60 * 1000));
+        const hoursRemaining = Math.ceil((nextClaimTime.getTime() - now.getTime()) / (60 * 60 * 1000));
+        
         return {
           success: false,
           points: 0,
           tokens: "0",
-          streak: existingCheckIn.streakCount || 1,
+          streak: recentCheckIn.streakCount || 1,
           isNewRecord: false,
           treasuryBalance: 0,
-          error: "Already checked in today"
+          error: `Next check-in available in ${hoursRemaining} hour${hoursRemaining !== 1 ? 's' : ''}`
         };
       }
 
@@ -86,28 +92,50 @@ export class GamificationService {
         employeeStats = await storage.createEmployeeStats({ userId });
       }
 
-      // Calculate streak
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      // Calculate streak - only advance once per day, not every 6 hours
+      const today = now.toISOString().split('T')[0];
+      const lastCheckIn = await storage.getLastCheckIn(userId);
       
-      const yesterdayCheckIn = await storage.getTodayCheckIn(userId, yesterdayStr);
-      const newStreak = yesterdayCheckIn ? (employeeStats.currentStreak || 0) + 1 : 1;
-      const isNewRecord = newStreak > (employeeStats.longestStreak || 0);
+      let newStreak = 1;
+      let isNewRecord = false;
+      
+      if (lastCheckIn) {
+        const lastCheckInDate = lastCheckIn.checkinDate;
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        
+        if (lastCheckInDate === today) {
+          // Already checked in today, maintain current streak
+          newStreak = lastCheckIn.streakCount || 1;
+        } else if (lastCheckInDate === yesterdayStr) {
+          // Last check-in was yesterday, increment streak
+          newStreak = (lastCheckIn.streakCount || 0) + 1;
+          isNewRecord = newStreak > (employeeStats.longestStreak || 0);
+        } else {
+          // Streak broken, reset to 1
+          newStreak = 1;
+        }
+      }
 
-      // Calculate rewards based on streak
+      // Calculate rewards: FIXED $0.25 USD worth of JCMOVES tokens per check-in
+      const usdValue = 0.25; // Always exactly $0.25 per check-in
+      
+      // Streak multiplier only affects points, NOT token payout
       const streakMultiplier = Math.min(
         Math.pow(GAMIFICATION_REWARDS.DAILY_CHECKIN.STREAK_MULTIPLIER, newStreak - 1),
         GAMIFICATION_REWARDS.DAILY_CHECKIN.MAX_STREAK_BONUS
       );
       
       const points = Math.floor(GAMIFICATION_REWARDS.DAILY_CHECKIN.BASE_POINTS * streakMultiplier);
-      const tokenAmount = (parseFloat(GAMIFICATION_REWARDS.DAILY_CHECKIN.BASE_TOKENS) * streakMultiplier).toFixed(8);
+      
+      // Get current token price to calculate token amount from FIXED USD value
+      const currentPrice = await treasuryService.getCurrentTokenPrice();
+      const tokenAmount = (usdValue / currentPrice.price).toFixed(8); // No streak multiplier on tokens
 
       // Check Treasury balance and distribute tokens
       const treasuryStats = await treasuryService.getTreasuryStats();
-      const currentPrice = await treasuryService.getCurrentTokenPrice();
-      const tokenValue = parseFloat(tokenAmount) * currentPrice.price;
+      const tokenValue = usdValue; // Always exactly $0.25 worth of tokens
       
       if (treasuryStats.availableFunding < tokenValue) {
         return {
@@ -174,7 +202,8 @@ export class GamificationService {
       // Record the check-in
       await storage.createDailyCheckIn({
         userId,
-        checkinDate: today
+        checkinDate: now.toISOString().split('T')[0], // Current date for tracking
+        streakCount: newStreak
       });
 
       // Add points transaction
@@ -182,7 +211,7 @@ export class GamificationService {
         userId,
         points,
         transactionType: "daily_checkin",
-        description: `Daily check-in reward - ${newStreak} day streak`,
+        description: `Check-in reward (4x daily) - ${newStreak} day streak`,
         metadata: {
           streak: newStreak,
           tokenAmount,
@@ -245,12 +274,18 @@ export class GamificationService {
     // Get weekly rank
     const weeklyRank = await this.getWeeklyRank(userId);
     
-    // Check if can check in today
-    const today = new Date().toISOString().split('T')[0];
-    const todayCheckIn = await storage.getTodayCheckIn(userId, today);
-    const canCheckIn = !todayCheckIn;
+    // Check if can check in (6-hour intervals)
+    const now = new Date();
+    const sixHoursAgo = new Date(now.getTime() - (6 * 60 * 60 * 1000));
+    const recentCheckIn = await storage.getRecentCheckIn(userId, sixHoursAgo);
+    const canCheckIn = !recentCheckIn;
     
-    // Get last check-in date
+    // Calculate next check-in time
+    const nextCheckInAt = recentCheckIn 
+      ? new Date(recentCheckIn.createdAt.getTime() + (6 * 60 * 60 * 1000))
+      : null;
+    
+    // Get last check-in date  
     const lastCheckIn = await storage.getLastCheckIn(userId);
     
     // Calculate next level threshold
@@ -266,6 +301,7 @@ export class GamificationService {
       weeklyRank,
       canCheckIn,
       lastCheckIn: lastCheckIn?.checkinDate ? new Date(lastCheckIn.checkinDate) : null,
+      nextCheckInAt,
       nextLevelThreshold,
       tokenBalance
     };

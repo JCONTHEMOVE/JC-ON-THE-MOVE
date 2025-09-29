@@ -877,9 +877,9 @@ export default function MobileLeadManager() {
         ) : activeTab === "rewards" ? (
           <div className="space-y-4">
             <div className="text-center mb-6">
-              <h2 className="text-xl font-bold mb-2">Daily Rewards</h2>
+              <h2 className="text-xl font-bold mb-2">Rewards (4x Daily)</h2>
               <p className="text-sm text-muted-foreground">
-                Check in daily to earn tokens and build your streak
+                Check in every 6 hours to earn $0.25 worth of JCMOVES tokens
               </p>
             </div>
 
@@ -897,11 +897,13 @@ export default function MobileLeadManager() {
                       <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
                         <Gift className="h-10 w-10 text-white" />
                       </div>
-                      <h3 className="text-lg font-semibold mb-2">Daily Check-In</h3>
+                      <h3 className="text-lg font-semibold mb-2">Check-In (Every 6 Hours)</h3>
                       <p className="text-sm text-muted-foreground mb-4">
                         {gamificationData.data.canCheckIn 
-                          ? "Ready for today's check-in!" 
-                          : `Last check-in: ${gamificationData.data.lastCheckIn ? new Date(gamificationData.data.lastCheckIn).toLocaleDateString() : 'Never'}`
+                          ? "Ready for your next $0.25 check-in!" 
+                          : gamificationData.data.nextCheckInAt 
+                            ? `Next check-in: ${new Date(gamificationData.data.nextCheckInAt).toLocaleTimeString()}`
+                            : `Last check-in: ${gamificationData.data.lastCheckIn ? new Date(gamificationData.data.lastCheckIn).toLocaleDateString() : 'Never'}`
                         }
                       </p>
                       <Button 
@@ -915,7 +917,7 @@ export default function MobileLeadManager() {
                         ) : (
                           <Calendar className="h-4 w-4 mr-2" />
                         )}
-                        {gamificationData.data.canCheckIn ? "Claim Daily Reward" : "Already Claimed Today"}
+                        {gamificationData.data.canCheckIn ? "Claim $0.25 Reward" : "Next Available Soon"}
                       </Button>
                     </div>
                   </CardContent>
