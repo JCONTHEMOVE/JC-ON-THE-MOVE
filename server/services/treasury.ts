@@ -265,6 +265,59 @@ export class TreasuryService {
   }
 
   /**
+   * Deposit JCMOVES tokens directly from Moonshot app
+   */
+  async depositTokensFromMoonshot(
+    depositedBy: string,
+    tokenAmount: number,
+    transactionHash: string,
+    moonshotAccountId?: string,
+    notes?: string
+  ): Promise<{ success: boolean; deposit?: FundingDeposit; error?: string }> {
+    try {
+      // Get current token price for USD value calculation
+      const priceData = await this.getCurrentTokenPrice();
+      const currentPrice = priceData.price;
+      const usdValue = tokenAmount * currentPrice;
+
+      // Create deposit record with Moonshot metadata
+      const deposit = await storage.createFundingDeposit({
+        treasuryAccountId: (await storage.getMainTreasuryAccount()).id,
+        depositedBy,
+        depositAmount: usdValue.toFixed(2),
+        tokensPurchased: tokenAmount.toFixed(8),
+        tokenPrice: currentPrice.toFixed(8),
+        depositMethod: 'moonshot',
+        status: 'completed',
+        externalTransactionId: transactionHash,
+        moonshotMetadata: {
+          accountId: moonshotAccountId,
+          transferHash: transactionHash,
+          tokenSymbol: 'JCMOVES',
+          priceSource: priceData.source,
+          depositTimestamp: new Date().toISOString()
+        },
+        notes: notes || `Token deposit from Moonshot app`
+      });
+
+      // Update treasury balances
+      await storage.addToReserve(
+        tokenAmount,
+        usdValue,
+        `Moonshot token deposit: ${tokenAmount.toLocaleString()} JCMOVES @ $${currentPrice.toFixed(6)}`
+      );
+
+      return { success: true, deposit };
+    } catch (error) {
+      console.error(`Moonshot token deposit error:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Token deposit failed"
+      };
+    }
+  }
+
+  /**
    * Get recent treasury transactions
    */
   async getRecentTransactions(limit: number = 50): Promise<ReserveTransaction[]> {
