@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, index, jsonb, decimal, integer, date, boolean, uniqueIndex, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, index, jsonb, decimal, integer, bigint, date, boolean, uniqueIndex, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -133,6 +133,63 @@ export const walletAccounts = pgTable("wallet_accounts", {
   lastActivity: timestamp("last_activity").default(sql`now()`),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
+
+// Multi-currency crypto wallet system
+export const supportedCurrencies = pgTable("supported_currencies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  symbol: text("symbol").notNull().unique(), // BTC, ETH, SOL, JCMOVES, etc.
+  name: text("name").notNull(), // Bitcoin, Ethereum, Solana, JCMOVES Token
+  network: text("network").notNull(), // bitcoin, ethereum, solana, polygon, etc.
+  contractAddress: text("contract_address"), // For tokens (null for native currencies)
+  decimals: integer("decimals").notNull().default(18), // Number of decimal places
+  isActive: boolean("is_active").notNull().default(true),
+  minimumBalance: decimal("minimum_balance", { precision: 18, scale: 8 }).default("0.00000000"),
+  withdrawalFeePercent: decimal("withdrawal_fee_percent", { precision: 5, scale: 2 }).default("0.00"), // e.g., 2.5%
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+});
+
+export const userWallets = pgTable("user_wallets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  currencyId: varchar("currency_id").notNull().references(() => supportedCurrencies.id),
+  walletAddress: text("wallet_address").notNull(), // The actual crypto address
+  privateKeyHash: text("private_key_hash"), // Encrypted private key (for custodial wallets)
+  publicKey: text("public_key"),
+  balance: decimal("balance", { precision: 18, scale: 8 }).notNull().default("0.00000000"),
+  lastSyncedAt: timestamp("last_synced_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  walletType: text("wallet_type").notNull().default("custodial"), // 'custodial', 'external', 'imported'
+  metadata: jsonb("metadata"), // Additional data like derivation path, etc.
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  // Unique wallet per user per currency
+  uniqueIndex("uq_user_currency_wallet").on(table.userId, table.currencyId),
+  index("idx_wallet_address").on(table.walletAddress),
+  index("idx_user_wallets").on(table.userId),
+]);
+
+export const walletTransactions = pgTable("wallet_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userWalletId: varchar("user_wallet_id").notNull().references(() => userWallets.id),
+  transactionHash: text("transaction_hash"), // Blockchain transaction hash
+  transactionType: text("transaction_type").notNull(), // 'deposit', 'withdrawal', 'reward', 'transfer'
+  amount: decimal("amount", { precision: 18, scale: 8 }).notNull(),
+  balanceAfter: decimal("balance_after", { precision: 18, scale: 8 }).notNull(),
+  fromAddress: text("from_address"),
+  toAddress: text("to_address"),
+  networkFee: decimal("network_fee", { precision: 18, scale: 8 }),
+  status: text("status").notNull().default("pending"), // 'pending', 'confirmed', 'failed'
+  blockNumber: bigint("block_number", { mode: "number" }),
+  confirmations: integer("confirmations").default(0),
+  metadata: jsonb("metadata"), // Additional transaction data
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  confirmedAt: timestamp("confirmed_at"),
+}, (table) => [
+  index("idx_wallet_transactions").on(table.userWalletId),
+  index("idx_transaction_hash").on(table.transactionHash),
+  index("idx_transaction_status").on(table.status),
+]);
 
 export const cashoutRequests = pgTable("cashout_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -645,3 +702,28 @@ export type InsertWeeklyLeaderboard = z.infer<typeof insertWeeklyLeaderboardSche
 export type WeeklyLeaderboard = typeof weeklyLeaderboards.$inferSelect;
 export type InsertGamificationConfig = z.infer<typeof insertGamificationConfigSchema>;
 export type GamificationConfig = typeof gamificationConfig.$inferSelect;
+
+// Multi-currency wallet schemas
+export const insertSupportedCurrencySchema = createInsertSchema(supportedCurrencies).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertUserWalletSchema = createInsertSchema(userWallets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertWalletTransactionSchema = createInsertSchema(walletTransactions).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Multi-currency wallet types
+export type SupportedCurrency = typeof supportedCurrencies.$inferSelect;
+export type InsertSupportedCurrency = z.infer<typeof insertSupportedCurrencySchema>;
+export type UserWallet = typeof userWallets.$inferSelect;
+export type InsertUserWallet = z.infer<typeof insertUserWalletSchema>;
+export type WalletTransaction = typeof walletTransactions.$inferSelect;
+export type InsertWalletTransaction = z.infer<typeof insertWalletTransactionSchema>;
