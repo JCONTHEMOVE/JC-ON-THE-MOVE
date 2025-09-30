@@ -6,8 +6,11 @@ import { cryptoService, type TokenMarketData, type TokenBalance } from "./crypto
 export interface TreasuryStats {
   totalFunding: number;
   totalDistributed: number;
-  availableFunding: number;
+  availableFunding: number; // Historical USD book value
   tokenReserve: number;
+  currentMarketValueUsd: number; // Real-time USD value of token reserve
+  currentTokenPrice: number; // Current JCMOVES price
+  priceSource: string; // Source of price data
   liabilityRatio: number; // Percentage of funds distributed vs total funding
   isHealthy: boolean; // Whether the treasury has sufficient funds
 }
@@ -91,14 +94,21 @@ export class TreasuryService {
     const availableFunding = parseFloat(treasury.availableFunding);
     const tokenReserve = parseFloat(treasury.tokenReserve);
 
+    // Get current market price to calculate real-time value
+    const priceData = await this.getCurrentTokenPrice();
+    const currentMarketValueUsd = tokenReserve * priceData.price;
+
     const liabilityRatio = totalFunding > 0 ? (totalDistributed / totalFunding) * 100 : 0;
     const isHealthy = availableFunding >= TreasuryService.MINIMUM_BALANCE;
 
     return {
       totalFunding,
       totalDistributed,
-      availableFunding,
+      availableFunding, // Historical book value
       tokenReserve,
+      currentMarketValueUsd, // Real-time market value
+      currentTokenPrice: priceData.price,
+      priceSource: priceData.source,
       liabilityRatio,
       isHealthy
     };
