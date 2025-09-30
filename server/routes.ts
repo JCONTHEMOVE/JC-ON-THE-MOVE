@@ -1364,6 +1364,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ====================== PRICE HISTORY API ======================
+  
+  // Get price history for charting
+  app.get("/api/price-history", isAuthenticated, async (req, res) => {
+    try {
+      const range = req.query.range as string || '24h';
+      const hours = range === '24h' ? 24 : range === '7d' ? 168 : range === '30d' ? 720 : 24;
+      
+      const priceData = await storage.getPriceHistory(hours);
+      
+      // Calculate statistics
+      const latest = priceData[priceData.length - 1];
+      const first = priceData[0];
+      const changePercent = first && latest ? ((latest.price - first.price) / first.price) * 100 : 0;
+      
+      res.json({
+        data: priceData,
+        metadata: {
+          latestPrice: latest?.price || 0,
+          changePercent,
+          source: latest?.source || 'unknown',
+          range,
+          dataPoints: priceData.length
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching price history:", error);
+      res.status(500).json({ error: "Failed to fetch price history" });
+    }
+  });
+  
+  // Poll and store current price (internal/cron endpoint)
+  app.post("/api/price-history/poll", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const priceData = await cryptoService.getCurrentPrice();
+      const marketData = await cryptoService.getMarketData();
+      
+      await storage.addPricePoint(
+        priceData.price.toString(),
+        priceData.source,
+        marketData
+      );
+      
+      res.json({ 
+        success: true, 
+        price: priceData.price,
+        source: priceData.source,
+        timestamp: new Date()
+      });
+    } catch (error) {
+      console.error("Error polling price:", error);
+      res.status(500).json({ error: "Failed to poll price" });
+    }
+  });
+
   // Bootstrap endpoint - promote current user to admin if no admins exist
   app.post("/api/bootstrap/admin", isAuthenticated, async (req: any, res) => {
     try {
