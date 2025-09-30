@@ -203,7 +203,7 @@ function RoboxCard() {
             </div>
             <div className="text-sm text-slate-400 flex items-center" data-testid="text-robox-balance-usd">
               <DollarSign className="w-3 h-3 mr-1" />
-              0.85 USD
+              0.05 USD
             </div>
           </div>
         </div>
