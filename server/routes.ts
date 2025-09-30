@@ -2283,7 +2283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get user's JCMOVES wallet
-      const userWallets = await storage.getUserWallets(userId);
+      const userWallets = await walletService.getUserWallets(userId);
       const jcmovesWallet = userWallets.find(w => w.currency.symbol === 'JCMOVES');
       
       if (!jcmovesWallet) {
@@ -2299,7 +2299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // For now, we'll create a transaction record as a withdrawal request
       // In a real implementation, this would integrate with external payment systems
-      const transactionResult = await storage.recordWalletTransaction({
+      const transactionResult = await storage.createWalletTransaction({
         userWalletId: jcmovesWallet.id,
         transactionType: 'withdrawal',
         amount: exportAmount.toString(),
@@ -2316,7 +2316,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Update wallet balance
-      await storage.updateWalletBalance(jcmovesWallet.id, (currentBalance - exportAmount).toString());
+      await storage.updateUserWalletBalance(jcmovesWallet.id, (currentBalance - exportAmount).toString());
 
       res.json({ 
         success: true, 
@@ -2352,13 +2352,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get or create user's JCMOVES crypto wallet
-      const userWallets = await storage.getUserWallets(userId);
+      const userWallets = await walletService.getUserWallets(userId);
       let jcmovesWallet = userWallets.find(w => w.currency.symbol === 'JCMOVES');
       
       if (!jcmovesWallet) {
         // Create JCMOVES wallet if it doesn't exist
         const walletService = new (await import('./services/wallet.js')).WalletService();
-        jcmovesWallet = await walletService.createUserWallet(userId, 'JCMOVES');
+        await walletService.createUserWallet(userId, 'JCMOVES');
+        // Refetch with currency info
+        const updatedWallets = await walletService.getUserWallets(userId);
+        jcmovesWallet = updatedWallets.find(w => w.currency.symbol === 'JCMOVES');
+        
+        if (!jcmovesWallet) {
+          throw new Error('Failed to create JCMOVES wallet');
+        }
       }
 
       // Calculate new balances
@@ -2367,10 +2374,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Transfer the tokens
       // 1. Add to crypto wallet
-      await storage.updateWalletBalance(jcmovesWallet.id, newCryptoBalance.toString());
+      await storage.updateUserWalletBalance(jcmovesWallet.id, newCryptoBalance.toString());
       
       // 2. Record the sync transaction
-      await storage.recordWalletTransaction({
+      await storage.createWalletTransaction({
         userWalletId: jcmovesWallet.id,
         transactionType: 'deposit',
         amount: rewardBalance.toString(),
