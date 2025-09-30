@@ -20,7 +20,11 @@ import {
   AlertCircle,
   CheckCircle,
   Timer,
-  Gift
+  Gift,
+  UserPlus,
+  Zap,
+  DollarSign,
+  Sparkles
 } from "lucide-react";
 
 interface FaucetConfig {
@@ -130,6 +134,133 @@ function FaucetTimer({
       </div>
       <Progress value={progress} className="h-2" />
     </div>
+  );
+}
+
+function RoboxTimer() {
+  const [timeLeft, setTimeLeft] = useState("02:59:43");
+
+  useEffect(() => {
+    const startTime = Date.now();
+    const initialSeconds = 2 * 3600 + 59 * 60 + 43;
+
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const remaining = Math.max(0, initialSeconds - elapsed);
+
+      const hours = Math.floor(remaining / 3600);
+      const minutes = Math.floor((remaining % 3600) / 60);
+      const seconds = remaining % 60;
+
+      setTimeLeft(`${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+
+      if (remaining === 0) {
+        clearInterval(interval);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <span className="font-mono font-bold text-orange-500" data-testid="text-robox-timer">
+      {timeLeft}
+    </span>
+  );
+}
+
+function RoboxCard() {
+  return (
+    <Card className="relative overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 border-orange-500/20">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-full bg-orange-500/10 flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-orange-500" />
+            </div>
+            <div>
+              <CardTitle className="text-lg text-white">Robox</CardTitle>
+              <CardDescription className="text-slate-400">
+                Earn ROX tokens passively
+              </CardDescription>
+            </div>
+          </div>
+          <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30">
+            ROX
+          </Badge>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        <div className="bg-slate-800/50 rounded-lg p-4 border border-orange-500/20">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-slate-400">Balance</span>
+            <Wallet className="w-4 h-4 text-orange-500" />
+          </div>
+          <div className="space-y-1">
+            <div className="text-2xl font-bold text-white" data-testid="text-robox-balance">
+              0.05433525 ROX
+            </div>
+            <div className="text-sm text-slate-400 flex items-center" data-testid="text-robox-balance-usd">
+              <DollarSign className="w-3 h-3 mr-1" />
+              0.85 USD
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-800/50 rounded-lg p-4 border border-orange-500/20">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-slate-400">Creating</span>
+            <Zap className="w-4 h-4 text-orange-500" />
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-300" data-testid="text-robox-generating">
+                0.00000397 ROX
+              </span>
+              <Badge variant="outline" className="text-orange-400 border-orange-500/30" data-testid="badge-robox-speed">
+                Speed: 1X
+              </Badge>
+            </div>
+            <Separator className="bg-slate-700" />
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-400">Time remaining</span>
+              <RoboxTimer />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-r from-orange-500/10 to-orange-600/10 rounded-lg p-4 border border-orange-500/30">
+          <div className="flex items-start space-x-3 mb-3">
+            <UserPlus className="w-5 h-5 text-orange-500 mt-0.5" />
+            <div className="flex-1">
+              <div className="text-sm font-medium text-white mb-1">
+                Invite people to get more ROX!
+              </div>
+              <div className="text-xs text-slate-400">
+                Share your referral link and earn rewards
+              </div>
+            </div>
+          </div>
+          <a
+            href="https://robox.digital/i/2468892"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full"
+            data-testid="link-robox-invite"
+          >
+            <Button
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white"
+              size="lg"
+              data-testid="button-robox-invite"
+            >
+              <UserPlus className="mr-2 h-4 w-4" />
+              Invite
+            </Button>
+          </a>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -480,7 +611,7 @@ export default function FaucetPage() {
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold mb-4">Cryptocurrency Faucet</h1>
           <p className="text-xl text-muted-foreground mb-6">
-            Earn free cryptocurrency regularly! Get Bitcoin, Ethereum, Litecoin, and Dogecoin.
+            Earn free cryptocurrency regularly! Get Bitcoin, Ethereum, Litecoin, and ROX tokens.
           </p>
           <div className="flex justify-center space-x-4 text-sm text-muted-foreground">
             <span>✨ No deposits required</span>
@@ -502,19 +633,22 @@ export default function FaucetPage() {
           <TabsContent value="faucets" className="space-y-6">
             {/* Faucet Cards */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {currencies.map((config: FaucetConfig) => {
-                const claimQuery = claimStatusMap[config.currency];
-                return (
-                  <CurrencyFaucetCard
-                    key={config.currency}
-                    config={config}
-                    claimStatus={claimQuery?.data}
-                    walletAddress={walletAddresses[config.currency] || ''}
-                    setWalletAddress={(address) => setWalletAddress(config.currency, address)}
-                    onClaim={handleClaim}
-                  />
-                );
-              })}
+              {currencies
+                .filter((config: FaucetConfig) => config.currency !== 'DOGE')
+                .map((config: FaucetConfig) => {
+                  const claimQuery = claimStatusMap[config.currency];
+                  return (
+                    <CurrencyFaucetCard
+                      key={config.currency}
+                      config={config}
+                      claimStatus={claimQuery?.data}
+                      walletAddress={walletAddresses[config.currency] || ''}
+                      setWalletAddress={(address) => setWalletAddress(config.currency, address)}
+                      onClaim={handleClaim}
+                    />
+                  );
+                })}
+              <RoboxCard />
             </div>
 
             {/* Information Cards */}
