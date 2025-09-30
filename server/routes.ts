@@ -2278,6 +2278,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid export request data" });
       }
 
+      if (!withdrawalAddress || withdrawalAddress.trim() === '') {
+        return res.status(400).json({ error: "Wallet address is required" });
+      }
+
       if (currency !== 'JCMOVES') {
         return res.status(400).json({ error: "Export only supported for JCMOVES tokens" });
       }

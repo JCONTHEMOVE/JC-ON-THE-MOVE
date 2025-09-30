@@ -1905,6 +1905,15 @@ function ExportModal({ onClose, walletData }: { onClose: () => void; walletData:
       return;
     }
     
+    if (!withdrawalAddress || withdrawalAddress.trim() === '') {
+      toast({
+        title: "Wallet Address Required",
+        description: "Please enter a destination wallet address",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     if (parseFloat(amount) > parseFloat(walletData?.balance || '0')) {
       toast({
         title: "Insufficient Balance",
@@ -1922,7 +1931,7 @@ function ExportModal({ onClose, walletData }: { onClose: () => void; walletData:
     setShowConfirmation(false);
     exportMutation.mutate({
       amount,
-      withdrawalAddress: withdrawalAddress || undefined,
+      withdrawalAddress,
       notes: notes || undefined,
       currency: 'JCMOVES'
     });
@@ -1962,17 +1971,18 @@ function ExportModal({ onClose, walletData }: { onClose: () => void; walletData:
               </div>
               
               <div>
-                <label className="text-sm font-medium mb-2 block">External Wallet Address (Optional)</label>
+                <label className="text-sm font-medium mb-2 block">Destination Wallet Address</label>
                 <input
                   type="text"
                   placeholder="Enter Solana wallet address"
                   className="w-full p-2 border rounded"
                   value={withdrawalAddress}
                   onChange={(e) => setWithdrawalAddress(e.target.value)}
+                  required
                   data-testid="input-withdrawal-address"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Leave empty to request manual processing
+                  Enter the wallet address where you want to receive the tokens
                 </p>
               </div>
               
@@ -2023,12 +2033,10 @@ function ExportModal({ onClose, walletData }: { onClose: () => void; walletData:
                   <span className="text-muted-foreground">Amount:</span>
                   <span className="font-medium">{amount} JCMOVES</span>
                 </div>
-                {withdrawalAddress && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">To:</span>
-                    <span className="font-medium truncate ml-2">{withdrawalAddress}</span>
-                  </div>
-                )}
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">To:</span>
+                  <span className="font-medium truncate ml-2">{withdrawalAddress}</span>
+                </div>
               </div>
               
               <div className="flex gap-2 pt-2">
