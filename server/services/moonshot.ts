@@ -78,8 +78,8 @@ export class MoonshotService {
       return parseFloat(response.data.priceUsd);
     } catch (error) {
       console.error('Error fetching Moonshot token price:', error);
-      // Return fallback price if API fails - use real market price
-      return 0.000005034116; // Real Moonshot price fallback
+      // Return fallback price if API fails - use current JCMOVES market price
+      return 0.00000508432; // JCMOVES price from Moonshot wallet
     }
   }
 
