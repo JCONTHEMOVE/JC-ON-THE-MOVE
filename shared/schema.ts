@@ -261,6 +261,16 @@ export const reserveTransactions = pgTable("reserve_transactions", {
   index("idx_treasury_transactions").on(table.treasuryAccountId, table.transactionType),
 ]);
 
+export const priceHistory = pgTable("price_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  priceUsd: decimal("price_usd", { precision: 18, scale: 12 }).notNull(), // JCMOVES price in USD
+  source: text("source").notNull(), // 'moonshot', 'dexscreener', 'manual'
+  marketData: jsonb("market_data"), // Additional market data (volume, market cap, etc.)
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_price_history_created").on(table.createdAt),
+]);
+
 export const insertLeadSchema = createInsertSchema(leads).omit({
   id: true,
   status: true,
@@ -727,3 +737,12 @@ export type UserWallet = typeof userWallets.$inferSelect;
 export type InsertUserWallet = z.infer<typeof insertUserWalletSchema>;
 export type WalletTransaction = typeof walletTransactions.$inferSelect;
 export type InsertWalletTransaction = z.infer<typeof insertWalletTransactionSchema>;
+
+// Price history schema and types
+export const insertPriceHistorySchema = createInsertSchema(priceHistory).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type PriceHistory = typeof priceHistory.$inferSelect;
+export type InsertPriceHistory = z.infer<typeof insertPriceHistorySchema>;
