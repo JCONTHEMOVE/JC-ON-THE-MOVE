@@ -790,7 +790,10 @@ export class DatabaseStorage implements IStorage {
 
   async checkFundingAvailability(tokenAmount: number, tokenPrice?: number): Promise<{ available: boolean; currentBalance: number; requiredValue: number }> {
     const treasury = await this.getMainTreasuryAccount();
-    const currentBalance = parseFloat(treasury.availableFunding);
+    // Calculate actual available funding from totalFunding - totalDistributed
+    const totalFunding = parseFloat(treasury.totalFunding);
+    const totalDistributed = parseFloat(treasury.totalDistributed);
+    const currentBalance = totalFunding - totalDistributed;
     // Use provided crypto price or fallback to fixed price
     const price = tokenPrice ?? TREASURY_CONFIG.FALLBACK_TOKEN_PRICE;
     const requiredValue = tokenAmount * price;
@@ -853,7 +856,10 @@ export class DatabaseStorage implements IStorage {
         throw new Error("No active treasury account found");
       }
 
-      const currentBalance = parseFloat(treasury.availableFunding);
+      // Calculate actual available funding from totalFunding - totalDistributed
+      const totalFunding = parseFloat(treasury.totalFunding);
+      const totalDistributed = parseFloat(treasury.totalDistributed);
+      const currentBalance = totalFunding - totalDistributed;
       const currentTokenReserve = parseFloat(treasury.tokenReserve);
       const minimumBalance = TREASURY_CONFIG.MINIMUM_BALANCE;
 
@@ -876,10 +882,10 @@ export class DatabaseStorage implements IStorage {
       const newTokenReserve = currentTokenReserve - tokenAmount;
 
       // Update treasury account with locked row
+      // Note: availableFunding is kept at historical book value ($0.00), actual balance is calculated as totalFunding - totalDistributed
       await tx
         .update(treasuryAccounts)
         .set({
-          availableFunding: newBalance.toFixed(2),
           tokenReserve: newTokenReserve.toFixed(8),
           totalDistributed: (parseFloat(treasury.totalDistributed) + cashValue).toFixed(2),
           updatedAt: new Date()
@@ -921,15 +927,17 @@ export class DatabaseStorage implements IStorage {
         throw new Error("No active treasury account found");
       }
 
-      // Calculate new balances
-      const newBalance = parseFloat(treasury.availableFunding) + cashValue;
+      // Calculate new balances (availableFunding is kept at historical book value, actual balance is totalFunding - totalDistributed)
+      const totalFunding = parseFloat(treasury.totalFunding);
+      const totalDistributed = parseFloat(treasury.totalDistributed);
+      const newBalance = (totalFunding + cashValue) - totalDistributed;
       const newTokenReserve = parseFloat(treasury.tokenReserve) + tokenAmount;
 
       // Update treasury account with locked row
+      // Note: availableFunding is kept at historical book value, only totalFunding is updated
       await tx
         .update(treasuryAccounts)
         .set({
-          availableFunding: newBalance.toFixed(2),
           tokenReserve: newTokenReserve.toFixed(8),
           totalFunding: (parseFloat(treasury.totalFunding) + cashValue).toFixed(2),
           updatedAt: new Date()
@@ -987,13 +995,15 @@ export class DatabaseStorage implements IStorage {
         .returning();
 
       // Update treasury balances
-      const newBalance = parseFloat(treasury.availableFunding) + usdAmount;
+      // Calculate actual balance for transaction record (availableFunding is kept at historical book value)
+      const totalFunding = parseFloat(treasury.totalFunding);
+      const totalDistributed = parseFloat(treasury.totalDistributed);
+      const newBalance = (totalFunding + usdAmount) - totalDistributed;
       const newTokenReserve = parseFloat(treasury.tokenReserve) + tokensPurchased;
 
       await tx
         .update(treasuryAccounts)
         .set({
-          availableFunding: newBalance.toFixed(2),
           tokenReserve: newTokenReserve.toFixed(8),
           totalFunding: (parseFloat(treasury.totalFunding) + usdAmount).toFixed(2),
           updatedAt: new Date()
