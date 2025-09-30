@@ -264,6 +264,125 @@ function RoboxCard() {
   );
 }
 
+function ZBDCard() {
+  return (
+    <Card className="relative overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 border-blue-500/20">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center">
+              <Zap className="w-6 h-6 text-blue-500" />
+            </div>
+            <div>
+              <CardTitle className="text-lg text-white">ZBD App</CardTitle>
+              <CardDescription className="text-slate-400">
+                Earn Bitcoin (satoshis)
+              </CardDescription>
+            </div>
+          </div>
+          <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+            BTC
+          </Badge>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        <Tabs defaultValue="poll" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 bg-slate-800/50">
+            <TabsTrigger 
+              value="poll" 
+              className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-400"
+              data-testid="tab-zbd-poll"
+            >
+              Daily Poll
+            </TabsTrigger>
+            <TabsTrigger 
+              value="videos" 
+              className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-400"
+              data-testid="tab-zbd-videos"
+            >
+              Quick Earn
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="poll" className="space-y-4 mt-4">
+            <div className="bg-slate-800/50 rounded-lg p-4 border border-blue-500/20">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm text-slate-400">Daily Poll</span>
+                <Badge variant="outline" className="text-green-400 border-green-500/30">
+                  Next in 11 hours
+                </Badge>
+              </div>
+              <div className="text-sm text-slate-300 mb-4">
+                What's the best way to spend a rainy day?
+              </div>
+              <Button 
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                data-testid="button-zbd-poll"
+              >
+                Answer & earn sats
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="videos" className="space-y-4 mt-4">
+            <div className="bg-slate-800/50 rounded-lg p-4 border border-blue-500/20">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm text-slate-400">Quick Earn</span>
+                <Sparkles className="w-4 h-4 text-blue-500" />
+              </div>
+              <div className="space-y-2 mb-4">
+                <div className="text-sm text-slate-300">
+                  Watch a video, get 5 sats!
+                </div>
+                <div className="text-xs text-slate-400">
+                  Earn Bitcoin by watching short videos
+                </div>
+              </div>
+              <Button 
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                data-testid="button-zbd-watch"
+              >
+                Watch
+              </Button>
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-lg p-4 border border-blue-500/30">
+          <div className="flex items-start space-x-3 mb-3">
+            <Gift className="w-5 h-5 text-green-500 mt-0.5" />
+            <div className="flex-1">
+              <div className="text-sm font-medium text-white mb-1">
+                $2 for you, $2 for a friend
+              </div>
+              <div className="text-xs text-slate-400">
+                Invite friends and earn $2 in sats for each verified signup
+              </div>
+            </div>
+          </div>
+          <a
+            href="https://zbd.link/hcHi/invite?af_sub1=9C31P8&deep_link_value=fwb_two_for_two"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full"
+            data-testid="link-zbd-invite"
+          >
+            <Button
+              className="w-full bg-green-500 hover:bg-green-600 text-white"
+              size="lg"
+              data-testid="button-zbd-invite"
+            >
+              <UserPlus className="mr-2 h-4 w-4" />
+              Share
+            </Button>
+          </a>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function CurrencyFaucetCard({ 
   config, 
   claimStatus, 
@@ -611,7 +730,7 @@ export default function FaucetPage() {
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold mb-4">Cryptocurrency Faucet</h1>
           <p className="text-xl text-muted-foreground mb-6">
-            Earn free cryptocurrency regularly! Get Bitcoin, Ethereum, Litecoin, and ROX tokens.
+            Earn free cryptocurrency regularly! Get Bitcoin (ZBD app), Ethereum, Litecoin, and ROX tokens.
           </p>
           <div className="flex justify-center space-x-4 text-sm text-muted-foreground">
             <span>✨ No deposits required</span>
@@ -634,7 +753,7 @@ export default function FaucetPage() {
             {/* Faucet Cards */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {currencies
-                .filter((config: FaucetConfig) => config.currency !== 'DOGE')
+                .filter((config: FaucetConfig) => config.currency !== 'DOGE' && config.currency !== 'BTC')
                 .map((config: FaucetConfig) => {
                   const claimQuery = claimStatusMap[config.currency];
                   return (
@@ -648,6 +767,7 @@ export default function FaucetPage() {
                     />
                   );
                 })}
+              <ZBDCard />
               <RoboxCard />
             </div>
 
