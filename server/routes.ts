@@ -2537,18 +2537,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      // 3. Add to treasury funding
+      // 3. Add to treasury funding - get current token price for USD value
       const treasuryService = new (await import('./services/treasury.js')).TreasuryService();
-      await treasuryService.recordFunding(transferAmount, 'JCMOVES', {
-        source: 'user_wallet',
-        userId,
-        note: note || 'Wallet to Treasury transfer'
-      });
+      const priceData = await treasuryService.getCurrentTokenPrice();
+      const usdValue = transferAmount * priceData.price;
+      
+      // Add tokens and USD value to treasury reserve
+      await storage.addToReserve(
+        transferAmount,
+        usdValue,
+        `Treasury funding from user wallet: ${note || 'Wallet to Treasury transfer'}`
+      );
 
       res.json({ 
         success: true, 
-        message: `Successfully transferred ${transferAmount} JCMOVES to treasury`,
+        message: `Successfully transferred ${transferAmount} JCMOVES ($${usdValue.toFixed(2)}) to treasury`,
         transferredAmount: transferAmount,
+        usdValue: usdValue.toFixed(2),
         newWalletBalance: newBalance,
         treasuryFunded: true
       });
