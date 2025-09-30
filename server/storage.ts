@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type WalletTransaction, type InsertWalletTransaction, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, walletTransactions } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type WalletTransaction, type InsertWalletTransaction, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, priceHistory, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, walletTransactions } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, isNull, and, isNotNull, sql, gt, gte } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
@@ -109,6 +109,11 @@ export interface IStorage {
   updateUserWalletBalance(walletId: string, newBalance: string): Promise<void>;
   createWalletTransaction(transaction: InsertWalletTransaction): Promise<WalletTransaction>;
   getWalletTransactions(walletId: string, limit?: number): Promise<WalletTransaction[]>;
+  
+  // Price history operations
+  addPricePoint(priceUsd: string, source: string, marketData?: any): Promise<void>;
+  getPriceHistory(hours?: number): Promise<Array<{ timestamp: Date; price: number; source: string }>>;
+  cleanOldPriceData(daysToKeep: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1417,6 +1422,37 @@ export class DatabaseStorage implements IStorage {
       .where(eq(walletTransactions.userWalletId, walletId))
       .orderBy(desc(walletTransactions.createdAt))
       .limit(limit);
+  }
+
+  // Price history operations
+  async addPricePoint(priceUsd: string, source: string, marketData?: any): Promise<void> {
+    await db.execute(sql`
+      INSERT INTO price_history (price_usd, source, market_data)
+      VALUES (${priceUsd}, ${source}, ${marketData ? JSON.stringify(marketData) : null})
+    `);
+  }
+
+  async getPriceHistory(hours: number = 24): Promise<Array<{ timestamp: Date; price: number; source: string }>> {
+    const cutoffTime = new Date(Date.now() - hours * 60 * 60 * 1000);
+    const results = await db.execute(sql`
+      SELECT created_at as timestamp, price_usd as price, source
+      FROM price_history
+      WHERE created_at >= ${cutoffTime.toISOString()}
+      ORDER BY created_at ASC
+    `);
+    return results.rows.map((row: any) => ({
+      timestamp: new Date(row.timestamp),
+      price: parseFloat(row.price),
+      source: row.source
+    }));
+  }
+
+  async cleanOldPriceData(daysToKeep: number = 30): Promise<void> {
+    const cutoffDate = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000);
+    await db.execute(sql`
+      DELETE FROM price_history
+      WHERE created_at < ${cutoffDate.toISOString()}
+    `);
   }
 }
 
