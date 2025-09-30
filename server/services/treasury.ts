@@ -91,20 +91,22 @@ export class TreasuryService {
     const treasury = await storage.getMainTreasuryAccount();
     const totalFunding = parseFloat(treasury.totalFunding);
     const totalDistributed = parseFloat(treasury.totalDistributed);
-    const availableFunding = parseFloat(treasury.availableFunding);
     const tokenReserve = parseFloat(treasury.tokenReserve);
+    
+    // Calculate actual available funding (not the historical book value stored in DB)
+    const actualAvailableFunding = totalFunding - totalDistributed;
 
     // Get current market price to calculate real-time value
     const priceData = await this.getCurrentTokenPrice();
     const currentMarketValueUsd = tokenReserve * priceData.price;
 
     const liabilityRatio = totalFunding > 0 ? (totalDistributed / totalFunding) * 100 : 0;
-    const isHealthy = availableFunding >= TreasuryService.MINIMUM_BALANCE;
+    const isHealthy = actualAvailableFunding >= TreasuryService.MINIMUM_BALANCE;
 
     return {
       totalFunding,
       totalDistributed,
-      availableFunding, // Historical book value
+      availableFunding: actualAvailableFunding, // Calculated available funding
       tokenReserve,
       currentMarketValueUsd, // Real-time market value
       currentTokenPrice: priceData.price,
@@ -119,7 +121,9 @@ export class TreasuryService {
    */
   async getFundingStatus(): Promise<FundingStatus> {
     const treasury = await storage.getMainTreasuryAccount();
-    const currentBalance = parseFloat(treasury.availableFunding);
+    const totalFunding = parseFloat(treasury.totalFunding);
+    const totalDistributed = parseFloat(treasury.totalDistributed);
+    const currentBalance = totalFunding - totalDistributed;
 
     return {
       canDistributeRewards: currentBalance >= TreasuryService.MINIMUM_BALANCE,
@@ -138,9 +142,11 @@ export class TreasuryService {
     const currentPrice = priceData.price;
     const requiredUsdValue = tokenAmount * currentPrice;
     
-    // Check current treasury balance
+    // Check current treasury balance - calculate from totalFunding - totalDistributed
     const treasury = await storage.getMainTreasuryAccount();
-    const availableBalance = parseFloat(treasury.availableFunding);
+    const totalFunding = parseFloat(treasury.totalFunding);
+    const totalDistributed = parseFloat(treasury.totalDistributed);
+    const availableBalance = totalFunding - totalDistributed;
     
     if (availableBalance < requiredUsdValue) {
       return {
