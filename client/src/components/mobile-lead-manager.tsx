@@ -1315,6 +1315,7 @@ export default function MobileLeadManager() {
 function WalletSection({ userId }: { userId?: string }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user, isCustomer, isAdmin, isEmployee, hasAdminAccess } = useAuth();
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [showTransactions, setShowTransactions] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
@@ -1615,8 +1616,8 @@ function WalletSection({ userId }: { userId?: string }) {
                   )}
                 </div>
                 
-                {/* Treasury Funding Button - Only for JCMOVES */}
-                {wallet.currency.symbol === 'JCMOVES' && (
+                {/* Treasury Funding Button - Only for JCMOVES and authorized users (admin, employee, business_owner - not customers) */}
+                {wallet.currency.symbol === 'JCMOVES' && (isAdmin || isEmployee || hasAdminAccess) && (
                   <Button 
                     size="sm" 
                     variant="default"

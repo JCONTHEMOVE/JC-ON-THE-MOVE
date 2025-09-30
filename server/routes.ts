@@ -317,6 +317,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
+  // Treasury access - allows admin, employee, and business_owner (not customers)
+  const requireTreasuryAccess = async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Allow admin, employee, and business_owner roles
+      const hasTreasuryAccess = user && (user.role === 'admin' || user.role === 'employee' || user.role === 'business_owner');
+      
+      // Also allow upmichiganstatemovers@gmail.com as the known business owner
+      const isKnownBusinessOwner = user?.email === 'upmichiganstatemovers@gmail.com';
+      
+      if (!hasTreasuryAccess && !isKnownBusinessOwner) {
+        console.log(`Treasury access denied for user ${user?.email} with role ${user?.role}`);
+        return res.status(403).json({ message: "Treasury access requires admin, employee, or business owner role" });
+      }
+      
+      console.log(`Treasury access granted for user ${user?.email} with role ${user?.role}`);
+      req.currentUser = user;
+      next();
+    } catch (error) {
+      console.error("Treasury access control error:", error);
+      res.status(500).json({ message: "Access control error" });
+    }
+  };
+
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
@@ -2466,8 +2492,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Transfer tokens from user's JCMOVES wallet to treasury
-  app.post("/api/wallets/fund-treasury", requireBusinessOwner, async (req: any, res) => {
+  // Transfer tokens from user's JCMOVES wallet to treasury (admin, employee, and business_owner only - not customers)
+  app.post("/api/wallets/fund-treasury", isAuthenticated, requireTreasuryAccess, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { amount, note } = req.body;
