@@ -2,6 +2,21 @@
 
 This is a full-stack moving and junk removal service website built with React, TypeScript, Express.js, and Drizzle ORM. The application allows customers to request quotes for residential moving, commercial moving, and junk removal services, while providing a comprehensive dashboard system for business operations. The system includes automated email notifications, role-based authentication, employee job assignment capabilities, and features a modern, responsive design using shadcn/ui components.
 
+# Recent Changes
+
+## Deployment Fixes (September 30, 2025)
+- **Graceful Authentication Error Handling**: Modified `server/replitAuth.ts` to handle missing `REPLIT_DOMAINS` environment variable without crashing the server
+- **Route Registration Error Handling**: Added try-catch in `server/routes.ts` to prevent authentication setup failures from blocking route registration
+- **Environment Configuration**: Added `NODE_ENV` and `REPLIT_DOMAINS` documentation to `.env` file
+- **Deployment Guide**: Created `DEPLOYMENT.md` with comprehensive instructions for configuring all required environment variables for production deployment
+- **Server Resilience**: Application now starts successfully even when optional services (email, authentication) fail to initialize, with appropriate warning messages
+- **JCMOVES Token Configuration**: Updated `MOONSHOT_TOKEN_ADDRESS` to correct Solana address `AY9NPebnvjcKSoUteYwNER3JHiJNPh6ptKmC8E4VGrxp` with fallback price $0.00000508432
+
+## Treasury System Fixes (Previous Session)
+- Fixed treasury distribution calculation to use `totalFunding - totalDistributed` instead of stored `availableFunding` field
+- Resolved daily check-in distribution failures showing "Available: $0.00" despite actual balance
+- Updated 7 methods across Treasury Service and Storage Layer for accurate fund tracking
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -56,6 +71,9 @@ Preferred communication style: Simple, everyday language.
 - **Environment Variables**: Database URL, SendGrid API key, and company email configuration
 - **Database Migrations**: Drizzle Kit for schema management and migrations
 - **Asset Serving**: Express static file serving for production builds
+- **Graceful Startup**: Error handling prevents authentication/service failures from blocking server startup
+- **Production Configuration**: NODE_ENV=production for optimized builds and error handling
+- **Domain Configuration**: REPLIT_DOMAINS environment variable for multi-domain authentication support
 
 # External Dependencies
 

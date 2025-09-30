@@ -9,8 +9,10 @@ import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
 import { cryptoService } from "./services/crypto";
 
+// Gracefully handle missing REPLIT_DOMAINS - warn but don't crash
 if (!process.env.REPLIT_DOMAINS) {
-  throw new Error("Environment variable REPLIT_DOMAINS not provided");
+  console.warn("⚠️  WARNING: Environment variable REPLIT_DOMAINS not provided");
+  console.warn("⚠️  Authentication may not work correctly without proper domain configuration");
 }
 
 const getOidcConfig = memoize(
@@ -88,12 +90,18 @@ async function upsertUser(
 }
 
 export async function setupAuth(app: Express) {
-  app.set("trust proxy", 1);
-  app.use(getSession());
-  app.use(passport.initialize());
-  app.use(passport.session());
+  try {
+    // Validate required environment variables
+    if (!process.env.REPLIT_DOMAINS) {
+      throw new Error("REPLIT_DOMAINS environment variable is required for authentication");
+    }
+    
+    app.set("trust proxy", 1);
+    app.use(getSession());
+    app.use(passport.initialize());
+    app.use(passport.session());
 
-  const config = await getOidcConfig();
+    const config = await getOidcConfig();
 
   const verify: VerifyFunction = async (
     tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
@@ -192,6 +200,32 @@ export async function setupAuth(app: Express) {
       );
     });
   });
+  
+  console.log('✅ Authentication setup completed successfully');
+  } catch (error) {
+    console.error('❌ Authentication setup failed:', error);
+    console.error('⚠️  Server will continue but authentication features will not work');
+    console.error('⚠️  Please ensure REPLIT_DOMAINS environment variable is set correctly');
+    
+    // Setup basic routes that return errors when auth is not configured
+    app.get("/api/login", (req, res) => {
+      res.status(503).json({ 
+        message: "Authentication not configured. Please set REPLIT_DOMAINS environment variable." 
+      });
+    });
+    
+    app.get("/api/callback", (req, res) => {
+      res.status(503).json({ 
+        message: "Authentication not configured." 
+      });
+    });
+    
+    app.get("/api/logout", (req, res) => {
+      res.status(503).json({ 
+        message: "Authentication not configured." 
+      });
+    });
+  }
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {

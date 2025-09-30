@@ -23,8 +23,13 @@ import { FAUCET_CONFIG } from "./constants";
 import { walletService } from "./services/wallet";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth middleware
-  await setupAuth(app);
+  // Auth middleware with graceful error handling
+  try {
+    await setupAuth(app);
+  } catch (error) {
+    console.error('⚠️  Warning: Authentication setup failed during route registration:', error);
+    console.error('⚠️  Server will continue without authentication features');
+  }
   
   // Validation schemas for rewards endpoints
   const checkinSchema = z.object({
