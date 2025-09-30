@@ -650,7 +650,7 @@ export default function TreasuryDashboard() {
                               <span className="text-sm text-muted-foreground">{stat.count} rewards</span>
                             </div>
                             <div className="text-sm text-muted-foreground">
-                              {stat.totalTokens.toFixed(2)} tokens • ${stat.totalCash.toFixed(2)}
+                              {Number(stat.totalTokens || 0).toFixed(2)} tokens • ${Number(stat.totalCash || 0).toFixed(2)}
                             </div>
                           </div>
                         ))}
