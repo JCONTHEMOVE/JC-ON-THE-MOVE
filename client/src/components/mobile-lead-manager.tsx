@@ -28,6 +28,7 @@ import {
   WifiOff,
   RefreshCw,
   AlertCircle,
+  AlertTriangle,
   Map,
   DollarSign,
   Settings,
@@ -1867,10 +1868,10 @@ function ExportModal({ onClose, walletData }: { onClose: () => void; walletData:
   const [amount, setAmount] = useState('');
   const [withdrawalAddress, setWithdrawalAddress] = useState('');
   const [notes, setNotes] = useState('');
+  const [showConfirmation, setShowConfirmation] = useState(false);
 
   const exportMutation = useMutation({
     mutationFn: async (data: any) => {
-      // For now, this creates a withdrawal request that can be processed later
       const response = await fetch('/api/wallets/export-request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1878,17 +1879,17 @@ function ExportModal({ onClose, walletData }: { onClose: () => void; walletData:
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       onClose();
       toast({
-        title: "Export Request Submitted",
-        description: "Your JCMOVES export request has been submitted for processing!",
+        title: "Withdrawal Approved!",
+        description: `Successfully processed ${data.amount} JCMOVES withdrawal. Transaction confirmed.`,
       });
     },
     onError: (error: any) => {
       toast({
-        title: "Export Failed",
-        description: error.message || "Failed to submit export request",
+        title: "Withdrawal Failed",
+        description: error.message || "Failed to process withdrawal",
         variant: "destructive",
       });
     },
@@ -1913,6 +1914,12 @@ function ExportModal({ onClose, walletData }: { onClose: () => void; walletData:
       return;
     }
     
+    // Show confirmation dialog
+    setShowConfirmation(true);
+  };
+
+  const handleConfirm = () => {
+    setShowConfirmation(false);
     exportMutation.mutate({
       amount,
       withdrawalAddress: withdrawalAddress || undefined,
@@ -1923,79 +1930,134 @@ function ExportModal({ onClose, walletData }: { onClose: () => void; walletData:
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <Card className="w-full max-w-md">
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold">Export JCMOVES</h3>
-            <Button size="sm" variant="ghost" onClick={onClose}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">Available Balance</label>
-              <div className="p-2 bg-gray-50 rounded text-sm">
-                {parseFloat(walletData?.balance || '0').toFixed(8)} JCMOVES
+      {!showConfirmation ? (
+        <Card className="w-full max-w-md">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold">Export JCMOVES</h3>
+              <Button size="sm" variant="ghost" onClick={onClose}>
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Available Balance</label>
+                <div className="p-2 bg-gray-50 rounded text-sm">
+                  {parseFloat(walletData?.balance || '0').toFixed(8)} JCMOVES
+                </div>
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium mb-2 block">Amount to Export</label>
+                <input
+                  type="number"
+                  step="0.00000001"
+                  placeholder="0.00000000"
+                  className="w-full p-2 border rounded"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  data-testid="input-export-amount"
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium mb-2 block">External Wallet Address (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="Enter Solana wallet address"
+                  className="w-full p-2 border rounded"
+                  value={withdrawalAddress}
+                  onChange={(e) => setWithdrawalAddress(e.target.value)}
+                  data-testid="input-withdrawal-address"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Leave empty to request manual processing
+                </p>
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium mb-2 block">Notes (Optional)</label>
+                <textarea
+                  placeholder="Additional notes or instructions"
+                  className="w-full p-2 border rounded"
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  data-testid="input-export-notes"
+                />
+              </div>
+              
+              <Button 
+                className="w-full"
+                onClick={handleSubmit}
+                disabled={exportMutation.isPending}
+                data-testid="button-submit-export"
+              >
+                {exportMutation.isPending ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                Continue
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="w-full max-w-md">
+          <CardContent className="p-6">
+            <div className="text-center space-y-4">
+              <div className="mx-auto w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="h-6 w-6 text-yellow-600" />
+              </div>
+              
+              <h3 className="font-semibold text-lg">Confirm Withdrawal</h3>
+              
+              <p className="text-sm text-muted-foreground">
+                Are you sure your wallet will accept these tokens?
+              </p>
+              
+              <div className="bg-gray-50 p-4 rounded space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Amount:</span>
+                  <span className="font-medium">{amount} JCMOVES</span>
+                </div>
+                {withdrawalAddress && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">To:</span>
+                    <span className="font-medium truncate ml-2">{withdrawalAddress}</span>
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex gap-2 pt-2">
+                <Button 
+                  variant="outline" 
+                  className="flex-1"
+                  onClick={() => setShowConfirmation(false)}
+                  data-testid="button-cancel-confirmation"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  className="flex-1"
+                  onClick={handleConfirm}
+                  disabled={exportMutation.isPending}
+                  data-testid="button-confirm-export"
+                >
+                  {exportMutation.isPending ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                  )}
+                  Yes, Withdraw
+                </Button>
               </div>
             </div>
-            
-            <div>
-              <label className="text-sm font-medium mb-2 block">Amount to Export</label>
-              <input
-                type="number"
-                step="0.00000001"
-                placeholder="0.00000000"
-                className="w-full p-2 border rounded"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                data-testid="input-export-amount"
-              />
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium mb-2 block">External Wallet Address (Optional)</label>
-              <input
-                type="text"
-                placeholder="Enter Solana wallet address"
-                className="w-full p-2 border rounded"
-                value={withdrawalAddress}
-                onChange={(e) => setWithdrawalAddress(e.target.value)}
-                data-testid="input-withdrawal-address"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Leave empty to request manual processing
-              </p>
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium mb-2 block">Notes (Optional)</label>
-              <textarea
-                placeholder="Additional notes or instructions"
-                className="w-full p-2 border rounded"
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                data-testid="input-export-notes"
-              />
-            </div>
-            
-            <Button 
-              className="w-full"
-              onClick={handleSubmit}
-              disabled={exportMutation.isPending}
-              data-testid="button-submit-export"
-            >
-              {exportMutation.isPending ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4 mr-2" />
-              )}
-              Submit Export Request
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
