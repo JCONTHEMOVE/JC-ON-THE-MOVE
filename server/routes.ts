@@ -2201,16 +2201,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get wallet transactions
   app.get("/api/wallets/:walletId/transactions", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const { walletId } = req.params;
       const limit = parseInt(req.query.limit as string) || 50;
       
+      console.log(`🔍 Fetching transactions for walletId: ${walletId}, user: ${userId}`);
+      
       // Verify wallet belongs to user
       const wallet = await storage.getUserWalletById(walletId);
-      if (!wallet || wallet.userId !== req.currentUser.id) {
+      console.log(`📂 Wallet found:`, wallet ? `Yes (userId: ${wallet.userId})` : 'No');
+      
+      if (!wallet || wallet.userId !== userId) {
         return res.status(404).json({ error: "Wallet not found" });
       }
       
       const transactions = await storage.getWalletTransactions(walletId, limit);
+      console.log(`📜 Transactions found: ${transactions.length}`);
+      
       res.json({ transactions });
     } catch (error) {
       console.error("Error fetching wallet transactions:", error);
