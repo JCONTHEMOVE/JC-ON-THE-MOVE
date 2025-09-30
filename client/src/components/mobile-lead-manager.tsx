@@ -855,12 +855,19 @@ export default function MobileLeadManager() {
                           </p>
                         </div>
                         <div className="text-center">
-                          <p className="text-xs text-muted-foreground">Historical Book Value</p>
-                          <p className="text-lg font-bold text-orange-600">
-                            ${(treasuryStatus.stats?.availableFunding || 0).toFixed(2)}
-                          </p>
+                          <p className="text-xs text-muted-foreground">Price History</p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-1 text-blue-600 border-blue-600 hover:bg-blue-50"
+                            onClick={() => handleTabChange("shop")}
+                            data-testid="button-view-price-chart"
+                          >
+                            <TrendingUp className="h-3 w-3 mr-1" />
+                            View Live Chart
+                          </Button>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Original deposit value
+                            Real-time market data
                           </p>
                         </div>
                       </div>
