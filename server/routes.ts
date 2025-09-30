@@ -2466,6 +2466,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Transfer tokens from user's JCMOVES wallet to treasury
+  app.post("/api/wallets/fund-treasury", requireBusinessOwner, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { amount, note } = req.body;
+
+      if (!amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ error: "Invalid amount" });
+      }
+
+      // Get user's JCMOVES wallet
+      const userWallets = await walletService.getUserWallets(userId);
+      const jcmovesWallet = userWallets.find(w => w.currency.symbol === 'JCMOVES');
+      
+      if (!jcmovesWallet) {
+        return res.status(404).json({ error: "JCMOVES wallet not found" });
+      }
+
+      const currentBalance = parseFloat(jcmovesWallet.balance);
+      const transferAmount = parseFloat(amount);
+
+      if (transferAmount > currentBalance) {
+        return res.status(400).json({ error: "Insufficient balance" });
+      }
+
+      // 1. Deduct from user's wallet
+      const newBalance = currentBalance - transferAmount;
+      await storage.updateUserWalletBalance(jcmovesWallet.id, newBalance.toString());
+
+      // 2. Record withdrawal transaction
+      await storage.createWalletTransaction({
+        userWalletId: jcmovesWallet.id,
+        transactionType: 'withdrawal',
+        amount: transferAmount.toString(),
+        balanceAfter: newBalance.toString(),
+        transactionHash: `treasury_funding_${Date.now()}`,
+        status: 'confirmed',
+        confirmations: 1,
+        metadata: {
+          treasuryFunding: true,
+          note: note || 'Treasury funding',
+          fundedAt: new Date().toISOString()
+        }
+      });
+
+      // 3. Add to treasury funding
+      const treasuryService = new (await import('./services/treasury.js')).TreasuryService();
+      await treasuryService.recordFunding(transferAmount, 'JCMOVES', {
+        source: 'user_wallet',
+        userId,
+        note: note || 'Wallet to Treasury transfer'
+      });
+
+      res.json({ 
+        success: true, 
+        message: `Successfully transferred ${transferAmount} JCMOVES to treasury`,
+        transferredAmount: transferAmount,
+        newWalletBalance: newBalance,
+        treasuryFunded: true
+      });
+
+    } catch (error) {
+      console.error("Error funding treasury from wallet:", error);
+      res.status(500).json({ error: "Failed to fund treasury" });
+    }
+  });
+
   // Get supported currencies
   app.get("/api/wallets/currencies", isAuthenticated, async (req, res) => {
     try {

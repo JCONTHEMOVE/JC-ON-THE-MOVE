@@ -1320,6 +1320,7 @@ function WalletSection({ userId }: { userId?: string }) {
   const [showTransfer, setShowTransfer] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showDeposit, setShowDeposit] = useState(false);
+  const [showFundTreasury, setShowFundTreasury] = useState(false);
 
   // Fetch user's wallets
   const { data: wallets, isLoading: walletsLoading } = useQuery({
@@ -1555,7 +1556,7 @@ function WalletSection({ userId }: { userId?: string }) {
                 </div>
               </div>
               
-              <div className="mt-3 pt-3 border-t">
+              <div className="mt-3 pt-3 border-t space-y-2">
                 <div className="flex gap-2">
                   <Button 
                     size="sm" 
@@ -1613,6 +1614,23 @@ function WalletSection({ userId }: { userId?: string }) {
                     </Button>
                   )}
                 </div>
+                
+                {/* Treasury Funding Button - Only for JCMOVES */}
+                {wallet.currency.symbol === 'JCMOVES' && (
+                  <Button 
+                    size="sm" 
+                    variant="default"
+                    className="w-full bg-green-600 hover:bg-green-700"
+                    onClick={() => {
+                      setSelectedWallet(wallet.id);
+                      setShowFundTreasury(true);
+                    }}
+                    data-testid="button-fund-treasury"
+                  >
+                    <DollarSign className="h-3 w-3 mr-1" />
+                    Fund Treasury
+                  </Button>
+                )}
               </div>
 
               {/* Wallet Address Display */}
@@ -1688,6 +1706,17 @@ function WalletSection({ userId }: { userId?: string }) {
           walletData={wallets?.wallets?.find((w: any) => w.id === selectedWallet)}
           onClose={() => {
             setShowExport(false);
+            setSelectedWallet(null);
+          }}
+        />
+      )}
+
+      {/* Fund Treasury Modal */}
+      {showFundTreasury && (
+        <FundTreasuryModal
+          walletData={wallets?.wallets?.find((w: any) => w.id === selectedWallet)}
+          onClose={() => {
+            setShowFundTreasury(false);
             setSelectedWallet(null);
           }}
         />
@@ -2066,6 +2095,138 @@ function ExportModal({ onClose, walletData }: { onClose: () => void; walletData:
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+// Fund Treasury Modal Component
+function FundTreasuryModal({ onClose, walletData }: { onClose: () => void; walletData: any }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+
+  const fundTreasuryMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await fetch('/api/wallets/fund-treasury', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fund treasury');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/wallets'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/treasury/status'] });
+      onClose();
+      toast({
+        title: "Treasury Funded!",
+        description: `Successfully transferred ${data.transferredAmount} JCMOVES to treasury`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Transfer Failed",
+        description: error.message || "Failed to fund treasury",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!amount || parseFloat(amount) <= 0) {
+      toast({
+        title: "Invalid Amount",
+        description: "Please enter a valid amount to transfer",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (parseFloat(amount) > parseFloat(walletData?.balance || '0')) {
+      toast({
+        title: "Insufficient Balance",
+        description: "You don't have enough JCMOVES tokens",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    fundTreasuryMutation.mutate({
+      amount,
+      note: note || undefined
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <Card className="w-full max-w-md">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold">Fund Treasury</h3>
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Available Balance</label>
+              <div className="p-2 bg-gray-50 rounded text-sm">
+                {parseFloat(walletData?.balance || '0').toFixed(8)} JCMOVES
+              </div>
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium mb-2 block">Amount to Transfer</label>
+              <input
+                type="number"
+                step="0.00000001"
+                placeholder="0.00000000"
+                className="w-full p-2 border rounded"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                data-testid="input-treasury-amount"
+              />
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium mb-2 block">Notes (Optional)</label>
+              <textarea
+                placeholder="Purpose of this funding"
+                className="w-full p-2 border rounded"
+                rows={3}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                data-testid="input-treasury-note"
+              />
+            </div>
+
+            <div className="bg-blue-50 p-3 rounded text-sm text-blue-800">
+              <p className="font-medium mb-1">ℹ️ Treasury Funding</p>
+              <p>Tokens will be transferred from your wallet to the treasury pool for business operations and rewards.</p>
+            </div>
+            
+            <Button 
+              className="w-full bg-green-600 hover:bg-green-700"
+              onClick={handleSubmit}
+              disabled={fundTreasuryMutation.isPending}
+              data-testid="button-submit-fund-treasury"
+            >
+              {fundTreasuryMutation.isPending ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <DollarSign className="h-4 w-4 mr-2" />
+              )}
+              Fund Treasury
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
