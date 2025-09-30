@@ -65,6 +65,9 @@ interface TreasuryStatus {
     totalDistributed: number;
     availableFunding: number;
     tokenReserve: number;
+    currentMarketValueUsd: number;
+    currentTokenPrice: number;
+    priceSource: string;
     liabilityRatio: number;
     isHealthy: boolean;
   };
@@ -831,21 +834,33 @@ export default function MobileLeadManager() {
               <div className="space-y-4">
                 <Card>
                   <CardContent className="p-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="text-center">
-                        <p className="text-sm text-muted-foreground">Available Funding</p>
-                        <p className="text-lg font-bold text-green-600">
-                          ${(treasuryStatus.stats?.availableFunding || 0).toFixed(2)}
-                        </p>
-                      </div>
+                    <div className="space-y-4">
                       <div className="text-center">
                         <p className="text-sm text-muted-foreground">Token Reserve</p>
-                        <p className="text-lg font-bold text-blue-600">
-                          {(treasuryStatus.stats?.tokenReserve || 0).toLocaleString()}
+                        <p className="text-2xl font-bold text-blue-600">
+                          {(treasuryStatus.stats?.tokenReserve || 0).toLocaleString()} JCMOVES
                         </p>
-                        <p className="text-xs text-muted-foreground">
-                          ≈ ${((treasuryStatus.stats?.tokenReserve || 0) * (tokenInfo?.price || 0)).toFixed(4)} USD
-                        </p>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                        <div className="text-center">
+                          <p className="text-xs text-muted-foreground">Current Market Value</p>
+                          <p className="text-lg font-bold text-green-600">
+                            ${(treasuryStatus.stats?.currentMarketValueUsd || 0).toFixed(2)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            @ ${(treasuryStatus.stats?.currentTokenPrice || 0).toFixed(8)}
+                          </p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-xs text-muted-foreground">Historical Book Value</p>
+                          <p className="text-lg font-bold text-orange-600">
+                            ${(treasuryStatus.stats?.availableFunding || 0).toFixed(2)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Original deposit value
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
