@@ -40,13 +40,15 @@ import {
   Target,
   TrendingUp,
   Coins,
-  Download
+  Download,
+  ShoppingBag
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
 import { PhotoCapture } from "@/components/photo-capture";
 import { NotificationBell } from "@/components/notification-bell";
 import { useAuth } from "@/hooks/useAuth";
+import { ShopPage } from "@/pages/ShopPage";
 
 // Helper function for ordinal suffixes (1st, 2nd, 3rd, etc.)
 function getOrdinalSuffix(num: number): string {
@@ -375,14 +377,14 @@ export default function MobileLeadManager() {
   
   
   // Initialize tab based on user permissions
-  const getInitialTab = (): "available" | "accepted" | "map" | "treasury" | "rewards" | "wallets" | "settings" => {
+  const getInitialTab = (): "available" | "accepted" | "map" | "treasury" | "shop" | "rewards" | "wallets" | "settings" => {
     return "available"; // Always start with available tab
   };
   
-  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury" | "rewards" | "wallets" | "settings">(getInitialTab());
+  const [activeTab, setActiveTab] = useState<"available" | "accepted" | "map" | "treasury" | "shop" | "rewards" | "wallets" | "settings">(getInitialTab());
   
   // Prevent employees from accessing treasury tab
-  const handleTabChange = (tab: "available" | "accepted" | "map" | "treasury" | "rewards" | "wallets" | "settings") => {
+  const handleTabChange = (tab: "available" | "accepted" | "map" | "treasury" | "shop" | "rewards" | "wallets" | "settings") => {
     if (tab === "treasury" && !canAccessTreasury && user?.role !== 'business_owner') {
       return; // Block access to treasury for employees
     }
@@ -894,6 +896,8 @@ export default function MobileLeadManager() {
               </div>
             )}
           </div>
+        ) : activeTab === "shop" ? (
+          <ShopPage />
         ) : activeTab === "wallets" ? (
           <WalletSection userId={user?.id} />
         ) : activeTab === "rewards" ? (
@@ -1200,7 +1204,7 @@ export default function MobileLeadManager() {
 
       {/* Bottom Navigation */}
       <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border p-2">
-        <div className="grid grid-cols-6 gap-1 max-w-2xl mx-auto">
+        <div className="grid grid-cols-7 gap-1 max-w-2xl mx-auto">
           <Button
             variant={activeTab === "available" ? "default" : "ghost"}
             className="w-full px-2 py-2"
@@ -1249,6 +1253,18 @@ export default function MobileLeadManager() {
                   {availableJobs.length + myJobs.length}
                 </Badge>
               )}
+            </div>
+          </Button>
+          
+          <Button
+            variant={activeTab === "shop" ? "default" : "ghost"}
+            className="w-full px-2 py-2"
+            onClick={() => handleTabChange("shop")}
+            data-testid="tab-shop"
+          >
+            <div className="flex flex-col items-center gap-1">
+              <ShoppingBag className="h-4 w-4" />
+              <span className="text-xs">Shop</span>
             </div>
           </Button>
           
