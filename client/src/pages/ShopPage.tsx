@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 
 // Item Card Component with Photo Slideshow
 function ShopItemCard({ item }: { item: ShopItem }) {
+  const [, setLocation] = useLocation();
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   
   const photos = Array.isArray(item.photos) ? item.photos : [];
@@ -30,8 +32,16 @@ function ShopItemCard({ item }: { item: ShopItem }) {
     setCurrentPhotoIndex((prev) => (prev - 1 + photos.length) % photos.length);
   };
 
+  const handleClick = () => {
+    setLocation(`/shop/${item.id}`);
+  };
+
   return (
-    <Card className="overflow-hidden">
+    <Card 
+      className="overflow-hidden cursor-pointer hover:shadow-lg transition-shadow" 
+      onClick={handleClick}
+      data-testid={`card-shop-item-${item.id}`}
+    >
       {/* Media Slideshow (Photos/Videos) */}
       {photos.length > 0 && (
         <div className="relative aspect-square bg-muted">

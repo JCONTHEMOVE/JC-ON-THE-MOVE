@@ -19,6 +19,7 @@ import MobileLeadManager from "@/components/mobile-lead-manager";
 import CustomerMobileInterface from "@/components/customer-mobile-interface";
 import { ShopCatalogPage } from "@/pages/shop-catalog";
 import { CreateShopItemPage } from "@/pages/create-shop-item";
+import { ShopItemDetailPage } from "@/pages/shop-item-detail";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -78,6 +79,9 @@ function AuthenticatedApp() {
         </Route>
         <Route path="/shop/create">
           <DesktopPageWrapper component={CreateShopItemPage} />
+        </Route>
+        <Route path="/shop/:id">
+          <ShopItemDetailPage />
         </Route>
         <Route component={NotFound} />
       </Switch>
