@@ -210,6 +210,14 @@ export default function Header() {
                   >
                     Faucet
                   </Link>
+                  <Link
+                    href="/shop"
+                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                    data-testid="button-mobile-shop"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Shop
+                  </Link>
                   {hasAdminAccess && (
                     <>
                       <Link
