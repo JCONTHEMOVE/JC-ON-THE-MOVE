@@ -298,6 +298,35 @@ export const treasuryWithdrawals = pgTable("treasury_withdrawals", {
   index("idx_treasury_withdrawals_signature").on(table.transactionSignature),
 ]);
 
+// Shop items for marketplace
+export const shopPhotoSchema = z.object({
+  id: z.string().uuid(),
+  url: z.string().url(),
+  alt: z.string().optional(),
+  order: z.number().int().min(0),
+});
+
+export type ShopPhoto = z.infer<typeof shopPhotoSchema>;
+
+export const shopItems = pgTable("shop_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postedBy: varchar("posted_by").notNull().references(() => users.id),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  photos: jsonb("photos").notNull().default("[]"), // Array of photo objects for slideshow
+  category: text("category"), // Optional category (furniture, electronics, etc.)
+  status: text("status").notNull().default("active"), // 'active', 'sold', 'archived'
+  views: integer("views").default(0),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_shop_items_status").on(table.status),
+  index("idx_shop_items_posted_by").on(table.postedBy),
+  index("idx_shop_items_created").on(table.createdAt),
+  index("idx_shop_items_active_created").on(table.status, table.createdAt),
+]);
+
 export const insertLeadSchema = createInsertSchema(leads).omit({
   id: true,
   status: true,
@@ -437,6 +466,23 @@ export type InsertReserveTransaction = z.infer<typeof insertReserveTransactionSc
 export type ReserveTransaction = typeof reserveTransactions.$inferSelect;
 export type InsertTreasuryWithdrawal = z.infer<typeof insertTreasuryWithdrawalSchema>;
 export type TreasuryWithdrawal = typeof treasuryWithdrawals.$inferSelect;
+
+// Shop system schemas
+export const insertShopItemSchema = createInsertSchema(shopItems).omit({
+  id: true,
+  status: true,
+  views: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  photos: z.array(shopPhotoSchema).min(1, "At least one photo is required"),
+  price: z.string().regex(/^\d+\.?\d{0,2}$/, "Price must be a valid number with up to 2 decimal places").or(z.coerce.number().positive("Price must be greater than 0")),
+  title: z.string().min(3, "Title must be at least 3 characters").max(200, "Title must not exceed 200 characters"),
+  description: z.string().min(10, "Description must be at least 10 characters").max(2000, "Description must not exceed 2000 characters"),
+});
+
+export type InsertShopItem = z.infer<typeof insertShopItemSchema>;
+export type ShopItem = typeof shopItems.$inferSelect;
 
 // Faucet system tables
 export const faucetConfig = pgTable("faucet_config", {
