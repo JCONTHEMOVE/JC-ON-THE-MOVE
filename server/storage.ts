@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type WalletTransaction, type InsertWalletTransaction, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, priceHistory, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, walletTransactions } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type WalletTransaction, type InsertWalletTransaction, type ShopItem, type InsertShopItem, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, priceHistory, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, walletTransactions, shopItems } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, isNull, and, isNotNull, sql, gt, gte } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
@@ -46,6 +46,14 @@ export interface IStorage {
   
   createContact(contact: InsertContact): Promise<Contact>;
   getContacts(): Promise<Contact[]>;
+  
+  // Shop operations
+  createShopItem(item: InsertShopItem): Promise<ShopItem>;
+  getShopItems(filters?: { status?: string; postedBy?: string }, limit?: number, offset?: number): Promise<ShopItem[]>;
+  getShopItem(id: string): Promise<ShopItem | undefined>;
+  updateShopItem(id: string, updates: Partial<Omit<ShopItem, 'id' | 'postedBy' | 'createdAt'>>): Promise<ShopItem | undefined>;
+  deleteShopItem(id: string): Promise<boolean>;
+  incrementShopItemViews(id: string): Promise<void>;
   
   // Treasury operations
   getTreasuryAccount(id?: string): Promise<TreasuryAccount | undefined>;
@@ -675,6 +683,72 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(contacts)
       .orderBy(desc(contacts.createdAt));
+  }
+
+  // Shop operations
+  async createShopItem(item: InsertShopItem): Promise<ShopItem> {
+    const [shopItem] = await db
+      .insert(shopItems)
+      .values(item)
+      .returning();
+    return shopItem;
+  }
+
+  async getShopItems(filters?: { status?: string; postedBy?: string }, limit: number = 20, offset: number = 0): Promise<ShopItem[]> {
+    let query = db.select().from(shopItems);
+    
+    const conditions = [];
+    if (filters?.status) {
+      conditions.push(eq(shopItems.status, filters.status));
+    }
+    if (filters?.postedBy) {
+      conditions.push(eq(shopItems.postedBy, filters.postedBy));
+    }
+    
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+    
+    return await query
+      .orderBy(desc(shopItems.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async getShopItem(id: string): Promise<ShopItem | undefined> {
+    const [item] = await db
+      .select()
+      .from(shopItems)
+      .where(eq(shopItems.id, id));
+    return item || undefined;
+  }
+
+  async updateShopItem(id: string, updates: Partial<Omit<ShopItem, 'id' | 'postedBy' | 'createdAt'>>): Promise<ShopItem | undefined> {
+    const [updated] = await db
+      .update(shopItems)
+      .set({
+        ...updates,
+        updatedAt: new Date(),
+      })
+      .where(eq(shopItems.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteShopItem(id: string): Promise<boolean> {
+    const result = await db
+      .delete(shopItems)
+      .where(eq(shopItems.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async incrementShopItemViews(id: string): Promise<void> {
+    await db
+      .update(shopItems)
+      .set({
+        views: sql`${shopItems.views} + 1`,
+      })
+      .where(eq(shopItems.id, id));
   }
 
   // Treasury operations

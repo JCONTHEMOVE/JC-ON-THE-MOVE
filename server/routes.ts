@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema } from "@shared/schema";
+import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema } from "@shared/schema";
 import { sendEmail, generateLeadNotificationEmail, generateContactNotificationEmail } from "./services/email";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { dailyCheckinService } from "./services/daily-checkin";
@@ -465,6 +465,213 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching contacts:", error);
       res.status(500).json({ error: "Failed to fetch contacts" });
+    }
+  });
+
+  // Shop Routes
+  // Get all shop items (public with optional filters, defaults to active items only)
+  app.get("/api/shop", async (req: any, res) => {
+    try {
+      const { status, postedBy, limit = '20', offset = '0' } = req.query;
+      const filters: { status?: string; postedBy?: string } = {};
+      
+      // Parse pagination params with validation
+      const parsedLimit = Math.min(Math.max(parseInt(limit as string) || 20, 1), 100); // Between 1 and 100
+      const parsedOffset = Math.max(parseInt(offset as string) || 0, 0); // Non-negative
+      
+      // Enforce visibility based on authentication and authorization
+      const userId = req.user?.claims?.sub;
+      let user = null;
+      if (userId) {
+        user = await storage.getUser(userId);
+      }
+      
+      // Determine allowed status based on user role
+      if (user?.role === 'admin') {
+        // Admins can see all statuses
+        if (status && typeof status === 'string') {
+          filters.status = status;
+        }
+        // No status filter = all items
+      } else if (userId && postedBy === userId) {
+        // Authenticated users can see their own items with any status
+        filters.postedBy = userId;
+        if (status && typeof status === 'string') {
+          filters.status = status;
+        }
+      } else {
+        // Public/non-admin users can only see active items
+        filters.status = 'active';
+        if (postedBy && typeof postedBy === 'string') {
+          filters.postedBy = postedBy;
+        }
+      }
+      
+      const items = await storage.getShopItems(filters, parsedLimit, parsedOffset);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching shop items:", error);
+      res.status(500).json({ error: "Failed to fetch shop items" });
+    }
+  });
+
+  // Get single shop item by ID (public for active items, owner/admin for others)
+  app.get("/api/shop/:id", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const item = await storage.getShopItem(id);
+      
+      if (!item) {
+        return res.status(404).json({ error: "Shop item not found" });
+      }
+      
+      // If item is not active, only owner or admin can view
+      if (item.status !== 'active') {
+        const userId = req.user?.claims?.sub;
+        if (!userId) {
+          return res.status(404).json({ error: "Shop item not found" });
+        }
+        
+        const user = await storage.getUser(userId);
+        if (!user || (item.postedBy !== userId && user.role !== 'admin')) {
+          return res.status(404).json({ error: "Shop item not found" });
+        }
+      }
+      
+      res.json(item);
+    } catch (error) {
+      console.error("Error fetching shop item:", error);
+      res.status(500).json({ error: "Failed to fetch shop item" });
+    }
+  });
+
+  // Create new shop item (authenticated users only)
+  app.post("/api/shop", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+      
+      const itemData = insertShopItemSchema.parse({
+        ...req.body,
+        postedBy: userId,
+      });
+      
+      const item = await storage.createShopItem(itemData);
+      res.json(item);
+    } catch (error) {
+      console.error("Error creating shop item:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid shop item data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create shop item" });
+    }
+  });
+
+  // Update shop item (owner or admin only)
+  app.patch("/api/shop/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.claims?.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      
+      // Check if item exists and user has permission
+      const item = await storage.getShopItem(id);
+      if (!item) {
+        return res.status(404).json({ error: "Shop item not found" });
+      }
+      
+      // Only allow owner or admin to update
+      if (item.postedBy !== userId && user.role !== 'admin') {
+        return res.status(403).json({ error: "You don't have permission to update this item" });
+      }
+      
+      // Validate update data using partial schema
+      const updateSchema = insertShopItemSchema.partial().pick({
+        title: true,
+        description: true,
+        price: true,
+        photos: true,
+        status: true,
+        category: true,
+      });
+      
+      const validatedUpdates = updateSchema.parse(req.body);
+      
+      const updatedItem = await storage.updateShopItem(id, validatedUpdates);
+      res.json(updatedItem);
+    } catch (error) {
+      console.error("Error updating shop item:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid update data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update shop item" });
+    }
+  });
+
+  // Delete shop item (owner or admin only)
+  app.delete("/api/shop/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.claims?.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      
+      // Check if item exists and user has permission
+      const item = await storage.getShopItem(id);
+      if (!item) {
+        return res.status(404).json({ error: "Shop item not found" });
+      }
+      
+      // Only allow owner or admin to delete
+      if (item.postedBy !== userId && user.role !== 'admin') {
+        return res.status(403).json({ error: "You don't have permission to delete this item" });
+      }
+      
+      const success = await storage.deleteShopItem(id);
+      if (success) {
+        res.json({ success: true, message: "Shop item deleted successfully" });
+      } else {
+        res.status(500).json({ error: "Failed to delete shop item" });
+      }
+    } catch (error) {
+      console.error("Error deleting shop item:", error);
+      res.status(500).json({ error: "Failed to delete shop item" });
+    }
+  });
+
+  // Increment view count (public)
+  app.post("/api/shop/:id/view", async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Check if item exists
+      const item = await storage.getShopItem(id);
+      if (!item) {
+        return res.status(404).json({ error: "Shop item not found" });
+      }
+      
+      await storage.incrementShopItemViews(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error incrementing view count:", error);
+      res.status(500).json({ error: "Failed to increment view count" });
     }
   });
 
