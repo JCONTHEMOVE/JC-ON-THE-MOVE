@@ -255,7 +255,63 @@ function CreateItemForm({ onSuccess }: { onSuccess: () => void }) {
 
       {/* Add Photo */}
       <div className="space-y-2">
-        <Label>Photo URL {photoUrls.length > 0 && `(${photoUrls.length}/10)`}</Label>
+        <Label>Add Photo {photoUrls.length > 0 && `(${photoUrls.length}/10)`}</Label>
+        
+        {/* File Upload Button */}
+        <div className="flex gap-2">
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            id="photo-upload"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file && photoUrls.length < 10) {
+                if (file.size > 5 * 1024 * 1024) {
+                  toast({
+                    title: "File too large",
+                    description: "Please select an image smaller than 5MB",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const base64String = reader.result as string;
+                  setPhotoUrls([...photoUrls, base64String]);
+                };
+                reader.readAsDataURL(file);
+              }
+              // Reset input
+              e.target.value = "";
+            }}
+            data-testid="input-photo-file"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1"
+            onClick={() => document.getElementById("photo-upload")?.click()}
+            disabled={photoUrls.length >= 10}
+            data-testid="button-upload-photo"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Upload Photo
+          </Button>
+        </div>
+        
+        {/* OR divider */}
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground">or enter url</span>
+          </div>
+        </div>
+        
+        {/* URL Input */}
         <div className="flex gap-2">
           <Input
             placeholder="https://example.com/image.jpg"
