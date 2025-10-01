@@ -1,167 +1,438 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, DollarSign } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ChevronLeft, ChevronRight, Plus, X, Eye } from "lucide-react";
+import { type ShopItem } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
-type PriceDataPoint = {
-  timestamp: Date;
-  price: number;
-  source: string;
-};
+// Item Card Component with Photo Slideshow
+function ShopItemCard({ item }: { item: ShopItem }) {
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  
+  const photos = Array.isArray(item.photos) ? item.photos : [];
+  const hasMultiplePhotos = photos.length > 1;
 
-type PriceHistoryResponse = {
-  data: PriceDataPoint[];
-  metadata: {
-    latestPrice: number;
-    changePercent: number;
-    source: string;
-    range: string;
-    dataPoints: number;
+  const nextPhoto = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentPhotoIndex((prev) => (prev + 1) % photos.length);
   };
-};
 
-export function ShopPage() {
-  const [range, setRange] = useState<'24h' | '7d' | '30d'>('24h');
-
-  const { data: priceHistory, isLoading } = useQuery<PriceHistoryResponse>({
-    queryKey: ['/api/price-history', range],
-    refetchInterval: 30000, // Poll every 30 seconds
-  });
-
-  const chartData = priceHistory?.data.map(point => ({
-    time: new Date(point.timestamp).toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    }),
-    price: point.price,
-    fullTimestamp: point.timestamp
-  })) || [];
-
-  const latestPrice = priceHistory?.metadata.latestPrice || 0;
-  const changePercent = priceHistory?.metadata.changePercent || 0;
-  const isPositive = changePercent >= 0;
+  const prevPhoto = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentPhotoIndex((prev) => (prev - 1 + photos.length) % photos.length);
+  };
 
   return (
-    <div className="space-y-6 p-4">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold mb-2">JCMOVES Token</h1>
-        <p className="text-sm text-muted-foreground">Live price chart and market data</p>
+    <Card className="overflow-hidden">
+      {/* Photo Slideshow */}
+      {photos.length > 0 && (
+        <div className="relative aspect-square bg-muted">
+          <img
+            src={photos[currentPhotoIndex]}
+            alt={item.title}
+            className="w-full h-full object-cover"
+            data-testid={`img-shop-item-${item.id}`}
+          />
+          
+          {/* Navigation for multiple photos */}
+          {hasMultiplePhotos && (
+            <>
+              <button
+                onClick={prevPhoto}
+                className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-1 rounded-full hover:bg-black/70"
+                data-testid={`button-prev-photo-${item.id}`}
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                onClick={nextPhoto}
+                className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-1 rounded-full hover:bg-black/70"
+                data-testid={`button-next-photo-${item.id}`}
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+              
+              {/* Photo indicators */}
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                {photos.map((_, index) => (
+                  <div
+                    key={index}
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      index === currentPhotoIndex ? "bg-white" : "bg-white/50"
+                    }`}
+                    data-testid={`indicator-photo-${item.id}-${index}`}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      <CardContent className="p-4">
+        <div className="flex justify-between items-start gap-2 mb-2">
+          <h3 className="font-semibold text-lg line-clamp-1" data-testid={`text-title-${item.id}`}>
+            {item.title}
+          </h3>
+          <p className="font-bold text-primary text-lg whitespace-nowrap" data-testid={`text-price-${item.id}`}>
+            ${item.price}
+          </p>
+        </div>
+        
+        <p className="text-sm text-muted-foreground line-clamp-2 mb-2" data-testid={`text-description-${item.id}`}>
+          {item.description}
+        </p>
+        
+        <div className="flex justify-between items-center text-xs text-muted-foreground">
+          <div className="flex gap-2">
+            {item.category && (
+              <Badge variant="secondary" data-testid={`badge-category-${item.id}`}>
+                {item.category}
+              </Badge>
+            )}
+            {item.status !== "active" && (
+              <Badge variant="outline" data-testid={`badge-status-${item.id}`}>
+                {item.status}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <Eye className="h-3 w-3" />
+            <span data-testid={`text-views-${item.id}`}>{item.views || 0}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Create Item Form Component
+function CreateItemForm({ onSuccess }: { onSuccess: () => void }) {
+  const { toast } = useToast();
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+  const [currentPhotoUrl, setCurrentPhotoUrl] = useState("");
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  
+  const [formData, setFormData] = useState({
+    title: "",
+    description: "",
+    price: "",
+    category: "",
+    status: "active" as "active" | "draft" | "sold" | "archived",
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return await apiRequest("/api/shop", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shop"] });
+      toast({
+        title: "Success",
+        description: "Item posted successfully!",
+      });
+      // Reset form
+      setFormData({
+        title: "",
+        description: "",
+        price: "",
+        category: "",
+        status: "active",
+      });
+      setPhotoUrls([]);
+      setCurrentPhotoUrl("");
+      onSuccess();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to post item",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const addPhoto = () => {
+    if (currentPhotoUrl && photoUrls.length < 10) {
+      try {
+        new URL(currentPhotoUrl); // Validate URL
+        setPhotoUrls([...photoUrls, currentPhotoUrl]);
+        setCurrentPhotoUrl("");
+      } catch {
+        toast({
+          title: "Invalid URL",
+          description: "Please enter a valid image URL",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotoUrls(photoUrls.filter((_, i) => i !== index));
+    if (currentPhotoIndex >= photoUrls.length - 1) {
+      setCurrentPhotoIndex(Math.max(0, photoUrls.length - 2));
+    }
+  };
+
+  const handleSubmit = () => {
+    if (!formData.title || !formData.description || !formData.price || photoUrls.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields and add at least one photo",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    createMutation.mutate({
+      ...formData,
+      price: formData.price,
+      photos: photoUrls,
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Photo Preview */}
+      {photoUrls.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="relative aspect-square bg-muted rounded-lg overflow-hidden">
+              <img
+                src={photoUrls[currentPhotoIndex]}
+                alt="Preview"
+                className="w-full h-full object-cover"
+              />
+              
+              {photoUrls.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setCurrentPhotoIndex((prev) => (prev - 1 + photoUrls.length) % photoUrls.length)}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-2 rounded-full"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => setCurrentPhotoIndex((prev) => (prev + 1) % photoUrls.length)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 text-white p-2 rounded-full"
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </button>
+                </>
+              )}
+              
+              <button
+                onClick={() => removePhoto(currentPhotoIndex)}
+                className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                {photoUrls.map((_, index) => (
+                  <div
+                    key={index}
+                    className={`h-2 w-2 rounded-full ${index === currentPhotoIndex ? "bg-white" : "bg-white/50"}`}
+                  />
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Add Photo */}
+      <div className="space-y-2">
+        <Label>Photo URL {photoUrls.length > 0 && `(${photoUrls.length}/10)`}</Label>
+        <div className="flex gap-2">
+          <Input
+            placeholder="https://example.com/image.jpg"
+            value={currentPhotoUrl}
+            onChange={(e) => setCurrentPhotoUrl(e.target.value)}
+            data-testid="input-photo-url"
+          />
+          <Button onClick={addPhoto} size="icon" disabled={photoUrls.length >= 10} data-testid="button-add-photo">
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
-      {/* Price Summary Card */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-sm text-muted-foreground">Current Price</p>
-              <div className="flex items-center gap-2">
-                <p className="text-3xl font-bold" data-testid="text-current-price">
-                  ${latestPrice.toFixed(8)}
-                </p>
-                <DollarSign className="h-6 w-6 text-muted-foreground" />
-              </div>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-muted-foreground">{range} Change</p>
-              <div className="flex items-center gap-1">
-                {isPositive ? (
-                  <TrendingUp className="h-5 w-5 text-green-600" />
-                ) : (
-                  <TrendingDown className="h-5 w-5 text-red-600" />
-                )}
-                <p className={`text-xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`} data-testid="text-price-change">
-                  {isPositive ? '+' : ''}{changePercent.toFixed(2)}%
-                </p>
-              </div>
-            </div>
-          </div>
+      {/* Form Fields */}
+      <div className="space-y-2">
+        <Label htmlFor="title">Title *</Label>
+        <Input
+          id="title"
+          value={formData.title}
+          onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+          placeholder="Item title"
+          data-testid="input-title"
+        />
+      </div>
 
-          {/* Range Selector */}
-          <div className="flex gap-2">
-            <Button
-              variant={range === '24h' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setRange('24h')}
-              data-testid="button-range-24h"
-            >
-              24H
-            </Button>
-            <Button
-              variant={range === '7d' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setRange('7d')}
-              data-testid="button-range-7d"
-            >
-              7D
-            </Button>
-            <Button
-              variant={range === '30d' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setRange('30d')}
-              data-testid="button-range-30d"
-            >
-              30D
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="space-y-2">
+        <Label htmlFor="description">Description *</Label>
+        <Textarea
+          id="description"
+          value={formData.description}
+          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+          placeholder="Describe your item"
+          rows={3}
+          data-testid="input-description"
+        />
+      </div>
 
-      {/* Price Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Price History</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <div className="space-y-2">
+        <Label htmlFor="price">Price *</Label>
+        <Input
+          id="price"
+          type="text"
+          value={formData.price}
+          onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+          placeholder="10.99"
+          data-testid="input-price"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="category">Category (Optional)</Label>
+        <Input
+          id="category"
+          value={formData.category}
+          onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+          placeholder="e.g., Furniture, Electronics"
+          data-testid="input-category"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="status">Status</Label>
+        <Select
+          value={formData.status}
+          onValueChange={(value: any) => setFormData({ ...formData, status: value })}
+        >
+          <SelectTrigger data-testid="select-status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="draft">Draft</SelectItem>
+            <SelectItem value="sold">Sold</SelectItem>
+            <SelectItem value="archived">Archived</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <Button 
+        onClick={handleSubmit} 
+        className="w-full" 
+        disabled={createMutation.isPending}
+        data-testid="button-submit"
+      >
+        {createMutation.isPending ? "Posting..." : "Post Item"}
+      </Button>
+    </div>
+  );
+}
+
+// Main Shop Page Component
+export function ShopPage() {
+  const [view, setView] = useState<"browse" | "create">("browse");
+  const [statusFilter, setStatusFilter] = useState<string>("active");
+
+  const { data: items, isLoading } = useQuery<ShopItem[]>({
+    queryKey: ["/api/shop", statusFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (statusFilter && statusFilter !== "all") {
+        params.append("status", statusFilter);
+      }
+      const url = `/api/shop${params.toString() ? `?${params.toString()}` : ""}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error("Failed to fetch shop items");
+      }
+      return response.json();
+    },
+  });
+
+  return (
+    <div className="space-y-4 p-4 pb-20">
+      {/* Header with View Toggle */}
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Shop</h1>
+        <Button
+          variant={view === "create" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setView(view === "browse" ? "create" : "browse")}
+          data-testid="button-toggle-view"
+        >
+          {view === "browse" ? <Plus className="h-4 w-4 mr-1" /> : <ChevronLeft className="h-4 w-4 mr-1" />}
+          {view === "browse" ? "Post Item" : "Back"}
+        </Button>
+      </div>
+
+      {view === "browse" ? (
+        <>
+          {/* Filter */}
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger data-testid="select-filter">
+              <SelectValue placeholder="Filter by status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="sold">Sold</SelectItem>
+              <SelectItem value="archived">Archived</SelectItem>
+              <SelectItem value="all">All</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Items Grid */}
           {isLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-[300px] w-full" />
-              <Skeleton className="h-4 w-3/4" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <Card key={i}>
+                  <Skeleton className="aspect-square" />
+                  <CardContent className="p-4 space-y-2">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          ) : chartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="time" 
-                  tick={{ fontSize: 12 }}
-                  interval="preserveStartEnd"
-                />
-                <YAxis 
-                  tick={{ fontSize: 12 }}
-                  domain={['dataMin - 0.000001', 'dataMax + 0.000001']}
-                  tickFormatter={(value) => value.toFixed(8)}
-                />
-                <Tooltip 
-                  formatter={(value: number) => [`$${value.toFixed(8)}`, 'Price']}
-                  labelFormatter={(label) => `Time: ${label}`}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="price" 
-                  stroke="hsl(var(--primary))" 
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+          ) : items && items.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {items.map((item) => (
+                <ShopItemCard key={item.id} item={item} />
+              ))}
+            </div>
           ) : (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">No price data available</p>
-            </div>
+            <Card>
+              <CardContent className="p-8 text-center">
+                <p className="text-muted-foreground mb-4">No items found</p>
+                <Button onClick={() => setView("create")} data-testid="button-create-first">
+                  <Plus className="h-4 w-4 mr-1" />
+                  Post Your First Item
+                </Button>
+              </CardContent>
+            </Card>
           )}
-          
-          {priceHistory && (
-            <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-              <span>{priceHistory.metadata.dataPoints} data points</span>
-              <Badge variant="outline">{priceHistory.metadata.source}</Badge>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        </>
+      ) : (
+        <CreateItemForm onSuccess={() => setView("browse")} />
+      )}
     </div>
   );
 }
