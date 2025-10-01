@@ -141,10 +141,7 @@ function CreateItemForm({ onSuccess }: { onSuccess: () => void }) {
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      return await apiRequest("/api/shop", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
+      return await apiRequest("POST", "/api/shop", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shop"] });
