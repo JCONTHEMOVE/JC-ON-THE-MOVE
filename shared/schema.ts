@@ -271,6 +271,33 @@ export const priceHistory = pgTable("price_history", {
   index("idx_price_history_created").on(table.createdAt),
 ]);
 
+// Treasury withdrawal tracking for blockchain execution
+export const treasuryWithdrawals = pgTable("treasury_withdrawals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  treasuryAccountId: varchar("treasury_account_id").notNull().references(() => treasuryAccounts.id),
+  reserveTransactionId: varchar("reserve_transaction_id").references(() => reserveTransactions.id), // Link to database record
+  requestedBy: varchar("requested_by").notNull().references(() => users.id),
+  tokenAmount: decimal("token_amount", { precision: 18, scale: 8 }).notNull(),
+  recipientAddress: text("recipient_address").notNull(), // Solana wallet address to receive tokens
+  treasuryWalletAddress: text("treasury_wallet_address").notNull(), // Treasury wallet executing transfer
+  status: text("status").notNull().default("pending"), // 'pending', 'prepared', 'signing', 'broadcasting', 'confirmed', 'failed'
+  transactionSignature: text("transaction_signature"), // Solana transaction signature after broadcast
+  blockNumber: bigint("block_number", { mode: "number" }),
+  confirmations: integer("confirmations").default(0),
+  preparedTransaction: text("prepared_transaction"), // Base64 serialized unsigned transaction
+  preparedAt: timestamp("prepared_at"),
+  signedAt: timestamp("signed_at"),
+  broadcastAt: timestamp("broadcast_at"),
+  confirmedAt: timestamp("confirmed_at"),
+  failureReason: text("failure_reason"),
+  metadata: jsonb("metadata"), // Additional data: nonce, fee, etc.
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_treasury_withdrawals_status").on(table.status),
+  index("idx_treasury_withdrawals_signature").on(table.transactionSignature),
+]);
+
 export const insertLeadSchema = createInsertSchema(leads).omit({
   id: true,
   status: true,
@@ -384,6 +411,23 @@ export const insertReserveTransactionSchema = createInsertSchema(reserveTransact
   createdAt: true,
 });
 
+export const insertTreasuryWithdrawalSchema = createInsertSchema(treasuryWithdrawals).omit({
+  id: true,
+  status: true,
+  transactionSignature: true,
+  blockNumber: true,
+  confirmations: true,
+  preparedTransaction: true,
+  preparedAt: true,
+  signedAt: true,
+  broadcastAt: true,
+  confirmedAt: true,
+  failureReason: true,
+  metadata: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Treasury system types
 export type InsertTreasuryAccount = z.infer<typeof insertTreasuryAccountSchema>;
 export type TreasuryAccount = typeof treasuryAccounts.$inferSelect;
@@ -391,6 +435,8 @@ export type InsertFundingDeposit = z.infer<typeof insertFundingDepositSchema>;
 export type FundingDeposit = typeof fundingDeposits.$inferSelect;
 export type InsertReserveTransaction = z.infer<typeof insertReserveTransactionSchema>;
 export type ReserveTransaction = typeof reserveTransactions.$inferSelect;
+export type InsertTreasuryWithdrawal = z.infer<typeof insertTreasuryWithdrawalSchema>;
+export type TreasuryWithdrawal = typeof treasuryWithdrawals.$inferSelect;
 
 // Faucet system tables
 export const faucetConfig = pgTable("faucet_config", {
