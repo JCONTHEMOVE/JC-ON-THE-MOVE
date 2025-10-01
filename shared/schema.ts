@@ -298,15 +298,13 @@ export const treasuryWithdrawals = pgTable("treasury_withdrawals", {
   index("idx_treasury_withdrawals_signature").on(table.transactionSignature),
 ]);
 
-// Shop items for marketplace
-export const shopPhotoSchema = z.object({
-  id: z.string().uuid(),
-  url: z.string().url(),
-  alt: z.string().optional(),
-  order: z.number().int().min(0),
-});
+// Shop items for marketplace - photos/videos stored as base64 data URLs
+export const shopMediaSchema = z.string().refine(
+  (val) => val.startsWith("data:image/") || val.startsWith("data:video/"),
+  { message: "Must be a valid base64 image or video data URL" }
+);
 
-export type ShopPhoto = z.infer<typeof shopPhotoSchema>;
+export type ShopMedia = z.infer<typeof shopMediaSchema>;
 
 export const shopItems = pgTable("shop_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -475,7 +473,7 @@ export const insertShopItemSchema = createInsertSchema(shopItems).omit({
   createdAt: true,
   updatedAt: true,
 }).extend({
-  photos: z.array(shopPhotoSchema).min(1, "At least one photo is required"),
+  photos: z.array(shopMediaSchema).min(1, "At least one photo or video is required"),
   price: z.string().regex(/^\d+\.?\d{0,2}$/, "Price must be a valid number with up to 2 decimal places").or(z.coerce.number().positive("Price must be greater than 0")),
   title: z.string().min(3, "Title must be at least 3 characters").max(200, "Title must not exceed 200 characters"),
   description: z.string().min(10, "Description must be at least 10 characters").max(2000, "Description must not exceed 2000 characters"),
