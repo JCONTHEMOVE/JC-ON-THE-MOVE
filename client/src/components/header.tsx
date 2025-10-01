@@ -68,6 +68,13 @@ export default function Header() {
                       Treasury
                     </Link>
                     <Link
+                      href="/shop"
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-shop"
+                    >
+                      Shop
+                    </Link>
+                    <Link
                       href="/admin"
                       className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
                       data-testid="button-admin"

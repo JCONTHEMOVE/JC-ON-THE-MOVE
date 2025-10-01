@@ -17,6 +17,8 @@ import AdminMoonshotPage from "@/pages/admin-moonshot";
 import NotFound from "@/pages/not-found";
 import MobileLeadManager from "@/components/mobile-lead-manager";
 import CustomerMobileInterface from "@/components/customer-mobile-interface";
+import { ShopCatalogPage } from "@/pages/shop-catalog";
+import { CreateShopItemPage } from "@/pages/create-shop-item";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -70,6 +72,12 @@ function AuthenticatedApp() {
         </Route>
         <Route path="/admin-moonshot">
           <DesktopPageWrapper component={AdminMoonshotPage} />
+        </Route>
+        <Route path="/shop">
+          <DesktopPageWrapper component={ShopCatalogPage} />
+        </Route>
+        <Route path="/shop/create">
+          <DesktopPageWrapper component={CreateShopItemPage} />
         </Route>
         <Route component={NotFound} />
       </Switch>
