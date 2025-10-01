@@ -32,17 +32,27 @@ function ShopItemCard({ item }: { item: ShopItem }) {
 
   return (
     <Card className="overflow-hidden">
-      {/* Photo Slideshow */}
+      {/* Media Slideshow (Photos/Videos) */}
       {photos.length > 0 && (
         <div className="relative aspect-square bg-muted">
-          <img
-            src={photos[currentPhotoIndex]}
-            alt={item.title}
-            className="w-full h-full object-cover"
-            data-testid={`img-shop-item-${item.id}`}
-          />
+          {photos[currentPhotoIndex].startsWith("data:video/") || photos[currentPhotoIndex].match(/\.(mp4|webm|ogg|mov)(\?|$)/i) ? (
+            <video
+              src={photos[currentPhotoIndex]}
+              controls
+              playsInline
+              className="w-full h-full object-contain"
+              data-testid={`video-shop-item-${item.id}`}
+            />
+          ) : (
+            <img
+              src={photos[currentPhotoIndex]}
+              alt={item.title}
+              className="w-full h-full object-cover"
+              data-testid={`img-shop-item-${item.id}`}
+            />
+          )}
           
-          {/* Navigation for multiple photos */}
+          {/* Navigation for multiple media items */}
           {hasMultiplePhotos && (
             <>
               <button
@@ -60,7 +70,7 @@ function ShopItemCard({ item }: { item: ShopItem }) {
                 <ChevronRight className="h-5 w-5" />
               </button>
               
-              {/* Photo indicators */}
+              {/* Media indicators */}
               <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
                 {photos.map((_, index) => (
                   <div
@@ -205,16 +215,27 @@ function CreateItemForm({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <div className="space-y-4">
-      {/* Photo Preview */}
+      {/* Media Preview (Photos/Videos) */}
       {photoUrls.length > 0 && (
         <Card>
           <CardContent className="p-4">
             <div className="relative aspect-square bg-muted rounded-lg overflow-hidden">
-              <img
-                src={photoUrls[currentPhotoIndex]}
-                alt="Preview"
-                className="w-full h-full object-cover"
-              />
+              {photoUrls[currentPhotoIndex].startsWith("data:video/") || photoUrls[currentPhotoIndex].match(/\.(mp4|webm|ogg|mov)(\?|$)/i) ? (
+                <video
+                  src={photoUrls[currentPhotoIndex]}
+                  controls
+                  playsInline
+                  className="w-full h-full object-contain"
+                  data-testid="preview-video"
+                />
+              ) : (
+                <img
+                  src={photoUrls[currentPhotoIndex]}
+                  alt="Preview"
+                  className="w-full h-full object-cover"
+                  data-testid="preview-image"
+                />
+              )}
               
               {photoUrls.length > 1 && (
                 <>
@@ -253,12 +274,13 @@ function CreateItemForm({ onSuccess }: { onSuccess: () => void }) {
         </Card>
       )}
 
-      {/* Add Photo */}
+      {/* Add Media (Photo or Video) */}
       <div className="space-y-2">
-        <Label>Add Photo {photoUrls.length > 0 && `(${photoUrls.length}/10)`}</Label>
+        <Label>Add Media {photoUrls.length > 0 && `(${photoUrls.length}/10)`}</Label>
         
-        {/* File Upload Button */}
+        {/* File Upload Buttons */}
         <div className="flex gap-2">
+          {/* Photo Upload */}
           <input
             type="file"
             accept="image/*"
@@ -283,11 +305,57 @@ function CreateItemForm({ onSuccess }: { onSuccess: () => void }) {
                 };
                 reader.readAsDataURL(file);
               }
-              // Reset input
               e.target.value = "";
             }}
             data-testid="input-photo-file"
           />
+          
+          {/* Video Upload */}
+          <input
+            type="file"
+            accept="video/*"
+            className="hidden"
+            id="video-upload"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file && photoUrls.length < 10) {
+                if (file.size > 50 * 1024 * 1024) {
+                  toast({
+                    title: "File too large",
+                    description: "Please select a video smaller than 50MB",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                
+                // Check video duration
+                const video = document.createElement("video");
+                video.preload = "metadata";
+                video.onloadedmetadata = () => {
+                  window.URL.revokeObjectURL(video.src);
+                  if (video.duration > 60) {
+                    toast({
+                      title: "Video too long",
+                      description: "Please select a video up to 1 minute long",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  
+                  const reader = new FileReader();
+                  reader.onloadend = () => {
+                    const base64String = reader.result as string;
+                    setPhotoUrls([...photoUrls, base64String]);
+                  };
+                  reader.readAsDataURL(file);
+                };
+                video.src = URL.createObjectURL(file);
+              }
+              e.target.value = "";
+            }}
+            data-testid="input-video-file"
+          />
+          
           <Button
             type="button"
             variant="outline"
@@ -297,7 +365,19 @@ function CreateItemForm({ onSuccess }: { onSuccess: () => void }) {
             data-testid="button-upload-photo"
           >
             <Plus className="h-4 w-4 mr-2" />
-            Upload Photo
+            Photo
+          </Button>
+          
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1"
+            onClick={() => document.getElementById("video-upload")?.click()}
+            disabled={photoUrls.length >= 10}
+            data-testid="button-upload-video"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Video
           </Button>
         </div>
         
@@ -314,7 +394,7 @@ function CreateItemForm({ onSuccess }: { onSuccess: () => void }) {
         {/* URL Input */}
         <div className="flex gap-2">
           <Input
-            placeholder="https://example.com/image.jpg"
+            placeholder="https://example.com/image.jpg or video.mp4"
             value={currentPhotoUrl}
             onChange={(e) => setCurrentPhotoUrl(e.target.value)}
             data-testid="input-photo-url"
