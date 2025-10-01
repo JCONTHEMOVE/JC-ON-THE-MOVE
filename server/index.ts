@@ -9,8 +9,9 @@ const app = express();
 // This preserves raw body bytes needed for HMAC signature validation
 app.use('/api/advertising/webhook', express.raw({ type: 'application/json' }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Increase body size limit to support video uploads (50MB videos become ~66MB as base64)
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: false, limit: '100mb' }));
 
 app.use((req, res, next) => {
   const start = Date.now();
