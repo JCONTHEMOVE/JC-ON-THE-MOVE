@@ -9,8 +9,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { AdPlayer } from "@/components/AdPlayer";
 import { 
   Bitcoin, 
   Coins, 
@@ -388,15 +391,22 @@ function CurrencyFaucetCard({
   claimStatus, 
   walletAddress, 
   setWalletAddress, 
-  onClaim 
+  onClaim,
+  showAdDialog,
+  onShowAdDialog,
+  userId
 }: {
   config: FaucetConfig;
   claimStatus: ClaimStatus | undefined;
   walletAddress: string;
   setWalletAddress: (address: string) => void;
   onClaim: (currency: string, address: string) => void;
+  showAdDialog: boolean;
+  onShowAdDialog: (currency: string, show: boolean) => void;
+  userId?: string;
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [adCompleted, setAdCompleted] = useState(false);
 
   const refreshStatus = async () => {
     setIsRefreshing(true);
@@ -408,7 +418,20 @@ function CurrencyFaucetCard({
     if (!walletAddress.trim()) {
       return;
     }
+    
+    if (!adCompleted) {
+      onShowAdDialog(config.currency, true);
+      return;
+    }
+    
     onClaim(config.currency, walletAddress.trim());
+    setAdCompleted(false);
+  };
+
+  const handleAdComplete = (impressionId: string) => {
+    console.log('Ad completed:', impressionId);
+    setAdCompleted(true);
+    onShowAdDialog(config.currency, false);
   };
 
   return (
@@ -521,10 +544,15 @@ function CurrencyFaucetCard({
         >
           {isRefreshing ? (
             "Refreshing..."
+          ) : adCompleted ? (
+            <>
+              <CheckCircle className="mr-2 h-4 w-4" />
+              Complete Claim {config.rewardAmount} {config.currency}
+            </>
           ) : claimStatus?.canClaim ? (
             <>
               <Gift className="mr-2 h-4 w-4" />
-              Claim {config.rewardAmount} {config.currency}
+              Watch Ad & Claim {config.rewardAmount} {config.currency}
             </>
           ) : (
             <>
@@ -533,6 +561,24 @@ function CurrencyFaucetCard({
             </>
           )}
         </Button>
+
+        {/* Ad Dialog */}
+        <Dialog open={showAdDialog} onOpenChange={(open) => onShowAdDialog(config.currency, open)}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Watch Ad to Claim {config.currency}</DialogTitle>
+              <DialogDescription>
+                Support the faucet by watching a short advertisement to claim your {config.rewardAmount} {config.currency}
+              </DialogDescription>
+            </DialogHeader>
+            <AdPlayer
+              onAdComplete={handleAdComplete}
+              placementId={`faucet-${config.currency.toLowerCase()}`}
+              userId={userId}
+              required={true}
+            />
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
@@ -621,7 +667,9 @@ function ClaimHistory() {
 
 export default function FaucetPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [walletAddresses, setWalletAddresses] = useState<Record<string, string>>({});
+  const [adDialogCurrency, setAdDialogCurrency] = useState<string | null>(null);
 
   // Get faucet configuration
   const { data: configData, isLoading: configLoading } = useQuery({
@@ -688,6 +736,10 @@ export default function FaucetPage() {
 
   const setWalletAddress = (currency: string, address: string) => {
     setWalletAddresses(prev => ({ ...prev, [currency]: address }));
+  };
+
+  const handleShowAdDialog = (currency: string, show: boolean) => {
+    setAdDialogCurrency(show ? currency : null);
   };
 
   if (configLoading) {
@@ -764,6 +816,9 @@ export default function FaucetPage() {
                       walletAddress={walletAddresses[config.currency] || ''}
                       setWalletAddress={(address) => setWalletAddress(config.currency, address)}
                       onClaim={handleClaim}
+                      showAdDialog={adDialogCurrency === config.currency}
+                      onShowAdDialog={handleShowAdDialog}
+                      userId={user?.id}
                     />
                   );
                 })}
