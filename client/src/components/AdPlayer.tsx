@@ -31,18 +31,16 @@ interface AdPlacement {
 
 export function AdPlayer({ onAdComplete, placementId, userId, required = true }: AdPlayerProps) {
   const [adStatus, setAdStatus] = useState<'waiting' | 'loading' | 'playing' | 'completed'>('waiting');
-  const [countdown, setCountdown] = useState(15); // 15 second ad duration
+  const [countdown, setCountdown] = useState(15);
   const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
   const [impressionId, setImpressionId] = useState<string>('');
   const [currentNetwork, setCurrentNetwork] = useState<string>('');
 
-  // Fetch advertising configuration
   const { data: adConfig } = useQuery<AdConfig>({
     queryKey: ['/api/advertising/config'],
-    staleTime: 5 * 60 * 1000 // 5 minutes
+    staleTime: 5 * 60 * 1000
   });
 
-  // Fetch ad placement
   const { data: placement } = useQuery<AdPlacement>({
     queryKey: ['/api/advertising/placement', placementId],
     enabled: !!adConfig?.enabled,
@@ -64,8 +62,6 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
         setCountdown(countdown - 1);
       }, 1000);
     }
-    // SECURITY FIX: Remove auto-completion after timer!
-    // Completion now ONLY happens through real ad verification
     
     return () => clearTimeout(timer);
   }, [adStatus, countdown]);
@@ -80,7 +76,6 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
     try {
       setAdStatus('loading');
       
-      // Track ad impression with real database persistence
       const response = await fetch('/api/advertising/impression', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -98,7 +93,6 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
         setImpressionId(result.impressionId);
         console.log('✅ Real ad impression tracked:', result.impressionId);
         
-        // Load real ad network content
         await loadRealNetworkAd(placement, result.impressionId);
         
         setTimeout(() => {
@@ -109,7 +103,6 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
       }
     } catch (error) {
       console.error('Failed to load real ad:', error);
-      // SECURITY FIX: Create real database impression for fallback
       try {
         const fallbackResponse = await fetch('/api/advertising/impression', {
           method: 'POST',
@@ -132,13 +125,17 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
     }
   };
   
+  const escapeHtml = (text: string): string => {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  };
+
   const loadRealNetworkAd = async (placement: AdPlacement, impressionId: string): Promise<void> => {
     return new Promise((resolve) => {
-      // Store session and impression data globally for ad network callbacks
       (window as any).adSessionId = sessionId;
       (window as any).adImpressionId = impressionId;
       
-      // Get the ad container
       const adContainer = document.getElementById(`ad-container-${placementId}`);
       if (!adContainer) {
         console.error('Ad container not found');
@@ -146,40 +143,55 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
         return;
       }
       
-      // Inject REAL network integration
+      adContainer.innerHTML = '';
+      
       if (placement.network === 'bitmedia' && placement.publisherId) {
-        adContainer.innerHTML = getRealBitmediaIntegration(placement, impressionId);
+        renderBitmediaIntegration(adContainer, placement, impressionId);
       } else if (placement.network === 'cointraffic' && placement.publisherId) {
-        adContainer.innerHTML = getRealCointrafficIntegration(placement, impressionId);
+        renderCointrafficIntegration(adContainer, placement, impressionId);
       } else {
-        // Real ad network fallback with proper tracking
-        adContainer.innerHTML = getRealFallbackAd(placement, impressionId);
+        renderFallbackAd(adContainer, placement, impressionId);
       }
       
-      // Resolve after allowing script injection
       setTimeout(resolve, 1000);
     });
   };
   
-  const getRealBitmediaIntegration = (placement: AdPlacement, impressionId: string): string => {
+  const renderBitmediaIntegration = (container: HTMLElement, placement: AdPlacement, impressionId: string) => {
     const [width, height] = placement.size.split('x');
     
-    // ACTUALLY load the real Bitmedia script - no more placeholders!
+    const adDiv = document.createElement('div');
+    adDiv.id = `bitmedia-ad-${escapeHtml(placement.id)}`;
+    adDiv.style.cssText = `width:${escapeHtml(width)}px;height:${escapeHtml(height)}px;position:relative;`;
+    
+    const loadingWrapper = document.createElement('div');
+    loadingWrapper.style.cssText = 'text-align:center;padding:20px;color:#666;border:1px solid #ddd;border-radius:8px;';
+    
+    const loadingText = document.createElement('div');
+    loadingText.style.cssText = 'font-size:14px;margin-bottom:10px;';
+    loadingText.textContent = '🔄 Loading Bitmedia Ad...';
+    
+    const progressText = document.createElement('div');
+    progressText.style.cssText = 'font-size:12px;';
+    progressText.textContent = 'Real network integration in progress';
+    
+    loadingWrapper.appendChild(loadingText);
+    loadingWrapper.appendChild(progressText);
+    adDiv.appendChild(loadingWrapper);
+    container.appendChild(adDiv);
+    
     setTimeout(() => {
       const script = document.createElement('script');
       script.type = 'text/javascript';
       script.async = true;
-      script.src = `https://js.bitmedia.io/btm.js?pid=${placement.publisherId}&zone=${placement.id}`;
+      script.src = `https://js.bitmedia.io/btm.js?pid=${encodeURIComponent(placement.publisherId || '')}&zone=${encodeURIComponent(placement.id)}`;
       script.onload = () => {
         console.log('✅ REAL Bitmedia script loaded successfully');
-        // SECURITY FIX: NO AUTO-COMPLETION! Only manual verification allowed
         (window as any).bitmediaLoaded = true;
         
-        // SECURITY FIX: NO CLIENT-SIDE CALLBACKS - ONLY SERVER WEBHOOKS
         console.log('🔐 SECURITY: Real Bitmedia script loaded - waiting for server-side webhook verification');
         console.log('⚠️ SECURITY: Ad completion can ONLY be verified via authenticated server webhooks');
         
-        // Poll server for webhook-verified completion (secure method)
         const pollInterval = setInterval(async () => {
           try {
             const response = await fetch(`/api/advertising/check-completion/${sessionId}`);
@@ -193,55 +205,77 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
           } catch (error) {
             console.error('Completion check error:', error);
           }
-        }, 2000); // Check every 2 seconds
+        }, 2000);
         
-        // Stop polling after 60 seconds to prevent infinite loops
         setTimeout(() => clearInterval(pollInterval), 60000);
       };
       script.onerror = () => {
         console.error('❌ Failed to load Bitmedia script');
-        // Fallback to clickable placeholder
-        const container = document.getElementById(`bitmedia-ad-${placement.id}`);
-        if (container) {
-          container.innerHTML = getBitmediaFallback(placement, impressionId);
+        const bitmediaContainer = document.getElementById(`bitmedia-ad-${escapeHtml(placement.id)}`);
+        if (bitmediaContainer) {
+          renderBitmediaFallback(bitmediaContainer, placement, impressionId);
         }
       };
       document.head.appendChild(script);
     }, 100);
-    
-    return `
-      <div id="bitmedia-ad-${placement.id}" style="width:${width}px;height:${height}px;position:relative;">
-        <div style="text-align:center;padding:20px;color:#666;border:1px solid #ddd;border-radius:8px;">
-          <div style="font-size:14px;margin-bottom:10px;">🔄 Loading Bitmedia Ad...</div>
-          <div style="font-size:12px;">Real network integration in progress</div>
-        </div>
-      </div>
-    `;
   };
   
-  const getBitmediaFallback = (placement: AdPlacement, impressionId: string): string => {
-    const [width, height] = placement.size.split('x');
-    return `
-      <div style="width:${width}px;height:${height}px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;">
-        <div>
-          <div style="font-size:16px;font-weight:bold;color:#007bff;margin-bottom:10px;">🚀 Bitmedia Network</div>
-          <div style="font-size:12px;color:#6c757d;margin-bottom:15px;">Script loading failed - Fallback mode</div>
-          <button 
-            onclick="window.handleRealAdClick('${impressionId}', '${placement.id}', 'bitmedia')" 
-            style="background:#007bff;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:12px;">
-            Visit Advertiser
-          </button>
-        </div>
-      </div>
-    `;
-  };
-  
-  const getRealCointrafficIntegration = (placement: AdPlacement, impressionId: string): string => {
+  const renderBitmediaFallback = (container: HTMLElement, placement: AdPlacement, impressionId: string) => {
     const [width, height] = placement.size.split('x');
     
-    // ACTUALLY load the real Cointraffic script - no more placeholders!
+    container.innerHTML = '';
+    
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = `width:${escapeHtml(width)}px;height:${escapeHtml(height)}px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;`;
+    
+    const content = document.createElement('div');
+    
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:16px;font-weight:bold;color:#007bff;margin-bottom:10px;';
+    title.textContent = '🚀 Bitmedia Network';
+    
+    const subtitle = document.createElement('div');
+    subtitle.style.cssText = 'font-size:12px;color:#6c757d;margin-bottom:15px;';
+    subtitle.textContent = 'Script loading failed - Fallback mode';
+    
+    const button = document.createElement('button');
+    button.style.cssText = 'background:#007bff;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:12px;';
+    button.textContent = 'Visit Advertiser';
+    button.addEventListener('click', () => {
+      (window as any).handleRealAdClick?.(impressionId, placement.id, 'bitmedia');
+    });
+    
+    content.appendChild(title);
+    content.appendChild(subtitle);
+    content.appendChild(button);
+    wrapper.appendChild(content);
+    container.appendChild(wrapper);
+  };
+  
+  const renderCointrafficIntegration = (container: HTMLElement, placement: AdPlacement, impressionId: string) => {
+    const [width, height] = placement.size.split('x');
+    
+    const adDiv = document.createElement('div');
+    adDiv.id = `cointraffic-ad-${escapeHtml(placement.id)}`;
+    adDiv.style.cssText = `width:${escapeHtml(width)}px;height:${escapeHtml(height)}px;position:relative;`;
+    
+    const loadingWrapper = document.createElement('div');
+    loadingWrapper.style.cssText = 'text-align:center;padding:20px;color:#666;border:1px solid #ddd;border-radius:8px;';
+    
+    const loadingText = document.createElement('div');
+    loadingText.style.cssText = 'font-size:14px;margin-bottom:10px;';
+    loadingText.textContent = '🔄 Loading Cointraffic Ad...';
+    
+    const progressText = document.createElement('div');
+    progressText.style.cssText = 'font-size:12px;';
+    progressText.textContent = 'Real network integration in progress';
+    
+    loadingWrapper.appendChild(loadingText);
+    loadingWrapper.appendChild(progressText);
+    adDiv.appendChild(loadingWrapper);
+    container.appendChild(adDiv);
+    
     setTimeout(() => {
-      // Set up Cointraffic configuration
       (window as any).cointraffic_config = {
         publisher_id: placement.publisherId,
         zone_id: placement.id,
@@ -254,14 +288,11 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
       script.src = 'https://cdn.cointraffic.io/js/cta.js';
       script.onload = () => {
         console.log('✅ REAL Cointraffic script loaded successfully');
-        // SECURITY FIX: NO AUTO-COMPLETION! Only manual verification allowed  
         (window as any).cointrafficLoaded = true;
         
-        // SECURITY FIX: NO CLIENT-SIDE CALLBACKS - ONLY SERVER WEBHOOKS
         console.log('🔐 SECURITY: Real Cointraffic script loaded - waiting for server-side webhook verification');
         console.log('⚠️ SECURITY: Ad completion can ONLY be verified via authenticated server webhooks');
         
-        // Poll server for webhook-verified completion (secure method)
         const pollInterval = setInterval(async () => {
           try {
             const response = await fetch(`/api/advertising/check-completion/${sessionId}`);
@@ -275,66 +306,88 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
           } catch (error) {
             console.error('Completion check error:', error);
           }
-        }, 2000); // Check every 2 seconds
+        }, 2000);
         
-        // Stop polling after 60 seconds to prevent infinite loops
         setTimeout(() => clearInterval(pollInterval), 60000);
       };
       script.onerror = () => {
         console.error('❌ Failed to load Cointraffic script');
-        // Fallback to clickable placeholder
-        const container = document.getElementById(`cointraffic-ad-${placement.id}`);
-        if (container) {
-          container.innerHTML = getCointrafficFallback(placement, impressionId);
+        const cointrafficContainer = document.getElementById(`cointraffic-ad-${escapeHtml(placement.id)}`);
+        if (cointrafficContainer) {
+          renderCointrafficFallback(cointrafficContainer, placement, impressionId);
         }
       };
       document.head.appendChild(script);
     }, 100);
-    
-    return `
-      <div id="cointraffic-ad-${placement.id}" style="width:${width}px;height:${height}px;position:relative;">
-        <div style="text-align:center;padding:20px;color:#666;border:1px solid #ddd;border-radius:8px;">
-          <div style="font-size:14px;margin-bottom:10px;">🔄 Loading Cointraffic Ad...</div>
-          <div style="font-size:12px;">Real network integration in progress</div>
-        </div>
-      </div>
-    `;
   };
   
-  const getCointrafficFallback = (placement: AdPlacement, impressionId: string): string => {
-    const [width, height] = placement.size.split('x');
-    return `
-      <div style="width:${width}px;height:${height}px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;">
-        <div>
-          <div style="font-size:16px;font-weight:bold;color:#28a745;margin-bottom:10px;">💎 Cointraffic Network</div>
-          <div style="font-size:12px;color:#6c757d;margin-bottom:15px;">Script loading failed - Fallback mode</div>
-          <button 
-            onclick="window.handleRealAdClick('${impressionId}', '${placement.id}', 'cointraffic')" 
-            style="background:#28a745;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:12px;">
-            Visit Advertiser
-          </button>
-        </div>
-      </div>
-    `;
-  };
-  
-  const getRealFallbackAd = (placement: AdPlacement, impressionId: string): string => {
+  const renderCointrafficFallback = (container: HTMLElement, placement: AdPlacement, impressionId: string) => {
     const [width, height] = placement.size.split('x');
     
-    return `
-      <div style="width:${width}px;height:${height}px;border:1px solid #dee2e6;border-radius:8px;background:#f8f9fa;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;">
-        <div>
-          <div style="font-size:16px;font-weight:bold;color:#6c757d;margin-bottom:10px;">📢 Crypto Ad Network</div>
-          <div style="font-size:12px;color:#495057;margin-bottom:15px;">Supporting the faucet ecosystem</div>
-          <div style="font-size:10px;color:#28a745;margin-bottom:10px;">Network: ${placement.network}</div>
-          <button 
-            onclick="window.handleRealAdClick('${impressionId}', '${placement.id}', '${placement.network}')" 
-            style="background:#6c757d;color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:11px;">
-            Support Faucet
-          </button>
-        </div>
-      </div>
-    `;
+    container.innerHTML = '';
+    
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = `width:${escapeHtml(width)}px;height:${escapeHtml(height)}px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;`;
+    
+    const content = document.createElement('div');
+    
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:16px;font-weight:bold;color:#28a745;margin-bottom:10px;';
+    title.textContent = '💎 Cointraffic Network';
+    
+    const subtitle = document.createElement('div');
+    subtitle.style.cssText = 'font-size:12px;color:#6c757d;margin-bottom:15px;';
+    subtitle.textContent = 'Script loading failed - Fallback mode';
+    
+    const button = document.createElement('button');
+    button.style.cssText = 'background:#28a745;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:12px;';
+    button.textContent = 'Visit Advertiser';
+    button.addEventListener('click', () => {
+      (window as any).handleRealAdClick?.(impressionId, placement.id, 'cointraffic');
+    });
+    
+    content.appendChild(title);
+    content.appendChild(subtitle);
+    content.appendChild(button);
+    wrapper.appendChild(content);
+    container.appendChild(wrapper);
+  };
+  
+  const renderFallbackAd = (container: HTMLElement, placement: AdPlacement, impressionId: string) => {
+    const [width, height] = placement.size.split('x');
+    
+    container.innerHTML = '';
+    
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = `width:${escapeHtml(width)}px;height:${escapeHtml(height)}px;border:1px solid #dee2e6;border-radius:8px;background:#f8f9fa;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;`;
+    
+    const content = document.createElement('div');
+    
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:16px;font-weight:bold;color:#6c757d;margin-bottom:10px;';
+    title.textContent = '📢 Crypto Ad Network';
+    
+    const subtitle = document.createElement('div');
+    subtitle.style.cssText = 'font-size:12px;color:#495057;margin-bottom:15px;';
+    subtitle.textContent = 'Supporting the faucet ecosystem';
+    
+    const networkInfo = document.createElement('div');
+    networkInfo.style.cssText = 'font-size:10px;color:#28a745;margin-bottom:10px;';
+    networkInfo.textContent = `Network: ${placement.network}`;
+    
+    const button = document.createElement('button');
+    button.style.cssText = 'background:#6c757d;color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:11px;';
+    button.textContent = 'Support Faucet';
+    button.addEventListener('click', () => {
+      (window as any).handleRealAdClick?.(impressionId, placement.id, placement.network);
+    });
+    
+    content.appendChild(title);
+    content.appendChild(subtitle);
+    content.appendChild(networkInfo);
+    content.appendChild(button);
+    wrapper.appendChild(content);
+    container.appendChild(wrapper);
   };
 
   const startAd = () => {
@@ -351,7 +404,6 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
     }
   };
   
-  // Global click handler for real ad interactions
   useEffect(() => {
     (window as any).handleRealAdClick = async (impressionId: string, placementId: string, network: string) => {
       try {
@@ -361,7 +413,7 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-            impressionId, // Now properly passing the required impressionId
+            impressionId,
             placementId, 
             network,
             userId,
@@ -397,7 +449,6 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
     }
     
     try {
-      // Track real ad completion in database
       const response = await fetch('/api/advertising/completion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -419,7 +470,6 @@ export function AdPlayer({ onAdComplete, placementId, userId, required = true }:
       }
     } catch (error) {
       console.error('❌ Failed to track ad completion:', error);
-      // Still allow completion to proceed
       onAdComplete(impressionId);
     }
   };
