@@ -34,8 +34,8 @@ function LandingPage() {
   );
 }
 
-// Wrapper for legacy desktop pages that need Header
-function DesktopPageWrapper({ component: Component }: { component: any }) {
+// Unified page wrapper with responsive header
+function PageWrapper({ component: Component }: { component: any }) {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
       <Header />
@@ -46,43 +46,50 @@ function DesktopPageWrapper({ component: Component }: { component: any }) {
   );
 }
 
-// Main app for authenticated users - Mobile-first interface
+// Main app for authenticated users - Unified routing for all devices
 function AuthenticatedApp() {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
       <Switch>
-        {/* Mobile-first routing - primary interface for all users */}
-        <Route path="/" component={MobileLeadManager} />
-        <Route path="/mobile" component={MobileLeadManager} />
-        
-        {/* Desktop/legacy routes for backwards compatibility */}
-        <Route path="/dashboard">
-          <DesktopPageWrapper component={Dashboard} />
-        </Route>
-        <Route path="/rewards">
-          <DesktopPageWrapper component={RewardsPage} />
+        {/* Primary routes - accessible on all devices */}
+        <Route path="/">
+          <PageWrapper component={FaucetPage} />
         </Route>
         <Route path="/faucet">
-          <DesktopPageWrapper component={FaucetPage} />
+          <PageWrapper component={FaucetPage} />
+        </Route>
+        <Route path="/dashboard">
+          <PageWrapper component={Dashboard} />
+        </Route>
+        <Route path="/rewards">
+          <PageWrapper component={RewardsPage} />
         </Route>
         <Route path="/treasury">
-          <DesktopPageWrapper component={TreasuryDashboard} />
+          <PageWrapper component={TreasuryDashboard} />
         </Route>
-        <Route path="/admin">
-          <AdminDashboardFull />
-        </Route>
-        <Route path="/admin-moonshot">
-          <DesktopPageWrapper component={AdminMoonshotPage} />
-        </Route>
+        
+        {/* Job management interface */}
+        <Route path="/jobs" component={MobileLeadManager} />
+        
+        {/* Shop routes */}
         <Route path="/shop">
-          <DesktopPageWrapper component={ShopCatalogPage} />
+          <PageWrapper component={ShopCatalogPage} />
         </Route>
         <Route path="/shop/create">
-          <DesktopPageWrapper component={CreateShopItemPage} />
+          <PageWrapper component={CreateShopItemPage} />
         </Route>
         <Route path="/shop/:id">
           <ShopItemDetailPage />
         </Route>
+        
+        {/* Admin routes */}
+        <Route path="/admin">
+          <AdminDashboardFull />
+        </Route>
+        <Route path="/admin-moonshot">
+          <PageWrapper component={AdminMoonshotPage} />
+        </Route>
+        
         <Route component={NotFound} />
       </Switch>
     </div>
