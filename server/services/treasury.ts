@@ -89,9 +89,22 @@ export class TreasuryService {
    */
   async getTreasuryStats(): Promise<TreasuryStats> {
     const treasury = await storage.getMainTreasuryAccount();
+    console.log("[TREASURY] Raw DB values:", {
+      tokenReserve_raw: treasury.tokenReserve,
+      tokenReserve_type: typeof treasury.tokenReserve,
+      totalFunding_raw: treasury.totalFunding,
+      totalDistributed_raw: treasury.totalDistributed
+    });
+    
     const totalFunding = parseFloat(treasury.totalFunding);
     const totalDistributed = parseFloat(treasury.totalDistributed);
     const tokenReserve = parseFloat(treasury.tokenReserve);
+    
+    console.log("[TREASURY] Parsed values:", {
+      tokenReserve,
+      totalFunding,
+      totalDistributed
+    });
     
     // Calculate actual available funding (not the historical book value stored in DB)
     const actualAvailableFunding = totalFunding - totalDistributed;
@@ -99,6 +112,12 @@ export class TreasuryService {
     // Get current market price to calculate real-time value
     const priceData = await this.getCurrentTokenPrice();
     const currentMarketValueUsd = tokenReserve * priceData.price;
+    
+    console.log("[TREASURY] Final stats:", {
+      tokenReserve,
+      currentMarketValueUsd,
+      currentTokenPrice: priceData.price
+    });
 
     const liabilityRatio = totalFunding > 0 ? (totalDistributed / totalFunding) * 100 : 0;
     const isHealthy = actualAvailableFunding >= TreasuryService.MINIMUM_BALANCE;

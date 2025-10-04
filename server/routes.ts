@@ -1435,6 +1435,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         treasuryService.getEstimatedFundingDays()
       ]);
 
+      console.log("[TREASURY API] Returning stats:", JSON.stringify({
+        tokenReserve: stats.tokenReserve,
+        currentMarketValueUsd: stats.currentMarketValueUsd,
+        currentTokenPrice: stats.currentTokenPrice
+      }));
+
       // Get weekly activity data
       const weeklyActivity = {
         recentDeposits: 1, // We have 1 deposit of $1000
@@ -1442,13 +1448,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         activeUsersWeek: 1
       };
 
-      res.json({
+      const response = {
         stats,
         funding,
         health: healthCheck,
         estimatedFundingDays: fundingDays,
         weeklyActivity
-      });
+      };
+      
+      res.json(response);
     } catch (error) {
       console.error("Error getting treasury summary:", error);
       res.status(500).json({ error: "Failed to get treasury summary" });
