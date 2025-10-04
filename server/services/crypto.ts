@@ -7,7 +7,7 @@ export const JCMOVES_CONFIG = {
   PLATFORM: 'moonshot',
   // API endpoints
   DEXSCREENER_API: 'https://api.dexscreener.com/latest/dex/tokens',
-  BACKUP_API: 'https://api.moonshot.cc/token/v1/1399811149', // Solana chain ID
+  BACKUP_API: 'https://api.moonshot.cc/token/v1/solana', // Moonshot API v1
   // Price caching
   PRICE_CACHE_TTL: 30 * 1000, // 30 seconds
   MAX_PRICE_AGE: 5 * 60 * 1000, // 5 minutes max age
