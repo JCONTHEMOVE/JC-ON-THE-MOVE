@@ -1363,6 +1363,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         treasuryService.getEstimatedFundingDays()
       ]);
 
+      console.log("[TREASURY STATUS API] Returning stats:", JSON.stringify({
+        tokenReserve: stats.tokenReserve,
+        currentMarketValueUsd: stats.currentMarketValueUsd,
+        currentTokenPrice: stats.currentTokenPrice,
+        availableFunding: stats.availableFunding
+      }));
+
       res.json({
         stats,
         funding,
