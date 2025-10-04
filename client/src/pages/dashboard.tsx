@@ -443,7 +443,7 @@ function BusinessOwnerDashboard() {
             Treasury Overview
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <Card data-testid="treasury-available-funding">
+            <Card data-testid="treasury-current-market-value">
               <CardContent className="p-6">
                 <div className="flex items-center">
                   <div className="bg-green-500 text-white p-3 rounded-lg">
@@ -451,9 +451,12 @@ function BusinessOwnerDashboard() {
                   </div>
                   <div className="ml-4">
                     <p className="text-2xl font-bold text-foreground">
-                      ${parseFloat(treasuryStats.availableFunding || '0').toFixed(2)}
+                      ${parseFloat(treasuryStats.currentMarketValueUsd || '0').toFixed(2)}
                     </p>
-                    <p className="text-muted-foreground">Available Funding</p>
+                    <p className="text-muted-foreground">Current Market Value</p>
+                    <p className="text-xs text-muted-foreground">
+                      @ ${parseFloat(treasuryStats.currentTokenPrice || '0').toFixed(8)}
+                    </p>
                   </div>
                 </div>
               </CardContent>

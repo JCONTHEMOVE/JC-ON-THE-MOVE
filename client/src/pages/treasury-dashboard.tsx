@@ -22,6 +22,9 @@ interface TreasuryStatus {
     totalDistributed: number;
     availableFunding: number;
     tokenReserve: number;
+    currentMarketValueUsd: number;
+    currentTokenPrice: number;
+    priceSource: string;
     liabilityRatio: number;
     isHealthy: boolean;
   };
@@ -340,15 +343,15 @@ export default function TreasuryDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Available Funding</CardTitle>
+                  <CardTitle className="text-sm font-medium">Current Market Value</CardTitle>
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold text-green-600">
-                    ${treasurySummary.stats.availableFunding.toFixed(2)}
+                    ${treasurySummary.stats.currentMarketValueUsd.toFixed(2)}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    ${treasurySummary.funding.minimumBalance} minimum balance
+                    JCMOVES @ ${treasurySummary.stats.currentTokenPrice.toFixed(8)}
                   </p>
                 </CardContent>
               </Card>

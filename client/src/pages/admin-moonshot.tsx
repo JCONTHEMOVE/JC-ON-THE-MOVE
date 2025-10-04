@@ -210,16 +210,19 @@ export default function AdminMoonshotPage() {
             ) : treasuryStatus ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div data-testid="text-available-funding">
-                    <p className="text-sm text-muted-foreground">Available Funding</p>
+                  <div data-testid="text-current-market-value">
+                    <p className="text-sm text-muted-foreground">Current Market Value</p>
                     <p className="text-2xl font-bold text-green-600">
-                      ${parseFloat(treasuryStatus.stats?.availableFunding || '0').toFixed(2)}
+                      ${parseFloat(treasuryStatus.stats?.currentMarketValueUsd || '0').toFixed(2)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      @ ${parseFloat(treasuryStatus.stats?.currentTokenPrice || '0').toFixed(8)}
                     </p>
                   </div>
                   <div data-testid="text-token-reserve">
                     <p className="text-sm text-muted-foreground">Token Reserve</p>
                     <p className="text-2xl font-bold">
-                      {parseFloat(treasuryStatus.stats?.tokenReserve || '0').toFixed(2)}
+                      {parseFloat(treasuryStatus.stats?.tokenReserve || '0').toFixed(0)}
                     </p>
                   </div>
                 </div>
