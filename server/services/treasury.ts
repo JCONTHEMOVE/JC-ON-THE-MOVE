@@ -89,9 +89,23 @@ export class TreasuryService {
    */
   async getTreasuryStats(): Promise<TreasuryStats> {
     const treasury = await storage.getMainTreasuryAccount();
+    console.log("[TREASURY DEBUG] Raw treasury data from DB:", {
+      tokenReserve: treasury.tokenReserve,
+      tokenReserveType: typeof treasury.tokenReserve,
+      totalFunding: treasury.totalFunding,
+      totalDistributed: treasury.totalDistributed
+    });
+    
     const totalFunding = parseFloat(treasury.totalFunding);
     const totalDistributed = parseFloat(treasury.totalDistributed);
     const tokenReserve = parseFloat(treasury.tokenReserve);
+    
+    console.log("[TREASURY DEBUG] Parsed values:", {
+      tokenReserve,
+      tokenReserveType: typeof tokenReserve,
+      totalFunding,
+      totalDistributed
+    });
     
     // Calculate actual available funding (not the historical book value stored in DB)
     const actualAvailableFunding = totalFunding - totalDistributed;
