@@ -10,7 +10,7 @@ export const TREASURY_CONFIG = {
   FALLBACK_TOKEN_PRICE: 0.000005034116, // Real Moonshot price as emergency fallback
   
   // Safety thresholds (in USD)
-  MINIMUM_BALANCE: 50.0, // $50 minimum balance (increased for crypto volatility)
+  MINIMUM_BALANCE: 1.0, // $1 minimum balance
   WARNING_THRESHOLD: 100.0, // Warn when below $100 (increased for crypto volatility)
   CRITICAL_THRESHOLD: 25.0, // Critical alert when below $25
   
