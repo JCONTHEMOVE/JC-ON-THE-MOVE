@@ -16,12 +16,18 @@ import { ChevronLeft, ChevronRight, X, Upload, Loader2 } from "lucide-react";
 import { z } from "zod";
 
 // Form schema for client-side validation
-// Note: Maintains type compatibility with backend InsertShopItem (photos as string[] URLs)
+// Updated to accept both URLs and base64 data URLs for photo uploads
 const formSchema = z.object({
   title: z.string().min(1, "Title is required").max(200),
   description: z.string().min(1, "Description is required"),
   price: z.string().min(1, "Price is required").regex(/^\d+(\.\d{1,2})?$/, "Invalid price format (e.g., 10.99)"),
-  photos: z.array(z.string().url()).min(1, "At least one photo is required").max(10, "Maximum 10 photos allowed"),
+  photos: z.array(
+    z.string()
+      .refine(
+        (val) => val.startsWith("http://") || val.startsWith("https://") || val.startsWith("data:image/"),
+        { message: "Must be a valid URL or image file" }
+      )
+  ).min(1, "At least one photo is required").max(10, "Maximum 10 photos allowed"),
   status: z.enum(["draft", "active", "sold", "archived"]),
   category: z.string().optional(),
 });
@@ -77,6 +83,64 @@ export function CreateShopItemPage() {
       setPhotoInputValue("");
       setCurrentPhotoIndex(newPhotos.length - 1);
     }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach(file => {
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: `${file.name} exceeds 5MB limit`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Invalid file type",
+          description: `${file.name} is not an image`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Convert to base64
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64String = event.target?.result as string;
+        if (base64String && !photoUrls.includes(base64String)) {
+          const newPhotos = [...photoUrls, base64String];
+          if (newPhotos.length <= 10) {
+            setPhotoUrls(newPhotos);
+            form.setValue("photos", newPhotos);
+            setCurrentPhotoIndex(newPhotos.length - 1);
+          } else {
+            toast({
+              title: "Photo limit reached",
+              description: "Maximum 10 photos allowed",
+              variant: "destructive",
+            });
+          }
+        }
+      };
+      reader.onerror = () => {
+        toast({
+          title: "Upload failed",
+          description: `Failed to read ${file.name}`,
+          variant: "destructive",
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Reset input
+    e.target.value = '';
   };
 
   const handleRemovePhoto = (index: number) => {
@@ -167,28 +231,53 @@ export function CreateShopItemPage() {
                   </div>
                 )}
 
-                {/* Photo URL Input */}
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Enter photo URL (e.g., https://...)"
-                    value={photoInputValue}
-                    onChange={(e) => setPhotoInputValue(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddPhoto())}
-                    data-testid="input-photo-url"
-                  />
-                  <Button
-                    type="button"
-                    onClick={handleAddPhoto}
-                    disabled={!photoInputValue}
-                    data-testid="button-add-photo"
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Add
-                  </Button>
+                {/* Photo Upload Options */}
+                <div className="space-y-3">
+                  {/* File Upload Button */}
+                  <div className="flex gap-2">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      id="photo-file-input"
+                      data-testid="input-photo-file"
+                    />
+                    <Button
+                      type="button"
+                      onClick={() => document.getElementById('photo-file-input')?.click()}
+                      variant="outline"
+                      className="flex-1"
+                      data-testid="button-upload-photo"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload from Device
+                    </Button>
+                  </div>
+
+                  {/* URL Input */}
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Or enter photo URL (e.g., https://...)"
+                      value={photoInputValue}
+                      onChange={(e) => setPhotoInputValue(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddPhoto())}
+                      data-testid="input-photo-url"
+                    />
+                    <Button
+                      type="button"
+                      onClick={handleAddPhoto}
+                      disabled={!photoInputValue}
+                      data-testid="button-add-photo"
+                    >
+                      Add URL
+                    </Button>
+                  </div>
                 </div>
                 
                 <FormDescription>
-                  Add up to 10 photos. Use direct image URLs. Photos will appear in a slideshow.
+                  Add up to 10 photos (max 5MB each). Upload from your device or paste image URLs. Photos will appear in a slideshow.
                 </FormDescription>
                 {form.formState.errors.photos && (
                   <p className="text-sm font-medium text-destructive">{form.formState.errors.photos.message}</p>
