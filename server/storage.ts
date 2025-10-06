@@ -20,6 +20,9 @@ export interface IStorage {
   getPendingEmployees(): Promise<User[]>;
   getApprovedEmployees(): Promise<User[]>;
   
+  // User compliance (age and TOS)
+  updateUserCompliance(userId: string, dateOfBirth: string, tosAccepted: boolean): Promise<User | undefined>;
+  
   // Referral operations
   generateReferralCode(userId: string): Promise<string>;
   getReferralCode(userId: string): Promise<string | null>;
@@ -258,6 +261,21 @@ export class DatabaseStorage implements IStorage {
     const [user] = await db
       .update(users)
       .set({ isApproved, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return user || undefined;
+  }
+
+  // User compliance (age and TOS)
+  async updateUserCompliance(userId: string, dateOfBirth: string, tosAccepted: boolean): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({ 
+        dateOfBirth, 
+        tosAccepted, 
+        tosAcceptedAt: tosAccepted ? new Date() : null,
+        updatedAt: new Date() 
+      })
       .where(eq(users.id, userId))
       .returning();
     return user || undefined;

@@ -392,6 +392,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update user compliance (age verification and TOS)
+  app.post('/api/auth/user/compliance', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { dateOfBirth, tosAccepted } = req.body;
+
+      if (!dateOfBirth || typeof tosAccepted !== 'boolean') {
+        return res.status(400).json({ message: "Date of birth and TOS acceptance are required" });
+      }
+
+      // Validate age (18+)
+      const birthDate = new Date(dateOfBirth);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+
+      if (age < 18) {
+        return res.status(400).json({ message: "You must be 18 years or older to use this service" });
+      }
+
+      if (!tosAccepted) {
+        return res.status(400).json({ message: "You must accept the Terms of Service to continue" });
+      }
+
+      const updatedUser = await storage.updateUserCompliance(userId, dateOfBirth, tosAccepted);
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating user compliance:", error);
+      res.status(500).json({ message: "Failed to update compliance information" });
+    }
+  });
+
   // Admin: Employee approval management
   app.get('/api/admin/employees/pending', isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
