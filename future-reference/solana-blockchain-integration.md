@@ -57,4 +57,45 @@ Set up the Wallet Adapter in your frontend application to provide users with opt
 - Alchemy Solana API: https://www.alchemy.com/solana
 
 ---
+
+## Part 2: System-Generated Wallet Addresses on Solana
+
+Yes, you can use system-generated wallet addresses on the Solana blockchain by using the Solana command-line tools to generate a new keypair, which produces a public address and private key. Users can access this system-generated address through programs like MetaMask or dedicated Solana wallets such as Phantom, allowing them to interact with the Solana network, hold assets, and sign transactions.
+
+### How to Create a System-Generated Solana Wallet
+
+#### 1. Install the Solana Tool Suite
+Download and install the Solana command-line interface (CLI) tools.
+
+#### 2. Generate a Keypair
+Use the command `solana-keygen new --outfile ~/my-keypair.json` to create a new keypair and save it to a file. This command will output a public key (the wallet address) and a private key.
+
+#### 3. Access the Wallet
+
+**File System Wallet:** Use the my-keypair.json file to sign transactions and access your account balance.
+
+**Dedicated Solana Wallets:** Import the keypair or seed phrase into a browser-based wallet like Phantom to manage your account within the wallet interface.
+
+**MetaMask:** For users familiar with MetaMask, it can be configured to interact with the Solana network by creating a new Solana account using an existing seed phrase.
+
+### Key Concepts
+
+**Keypair:** A private key and its corresponding public key. The public key is the wallet address you share, while the private key is used to sign transactions and authorize access to your funds.
+
+**Seed Phrase:** A series of words that can be used to derive your private key and wallet address.
+
+**Program Derived Addresses (PDAs):** Another type of address that is not directly controlled by a user's private key but is derived from a seed and a specific program. While these are system-generated, they have different purposes than user-controlled wallets.
+
+### Treasury Transfer Data (For Future Blockchain Migration)
+
+**Current Simulated Custodial Wallet System:**
+- **JCMOVES Wallet Address:** `34e5eAwb6Eh6zgyARSrk7RX1bkK2rVX5bazCHYXKtRM7`
+- **Total JCMOVES Received:** 3,289,590.39 tokens
+- **Total JCMOVES Withdrawn to Treasury:** 3,190,131 tokens
+- **Current Personal Balance:** 99,459.39 JCMOVES
+- **Treasury Token Reserve:** 5,698,818 JCMOVES
+
+**Important:** These transfers need to be replicated on the real Solana blockchain when transitioning from the simulated custodial system to actual blockchain wallets. The treasury funding transactions must be properly recorded on-chain to maintain accurate accounting.
+
+---
 *Last Updated: October 6, 2025*
