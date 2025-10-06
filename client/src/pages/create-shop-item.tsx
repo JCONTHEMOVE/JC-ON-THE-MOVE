@@ -90,11 +90,11 @@ export function CreateShopItemPage() {
     if (!files || files.length === 0) return;
 
     Array.from(files).forEach(file => {
-      // Check file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
+      // Check file size (max 25MB to support 40MP photos)
+      if (file.size > 25 * 1024 * 1024) {
         toast({
           title: "File too large",
-          description: `${file.name} exceeds 5MB limit`,
+          description: `${file.name} exceeds 25MB limit`,
           variant: "destructive",
         });
         return;
@@ -277,7 +277,7 @@ export function CreateShopItemPage() {
                 </div>
                 
                 <FormDescription>
-                  Add up to 10 photos (max 5MB each). Upload from your device or paste image URLs. Photos will appear in a slideshow.
+                  Add up to 10 photos (max 25MB each, supports 40MP images). Upload from your device or paste image URLs. Photos will appear in a slideshow.
                 </FormDescription>
                 {form.formState.errors.photos && (
                   <p className="text-sm font-medium text-destructive">{form.formState.errors.photos.message}</p>
