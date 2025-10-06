@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -89,6 +90,17 @@ export default function AdminDashboardFull() {
   const { data: stats, isLoading: statsLoading } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
     enabled: !!hasAdminAccess,
+  });
+
+  // Employee approval queries
+  const { data: pendingEmployees, isLoading: pendingLoading } = useQuery<User[]>({
+    queryKey: ["/api/admin/employees/pending"],
+    enabled: !!hasAdminAccess && activeSection === 'employees',
+  });
+
+  const { data: approvedEmployees, isLoading: approvedLoading } = useQuery<User[]>({
+    queryKey: ["/api/admin/employees/approved"],
+    enabled: !!hasAdminAccess && activeSection === 'employees',
   });
 
   if (authLoading) {
@@ -321,6 +333,24 @@ export default function AdminDashboardFull() {
     </div>
   );
 
+  const handleApprove = async (employeeId: string, approved: boolean) => {
+    try {
+      const response = await fetch(`/api/admin/employees/${employeeId}/approve`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved }),
+      });
+      
+      if (response.ok) {
+        // Refetch employee lists
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/employees/pending"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/employees/approved"] });
+      }
+    } catch (error) {
+      console.error('Error updating employee approval:', error);
+    }
+  };
+
   const renderEmployees = () => (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -328,26 +358,81 @@ export default function AdminDashboardFull() {
         <Button data-testid="button-add-employee">Add Employee</Button>
       </div>
       
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
+      {/* Pending Approvals Section */}
+      {pendingEmployees && pendingEmployees.length > 0 && (
+        <Card className="border-yellow-200 dark:border-yellow-900">
           <CardHeader>
-            <CardTitle>Employee Performance</CardTitle>
-            <CardDescription>Track employee job completion rates</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-yellow-600" />
+              Pending Employee Approvals
+            </CardTitle>
+            <CardDescription>Review and approve new employee accounts</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {users?.filter(user => user.role === 'employee').map((employee) => (
-                <div key={employee.id} className="flex justify-between items-center">
+            <div className="space-y-3">
+              {pendingEmployees.map((employee) => (
+                <div key={employee.id} className="flex justify-between items-center p-3 border rounded-lg" data-testid={`pending-employee-${employee.id}`}>
                   <div>
-                    <p className="font-medium">{employee.firstName} {employee.lastName}</p>
-                    <p className="text-sm text-muted-foreground">Active Employee</p>
+                    <p className="font-medium" data-testid={`text-employee-name-${employee.id}`}>
+                      {employee.firstName} {employee.lastName}
+                    </p>
+                    <p className="text-sm text-muted-foreground" data-testid={`text-employee-email-${employee.id}`}>
+                      {employee.email}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Registered: {new Date(employee.createdAt).toLocaleDateString()}
+                    </p>
                   </div>
-                  <div className="text-right">
-                    <p className="font-medium">5 jobs</p>
-                    <p className="text-sm text-muted-foreground">This month</p>
+                  <div className="flex gap-2">
+                    <Button 
+                      size="sm" 
+                      variant="default"
+                      onClick={() => handleApprove(employee.id, true)}
+                      data-testid={`button-approve-${employee.id}`}
+                    >
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Approve
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => handleApprove(employee.id, false)}
+                      data-testid={`button-reject-${employee.id}`}
+                    >
+                      <X className="h-4 w-4 mr-1" />
+                      Reject
+                    </Button>
                   </div>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Approved Employees</CardTitle>
+            <CardDescription>Active employees with full access</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {approvedEmployees?.map((employee) => (
+                <div key={employee.id} className="flex justify-between items-center" data-testid={`approved-employee-${employee.id}`}>
+                  <div>
+                    <p className="font-medium">{employee.firstName} {employee.lastName}</p>
+                    <p className="text-sm text-muted-foreground">{employee.email}</p>
+                  </div>
+                  <Badge variant="default" className="bg-green-500">
+                    <CheckCircle className="h-3 w-3 mr-1" />
+                    Approved
+                  </Badge>
+                </div>
+              ))}
+              {(!approvedEmployees || approvedEmployees.length === 0) && (
+                <p className="text-sm text-muted-foreground">No approved employees</p>
+              )}
             </div>
           </CardContent>
         </Card>
