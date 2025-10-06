@@ -41,9 +41,17 @@ export default function PendingApprovalPage() {
             </ul>
           </div>
 
-          <p className="text-xs text-center text-muted-foreground pt-4" data-testid="text-contact-info">
-            If you have questions, please contact your administrator
-          </p>
+          <div className="border-t pt-4 mt-4">
+            <p className="text-sm font-medium text-center mb-2" data-testid="text-contact-heading">
+              Need Help?
+            </p>
+            <p className="text-xs text-center text-muted-foreground" data-testid="text-contact-info">
+              Contact: <strong>upmichiganstatemovers@gmail.com</strong>
+            </p>
+            <p className="text-xs text-center text-muted-foreground" data-testid="text-contact-phone">
+              Phone: <strong>(906) 285-9312</strong>
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>
