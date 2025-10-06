@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { WalletProviderWrapper } from "@/components/WalletProviderWrapper";
+import { RouteGuard } from "@/components/RouteGuard";
 import Header from "@/components/header";
 import Footer from "@/components/footer";
 import HomePage from "@/pages/home";
@@ -62,24 +63,34 @@ function AuthenticatedApp() {
           <PageWrapper component={HomePage} />
         </Route>
         <Route path="/dashboard">
-          <PageWrapper component={Dashboard} />
+          <RouteGuard allowedRoles={['admin', 'employee']}>
+            <PageWrapper component={Dashboard} />
+          </RouteGuard>
         </Route>
         <Route path="/rewards">
           <PageWrapper component={RewardsPage} />
         </Route>
         <Route path="/treasury">
-          <PageWrapper component={TreasuryDashboard} />
+          <RouteGuard allowedRoles={['admin']}>
+            <PageWrapper component={TreasuryDashboard} />
+          </RouteGuard>
         </Route>
         
         {/* Job management interface */}
-        <Route path="/jobs" component={MobileLeadManager} />
+        <Route path="/jobs">
+          <RouteGuard allowedRoles={['admin', 'employee']}>
+            <MobileLeadManager />
+          </RouteGuard>
+        </Route>
         
         {/* Shop routes */}
         <Route path="/shop">
           <PageWrapper component={ShopCatalogPage} />
         </Route>
         <Route path="/shop/create">
-          <PageWrapper component={CreateShopItemPage} />
+          <RouteGuard allowedRoles={['admin', 'employee']}>
+            <PageWrapper component={CreateShopItemPage} />
+          </RouteGuard>
         </Route>
         <Route path="/shop/:id">
           <ShopItemDetailPage />
@@ -87,10 +98,14 @@ function AuthenticatedApp() {
         
         {/* Admin routes */}
         <Route path="/admin">
-          <AdminDashboardFull />
+          <RouteGuard allowedRoles={['admin']}>
+            <AdminDashboardFull />
+          </RouteGuard>
         </Route>
         <Route path="/admin-moonshot">
-          <PageWrapper component={AdminMoonshotPage} />
+          <RouteGuard allowedRoles={['admin']}>
+            <PageWrapper component={AdminMoonshotPage} />
+          </RouteGuard>
         </Route>
         
         <Route component={NotFound} />
