@@ -69,6 +69,9 @@ export const users = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   role: text("role").notNull().default("employee"), // 'admin', 'employee', 'customer'
   isApproved: boolean("is_approved").notNull().default(false), // Employee must be approved by admin before gaining full access
+  dateOfBirth: date("date_of_birth"), // Required for age verification (18+)
+  tosAccepted: boolean("tos_accepted").notNull().default(false), // Terms of Service acceptance
+  tosAcceptedAt: timestamp("tos_accepted_at"), // When TOS was accepted
   referralCode: varchar("referral_code").unique(), // Unique code for users to share
   referredByUserId: varchar("referred_by_user_id"), // Who referred this user - foreign key defined separately
   referralCount: integer("referral_count").default(0), // Number of successful referrals made
