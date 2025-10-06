@@ -307,6 +307,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
+  const requireApprovedEmployee = async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Admins always have access
+      if (user && user.role === 'admin') {
+        req.currentUser = user;
+        return next();
+      }
+      
+      // Employees must be approved
+      if (!user || user.role !== 'employee' || !user.isApproved) {
+        return res.status(403).json({ message: "Approved employee access required" });
+      }
+      
+      req.currentUser = user;
+      next();
+    } catch (error) {
+      res.status(500).json({ message: "Access control error" });
+    }
+  };
+
   const requireAdmin = async (req: any, res: any, next: any) => {
     try {
       const userId = req.user.claims.sub;
@@ -366,6 +389,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("❌ Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Admin: Employee approval management
+  app.get('/api/admin/employees/pending', isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const pendingEmployees = await storage.getPendingEmployees();
+      res.json(pendingEmployees);
+    } catch (error) {
+      console.error("Error fetching pending employees:", error);
+      res.status(500).json({ message: "Failed to fetch pending employees" });
+    }
+  });
+
+  app.get('/api/admin/employees/approved', isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const approvedEmployees = await storage.getApprovedEmployees();
+      res.json(approvedEmployees);
+    } catch (error) {
+      console.error("Error fetching approved employees:", error);
+      res.status(500).json({ message: "Failed to fetch approved employees" });
+    }
+  });
+
+  app.patch('/api/admin/employees/:id/approve', isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { approved } = req.body;
+      
+      if (typeof approved !== 'boolean') {
+        return res.status(400).json({ message: "Invalid approval status" });
+      }
+
+      const updatedUser = await storage.updateUserApproval(id, approved);
+      if (!updatedUser) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating employee approval:", error);
+      res.status(500).json({ message: "Failed to update employee approval" });
     }
   });
 
