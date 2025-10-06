@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { WalletProviderWrapper } from "@/components/WalletProviderWrapper";
 import { RouteGuard } from "@/components/RouteGuard";
+import { ComplianceCheck } from "@/components/compliance-check";
 import Header from "@/components/header";
 import Footer from "@/components/footer";
 import HomePage from "@/pages/home";
@@ -58,71 +59,73 @@ function AuthenticatedApp() {
   const HomePage = user?.role === 'customer' ? CustomerPortal : EmployeeHomePage;
   
   return (
-    <div className="min-h-screen bg-background text-foreground font-sans">
-      <Switch>
-        {/* Primary routes - accessible on all devices */}
-        <Route path="/">
-          <PageWrapper component={HomePage} />
-        </Route>
-        <Route path="/dashboard">
-          <RouteGuard allowedRoles={['admin', 'employee']}>
-            <PageWrapper component={Dashboard} />
-          </RouteGuard>
-        </Route>
-        <Route path="/rewards">
-          <PageWrapper component={RewardsPage} />
-        </Route>
-        <Route path="/pending-approval">
-          <PendingApprovalPage />
-        </Route>
-        <Route path="/treasury">
-          <RouteGuard allowedRoles={['admin']}>
-            <PageWrapper component={TreasuryDashboard} />
-          </RouteGuard>
-        </Route>
-        
-        {/* Job management interface */}
-        <Route path="/jobs">
-          <RouteGuard allowedRoles={['admin', 'employee']}>
-            <MobileLeadManager />
-          </RouteGuard>
-        </Route>
-        
-        {/* Shop routes */}
-        <Route path="/shop">
-          <PageWrapper component={ShopCatalogPage} />
-        </Route>
-        <Route path="/shop/create">
-          <RouteGuard allowedRoles={['admin', 'employee']}>
-            <PageWrapper component={CreateShopItemPage} />
-          </RouteGuard>
-        </Route>
-        <Route path="/shop/:id">
-          <ShopItemDetailPage />
-        </Route>
-        
-        {/* Admin routes */}
-        <Route path="/admin">
-          <RouteGuard allowedRoles={['admin']}>
-            <AdminDashboardFull />
-          </RouteGuard>
-        </Route>
-        <Route path="/admin-moonshot">
-          <RouteGuard allowedRoles={['admin']}>
-            <PageWrapper component={AdminMoonshotPage} />
-          </RouteGuard>
-        </Route>
-        
-        {/* Job detail route */}
-        <Route path="/job/:id">
-          <RouteGuard allowedRoles={['admin']}>
-            <JobDetailPage />
-          </RouteGuard>
-        </Route>
-        
-        <Route component={NotFound} />
-      </Switch>
-    </div>
+    <ComplianceCheck>
+      <div className="min-h-screen bg-background text-foreground font-sans">
+        <Switch>
+          {/* Primary routes - accessible on all devices */}
+          <Route path="/">
+            <PageWrapper component={HomePage} />
+          </Route>
+          <Route path="/dashboard">
+            <RouteGuard allowedRoles={['admin', 'employee']}>
+              <PageWrapper component={Dashboard} />
+            </RouteGuard>
+          </Route>
+          <Route path="/rewards">
+            <PageWrapper component={RewardsPage} />
+          </Route>
+          <Route path="/pending-approval">
+            <PendingApprovalPage />
+          </Route>
+          <Route path="/treasury">
+            <RouteGuard allowedRoles={['admin']}>
+              <PageWrapper component={TreasuryDashboard} />
+            </RouteGuard>
+          </Route>
+          
+          {/* Job management interface */}
+          <Route path="/jobs">
+            <RouteGuard allowedRoles={['admin', 'employee']}>
+              <MobileLeadManager />
+            </RouteGuard>
+          </Route>
+          
+          {/* Shop routes */}
+          <Route path="/shop">
+            <PageWrapper component={ShopCatalogPage} />
+          </Route>
+          <Route path="/shop/create">
+            <RouteGuard allowedRoles={['admin', 'employee']}>
+              <PageWrapper component={CreateShopItemPage} />
+            </RouteGuard>
+          </Route>
+          <Route path="/shop/:id">
+            <ShopItemDetailPage />
+          </Route>
+          
+          {/* Admin routes */}
+          <Route path="/admin">
+            <RouteGuard allowedRoles={['admin']}>
+              <AdminDashboardFull />
+            </RouteGuard>
+          </Route>
+          <Route path="/admin-moonshot">
+            <RouteGuard allowedRoles={['admin']}>
+              <PageWrapper component={AdminMoonshotPage} />
+            </RouteGuard>
+          </Route>
+          
+          {/* Job detail route */}
+          <Route path="/job/:id">
+            <RouteGuard allowedRoles={['admin']}>
+              <JobDetailPage />
+            </RouteGuard>
+          </Route>
+          
+          <Route component={NotFound} />
+        </Switch>
+      </div>
+    </ComplianceCheck>
   );
 }
 
