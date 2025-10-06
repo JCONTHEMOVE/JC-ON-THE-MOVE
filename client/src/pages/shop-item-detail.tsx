@@ -97,7 +97,7 @@ export function ShopItemDetailPage() {
         {media.length > 0 && (
           <Card className="overflow-hidden">
             <CardContent className="p-0">
-              <div className="relative aspect-square bg-muted">
+              <div className="relative bg-muted min-h-[300px] max-h-[500px] flex items-center justify-center">
                 {isVideo ? (
                   <video
                     src={currentMedia}
@@ -112,7 +112,7 @@ export function ShopItemDetailPage() {
                       <img
                         src={currentMedia}
                         alt={item.title}
-                        className="w-full h-full object-cover cursor-zoom-in"
+                        className="w-full max-h-[500px] object-contain cursor-zoom-in"
                         data-testid={`img-detail-${item.id}`}
                       />
                     </DialogTrigger>
