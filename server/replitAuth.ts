@@ -169,8 +169,22 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/login", (req, res, next) => {
+    // Define canonical domain for consistent session cookies
+    const canonicalDomain = process.env.NODE_ENV === 'development' 
+      ? 'localhost:5000' 
+      : 'jconthemove.replit.app';
+    
     // Handle localhost with port for development
     const hostname = req.hostname === 'localhost' ? 'localhost:5000' : req.hostname;
+    
+    // Redirect to canonical domain if accessing from a different domain
+    if (hostname !== canonicalDomain) {
+      const protocol = hostname.includes('localhost') ? 'http' : 'https';
+      const roleParam = req.query.role ? `?role=${req.query.role}` : '';
+      const canonicalUrl = `${protocol === 'http' ? 'http' : 'https'}://${canonicalDomain}/api/login${roleParam}`;
+      console.log(`Redirecting from ${hostname} to canonical domain ${canonicalDomain} for consistent session`);
+      return res.redirect(canonicalUrl);
+    }
     
     // Store the requested role in session before authentication
     const requestedRole = req.query.role as string;
