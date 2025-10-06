@@ -54,13 +54,6 @@ export default function Header() {
                       Rewards
                     </Link>
                     <Link
-                      href="/faucet"
-                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                      data-testid="button-faucet"
-                    >
-                      Faucet
-                    </Link>
-                    <Link
                       href="/treasury"
                       className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
                       data-testid="button-treasury"
@@ -201,14 +194,6 @@ export default function Header() {
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Rewards
-                  </Link>
-                  <Link
-                    href="/faucet"
-                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                    data-testid="button-mobile-faucet"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Faucet
                   </Link>
                   <Link
                     href="/shop"
