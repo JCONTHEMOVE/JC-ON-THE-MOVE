@@ -13,6 +13,7 @@ import Dashboard from "@/pages/dashboard";
 import RewardsPage from "@/pages/rewards";
 import EmployeeHomePage from "@/pages/employee-home";
 import CustomerPortal from "@/pages/customer-portal";
+import PendingApprovalPage from "@/pages/pending-approval";
 import TreasuryDashboard from "@/pages/treasury-dashboard";
 import AdminDashboardFull from "@/pages/admin-dashboard-full";
 import AdminMoonshotPage from "@/pages/admin-moonshot";
@@ -69,6 +70,9 @@ function AuthenticatedApp() {
         </Route>
         <Route path="/rewards">
           <PageWrapper component={RewardsPage} />
+        </Route>
+        <Route path="/pending-approval">
+          <PendingApprovalPage />
         </Route>
         <Route path="/treasury">
           <RouteGuard allowedRoles={['admin']}>
