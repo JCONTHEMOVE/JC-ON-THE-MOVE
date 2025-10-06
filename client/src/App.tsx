@@ -10,7 +10,7 @@ import Footer from "@/components/footer";
 import HomePage from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
 import RewardsPage from "@/pages/rewards";
-import FaucetPage from "@/pages/faucet";
+import EmployeeHomePage from "@/pages/employee-home";
 import TreasuryDashboard from "@/pages/treasury-dashboard";
 import AdminDashboardFull from "@/pages/admin-dashboard-full";
 import AdminMoonshotPage from "@/pages/admin-moonshot";
@@ -53,10 +53,7 @@ function AuthenticatedApp() {
       <Switch>
         {/* Primary routes - accessible on all devices */}
         <Route path="/">
-          <PageWrapper component={FaucetPage} />
-        </Route>
-        <Route path="/faucet">
-          <PageWrapper component={FaucetPage} />
+          <PageWrapper component={EmployeeHomePage} />
         </Route>
         <Route path="/dashboard">
           <PageWrapper component={Dashboard} />
