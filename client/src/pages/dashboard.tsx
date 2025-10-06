@@ -255,6 +255,8 @@ function BusinessOwnerDashboard() {
   const { data: treasuryStatus, isLoading: treasuryLoading } = useQuery({
     queryKey: ["/api/treasury/status"],
     refetchInterval: 30000, // Refresh every 30 seconds
+    staleTime: 0, // Always fetch fresh data
+    cacheTime: 0, // Don't cache results
   });
 
   const { data: depositsData, isLoading: depositsLoading } = useQuery({
