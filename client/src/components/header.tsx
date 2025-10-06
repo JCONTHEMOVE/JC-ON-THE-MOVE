@@ -37,50 +37,90 @@ export default function Header() {
             <div className="hidden md:block">
               <div className="ml-10 flex items-baseline space-x-4">
                 {isAuthenticated ? (
-                  // Navigation for authenticated users (dashboard)
+                  // Navigation for authenticated users (role-based)
                   <>
                     <Link
                       href="/"
                       className="text-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                      data-testid="button-dashboard"
+                      data-testid="button-home"
                     >
-                      Dashboard
+                      {user?.role === 'customer' ? 'My Portal' : 'Dashboard'}
                     </Link>
-                    <Link
-                      href="/rewards"
-                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                      data-testid="button-rewards"
-                    >
-                      Rewards
-                    </Link>
-                    <Link
-                      href="/treasury"
-                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                      data-testid="button-treasury"
-                    >
-                      Treasury
-                    </Link>
-                    <Link
-                      href="/shop"
-                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                      data-testid="button-shop"
-                    >
-                      Shop
-                    </Link>
-                    <Link
-                      href="/admin"
-                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                      data-testid="button-admin"
-                    >
-                      Admin
-                    </Link>
-                    <Link
-                      href="/admin-moonshot"
-                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                      data-testid="button-moonshot"
-                    >
-                      Moonshot Funding
-                    </Link>
+                    
+                    {/* Customer-specific navigation */}
+                    {user?.role === 'customer' && (
+                      <>
+                        <Link
+                          href="/shop"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-shop"
+                        >
+                          Shop
+                        </Link>
+                        <Link
+                          href="/rewards"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-rewards"
+                        >
+                          Rewards
+                        </Link>
+                      </>
+                    )}
+                    
+                    {/* Employee/Admin navigation */}
+                    {(user?.role === 'employee' || user?.role === 'admin') && (
+                      <>
+                        <Link
+                          href="/dashboard"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-dashboard"
+                        >
+                          Jobs
+                        </Link>
+                        <Link
+                          href="/rewards"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-rewards"
+                        >
+                          Rewards
+                        </Link>
+                        <Link
+                          href="/shop"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-shop"
+                        >
+                          Shop
+                        </Link>
+                      </>
+                    )}
+                    
+                    {/* Admin-only navigation */}
+                    {hasAdminAccess && (
+                      <>
+                        <Link
+                          href="/treasury"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-treasury"
+                        >
+                          Treasury
+                        </Link>
+                        <Link
+                          href="/admin"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-admin"
+                        >
+                          Admin
+                        </Link>
+                        <Link
+                          href="/admin-moonshot"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-moonshot"
+                        >
+                          Moonshot Funding
+                        </Link>
+                      </>
+                    )}
+                    
                     <a
                       href="/#home"
                       className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
@@ -177,32 +217,70 @@ export default function Header() {
           <div className="md:hidden border-t border-border py-4">
             <div className="flex flex-col space-y-2">
               {isAuthenticated ? (
-                // Mobile navigation for authenticated users (dashboard)
+                // Mobile navigation for authenticated users (role-based)
                 <>
                   <Link
                     href="/"
                     className="text-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                    data-testid="button-mobile-dashboard"
+                    data-testid="button-mobile-home"
                     onClick={() => setMobileMenuOpen(false)}
                   >
-                    Dashboard
+                    {user?.role === 'customer' ? 'My Portal' : 'Dashboard'}
                   </Link>
-                  <Link
-                    href="/rewards"
-                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                    data-testid="button-mobile-rewards"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Rewards
-                  </Link>
-                  <Link
-                    href="/shop"
-                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                    data-testid="button-mobile-shop"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Shop
-                  </Link>
+                  
+                  {/* Customer-specific mobile navigation */}
+                  {user?.role === 'customer' && (
+                    <>
+                      <Link
+                        href="/shop"
+                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                        data-testid="button-mobile-shop"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Shop
+                      </Link>
+                      <Link
+                        href="/rewards"
+                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                        data-testid="button-mobile-rewards"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Rewards
+                      </Link>
+                    </>
+                  )}
+                  
+                  {/* Employee/Admin mobile navigation */}
+                  {(user?.role === 'employee' || user?.role === 'admin') && (
+                    <>
+                      <Link
+                        href="/dashboard"
+                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                        data-testid="button-mobile-dashboard"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Jobs
+                      </Link>
+                      <Link
+                        href="/rewards"
+                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                        data-testid="button-mobile-rewards"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Rewards
+                      </Link>
+                      <Link
+                        href="/shop"
+                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                        data-testid="button-mobile-shop"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Shop
+                      </Link>
+                    </>
+                  )}
+                  
+                  {/* Admin-only mobile navigation */}
                   {hasAdminAccess && (
                     <>
                       <Link
@@ -231,6 +309,7 @@ export default function Header() {
                       </Link>
                     </>
                   )}
+                  
                   <a
                     href="/#home"
                     className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"

@@ -11,6 +11,7 @@ import HomePage from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
 import RewardsPage from "@/pages/rewards";
 import EmployeeHomePage from "@/pages/employee-home";
+import CustomerPortal from "@/pages/customer-portal";
 import TreasuryDashboard from "@/pages/treasury-dashboard";
 import AdminDashboardFull from "@/pages/admin-dashboard-full";
 import AdminMoonshotPage from "@/pages/admin-moonshot";
@@ -48,12 +49,17 @@ function PageWrapper({ component: Component }: { component: any }) {
 
 // Main app for authenticated users - Unified routing for all devices
 function AuthenticatedApp() {
+  const { user } = useAuth();
+  
+  // Determine home page based on user role
+  const HomePage = user?.role === 'customer' ? CustomerPortal : EmployeeHomePage;
+  
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
       <Switch>
         {/* Primary routes - accessible on all devices */}
         <Route path="/">
-          <PageWrapper component={EmployeeHomePage} />
+          <PageWrapper component={HomePage} />
         </Route>
         <Route path="/dashboard">
           <PageWrapper component={Dashboard} />

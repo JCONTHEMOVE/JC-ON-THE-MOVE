@@ -729,6 +729,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Customer endpoint to fetch only their own job requests
+  app.get("/api/leads/my-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user || !user.email) {
+        return res.status(404).json({ error: "User not found or email not available" });
+      }
+
+      // Fetch leads created by this customer (matching email)
+      const customerLeads = await storage.getLeadsByEmail(user.email);
+      res.json(customerLeads);
+    } catch (error) {
+      console.error("Error fetching customer requests:", error);
+      res.status(500).json({ error: "Failed to fetch your requests" });
+    }
+  });
+
   app.post("/api/leads/:id/accept", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
       const { id } = req.params;
