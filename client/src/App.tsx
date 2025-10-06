@@ -25,6 +25,7 @@ import { ShopCatalogPage } from "@/pages/shop-catalog";
 import { CreateShopItemPage } from "@/pages/create-shop-item";
 import { ShopItemDetailPage } from "@/pages/shop-item-detail";
 import JobDetailPage from "@/pages/job-detail";
+import TermsOfService from "@/pages/terms";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -146,6 +147,9 @@ function Router() {
     <Switch>
       {/* Customer interface - accessible to all users without authentication */}
       <Route path="/customer" component={CustomerMobileInterface} />
+      
+      {/* Terms of Service - accessible to all */}
+      <Route path="/terms" component={TermsOfService} />
       
       {/* Authenticated vs unauthenticated routing */}
       <Route>

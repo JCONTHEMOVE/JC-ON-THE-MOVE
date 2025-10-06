@@ -4,6 +4,15 @@ This is a full-stack moving and junk removal service website built with React, T
 
 # Recent Changes
 
+## Age Verification & Terms of Service Compliance (October 6, 2025)
+- **Legal Compliance**: Added mandatory age verification (18+) and Terms of Service acceptance for all users
+- **Database Schema**: Added `dateOfBirth`, `tosAccepted`, and `tosAcceptedAt` fields to users table
+- **Compliance Modal**: Non-dismissible modal enforces age and TOS requirements before app access
+- **Age Validation**: Backend validates user is 18+ before accepting compliance
+- **API Endpoint**: Created `/api/auth/user/compliance` for updating user compliance information
+- **Terms Page**: Added `/terms` route with comprehensive Terms of Service document
+- **Federal/State Compliance**: System meets legal requirements for all 50 US states
+
 ## Deployment Fixes (September 30, 2025)
 - **Graceful Authentication Error Handling**: Modified `server/replitAuth.ts` to handle missing `REPLIT_DOMAINS` environment variable without crashing the server
 - **Route Registration Error Handling**: Added try-catch in `server/routes.ts` to prevent authentication setup failures from blocking route registration
