@@ -5,7 +5,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Users, 
   FileText, 
@@ -14,17 +13,15 @@ import {
   BarChart3, 
   Shield, 
   UserCog,
-  Menu,
-  X,
   Activity,
-  Database,
-  Mail,
   TrendingUp,
   Clock,
-  AlertTriangle,
   CheckCircle,
   Building2,
-  Briefcase
+  Briefcase,
+  X,
+  ChevronRight,
+  Home
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Link, useLocation } from "wouter";
@@ -60,21 +57,17 @@ interface AdminStats {
   pendingLeads: number;
 }
 
-const sidebarItems = [
-  { id: "overview", label: "Overview", icon: BarChart3 },
-  { id: "users", label: "User Management", icon: Users },
-  { id: "leads", label: "Lead Management", icon: FileText },
-  { id: "employees", label: "Employee Management", icon: UserCog },
+const navigationItems = [
+  { id: "overview", label: "Overview", icon: Home },
+  { id: "leads", label: "Leads", icon: FileText },
+  { id: "employees", label: "Employees", icon: UserCog },
   { id: "treasury", label: "Treasury", icon: DollarSign },
-  { id: "analytics", label: "Analytics", icon: TrendingUp },
-  { id: "system", label: "System Health", icon: Activity },
-  { id: "settings", label: "Settings", icon: Settings },
+  { id: "more", label: "More", icon: Settings },
 ];
 
 export default function AdminDashboardFull() {
   const { hasAdminAccess, isLoading: authLoading } = useAuth();
-  const [activeSection, setActiveSection] = useState("treasury");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState("overview");
   const [, navigate] = useLocation();
 
   // Data queries
@@ -106,10 +99,10 @@ export default function AdminDashboardFull() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-muted/30 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
-          <p className="mt-4 text-muted-foreground">Loading admin dashboard...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Loading...</p>
         </div>
       </div>
     );
@@ -117,227 +110,24 @@ export default function AdminDashboardFull() {
 
   if (!hasAdminAccess) {
     return (
-      <div className="min-h-screen bg-muted/30 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center max-w-md">
           <div className="bg-destructive/10 rounded-lg p-6 mb-4">
             <Shield className="h-12 w-12 text-destructive mx-auto mb-3" />
-            <h2 className="text-xl font-semibold text-destructive mb-2">Administrator Access Required</h2>
+            <h2 className="text-xl font-semibold text-destructive mb-2">Access Denied</h2>
             <p className="text-muted-foreground mb-4">
-              You need administrator or business owner privileges to access this dashboard.
+              Administrator privileges required
             </p>
           </div>
-          <div className="space-x-2">
-            <Link href="/">
-              <Button variant="outline" data-testid="button-back-to-main">
-                Back to Main
-              </Button>
-            </Link>
-          </div>
+          <Link href="/">
+            <Button variant="outline" data-testid="button-back-to-main">
+              Back to Main
+            </Button>
+          </Link>
         </div>
       </div>
     );
   }
-
-  const renderOverview = () => (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.totalUsers || 0}</div>
-            <p className="text-xs text-muted-foreground">Active registered users</p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Leads</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.totalLeads || 0}</div>
-            <p className="text-xs text-muted-foreground">All time leads</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Jobs</CardTitle>
-            <Briefcase className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.activeJobs || 0}</div>
-            <p className="text-xs text-muted-foreground">Currently in progress</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Monthly Revenue</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${(stats?.monthlyRevenue || 0).toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">This month</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Leads</CardTitle>
-            <CardDescription>Latest customer inquiries</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {leads?.slice(0, 5).map((lead) => (
-                <div key={lead.id} className="flex justify-between items-center">
-                  <div>
-                    <p className="font-medium">{lead.firstName} {lead.lastName}</p>
-                    <p className="text-sm text-muted-foreground">{lead.serviceType}</p>
-                  </div>
-                  <Badge variant={lead.status === 'new' ? 'default' : 'secondary'}>
-                    {lead.status}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>System Status</CardTitle>
-            <CardDescription>Current system health</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span>Database</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  Healthy
-                </Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span>Email Service</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  Active
-                </Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span>Treasury System</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  Online
-                </Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-
-  const renderUsers = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">User Management</h2>
-        <Button data-testid="button-add-user">Add New User</Button>
-      </div>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>All Users</CardTitle>
-          <CardDescription>Manage user accounts and roles</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {usersLoading ? (
-              <div className="text-center py-8">Loading users...</div>
-            ) : (
-              users?.map((user) => (
-                <div key={user.id} className="flex justify-between items-center p-4 border rounded-lg">
-                  <div>
-                    <p className="font-medium">{user.firstName} {user.lastName}</p>
-                    <p className="text-sm text-muted-foreground">{user.email}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Joined {new Date(user.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
-                      {user.role}
-                    </Badge>
-                    <Button variant="outline" size="sm" data-testid={`button-edit-user-${user.id}`}>
-                      Edit
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderLeads = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Lead Management</h2>
-        <Button data-testid="button-export-leads">Export Leads</Button>
-      </div>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>All Leads</CardTitle>
-          <CardDescription>Manage customer inquiries and quotes</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {leadsLoading ? (
-              <div className="text-center py-8">Loading leads...</div>
-            ) : (
-              leads?.map((lead) => (
-                <div key={lead.id} className="flex justify-between items-center p-4 border rounded-lg">
-                  <div>
-                    <p className="font-medium">{lead.firstName} {lead.lastName}</p>
-                    <p className="text-sm text-muted-foreground">{lead.email}</p>
-                    <p className="text-sm">{lead.serviceType}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(lead.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={lead.status === 'new' ? 'default' : 'secondary'}>
-                      {lead.status}
-                    </Badge>
-                    {lead.estimatedValue && (
-                      <Badge variant="outline">${lead.estimatedValue}</Badge>
-                    )}
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => navigate(`/job/${lead.id}`)}
-                      data-testid={`button-view-lead-${lead.id}`}
-                    >
-                      View
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
 
   const handleApprove = async (employeeId: string, approved: boolean) => {
     try {
@@ -348,7 +138,6 @@ export default function AdminDashboardFull() {
       });
       
       if (response.ok) {
-        // Refetch employee lists
         queryClient.invalidateQueries({ queryKey: ["/api/admin/employees/pending"] });
         queryClient.invalidateQueries({ queryKey: ["/api/admin/employees/approved"] });
       }
@@ -357,417 +146,410 @@ export default function AdminDashboardFull() {
     }
   };
 
-  const renderEmployees = () => (
-    <div className="space-y-6">
+  const renderOverview = () => (
+    <div className="space-y-4">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border-0">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">{stats?.totalUsers || 0}</div>
+            <p className="text-xs text-blue-700 dark:text-blue-300">Total Users</p>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950 dark:to-green-900 border-0">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <FileText className="h-5 w-5 text-green-600 dark:text-green-400" />
+            </div>
+            <div className="text-2xl font-bold text-green-900 dark:text-green-100">{stats?.totalLeads || 0}</div>
+            <p className="text-xs text-green-700 dark:text-green-300">Leads</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950 dark:to-purple-900 border-0">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <Briefcase className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+            </div>
+            <div className="text-2xl font-bold text-purple-900 dark:text-purple-100">{stats?.activeJobs || 0}</div>
+            <p className="text-xs text-purple-700 dark:text-purple-300">Active Jobs</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950 dark:to-amber-900 border-0">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <DollarSign className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="text-2xl font-bold text-amber-900 dark:text-amber-100">${(stats?.monthlyRevenue || 0).toLocaleString()}</div>
+            <p className="text-xs text-amber-700 dark:text-amber-300">Revenue</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Recent Activity */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Recent Leads</CardTitle>
+          <CardDescription>Latest customer inquiries</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {leads?.slice(0, 5).map((lead) => (
+            <div 
+              key={lead.id} 
+              className="flex items-center justify-between p-3 bg-muted/50 rounded-lg cursor-pointer hover:bg-muted transition-colors"
+              onClick={() => navigate(`/job/${lead.id}`)}
+              data-testid={`lead-card-${lead.id}`}
+            >
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{lead.firstName} {lead.lastName}</p>
+                <p className="text-sm text-muted-foreground truncate">{lead.serviceType}</p>
+              </div>
+              <div className="flex items-center gap-2 ml-2">
+                <Badge variant={lead.status === 'new' ? 'default' : 'secondary'} className="text-xs">
+                  {lead.status}
+                </Badge>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* System Status */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">System Status</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex justify-between items-center">
+            <span className="text-sm">Database</span>
+            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-400">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Healthy
+            </Badge>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm">Email Service</span>
+            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-400">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Active
+            </Badge>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm">Treasury</span>
+            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-400">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Online
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const renderLeads = () => (
+    <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Employee Management</h2>
-        <Button data-testid="button-add-employee">Add Employee</Button>
+        <h2 className="text-xl font-bold">Lead Management</h2>
+        <Button size="sm" data-testid="button-export-leads">Export</Button>
       </div>
       
-      {/* Pending Approvals Section */}
-      {pendingEmployees && pendingEmployees.length > 0 && (
-        <Card className="border-yellow-200 dark:border-yellow-900">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-yellow-600" />
-              Pending Employee Approvals
-            </CardTitle>
-            <CardDescription>Review and approve new employee accounts</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {pendingEmployees.map((employee) => (
-                <div key={employee.id} className="flex justify-between items-center p-3 border rounded-lg" data-testid={`pending-employee-${employee.id}`}>
-                  <div>
-                    <p className="font-medium" data-testid={`text-employee-name-${employee.id}`}>
-                      {employee.firstName} {employee.lastName}
-                    </p>
-                    <p className="text-sm text-muted-foreground" data-testid={`text-employee-email-${employee.id}`}>
-                      {employee.email}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Registered: {new Date(employee.createdAt).toLocaleDateString()}
-                    </p>
+      <div className="space-y-3">
+        {leadsLoading ? (
+          <div className="text-center py-8">Loading...</div>
+        ) : (
+          leads?.map((lead) => (
+            <Card 
+              key={lead.id} 
+              className="cursor-pointer hover:shadow-md transition-shadow"
+              onClick={() => navigate(`/job/${lead.id}`)}
+              data-testid={`lead-card-${lead.id}`}
+            >
+              <CardContent className="p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-lg">{lead.firstName} {lead.lastName}</p>
+                    <p className="text-sm text-muted-foreground truncate">{lead.email}</p>
                   </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      size="sm" 
-                      variant="default"
-                      onClick={() => handleApprove(employee.id, true)}
-                      data-testid={`button-approve-${employee.id}`}
-                    >
-                      <CheckCircle className="h-4 w-4 mr-1" />
-                      Approve
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => handleApprove(employee.id, false)}
-                      data-testid={`button-reject-${employee.id}`}
-                    >
-                      <X className="h-4 w-4 mr-1" />
-                      Reject
-                    </Button>
+                  <Badge variant={lead.status === 'new' ? 'default' : 'secondary'}>
+                    {lead.status}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{lead.serviceType}</span>
+                  <div className="flex items-center gap-2">
+                    {lead.estimatedValue && (
+                      <Badge variant="outline">${lead.estimatedValue}</Badge>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(lead.createdAt).toLocaleDateString()}
+                    </span>
                   </div>
                 </div>
-              ))}
-            </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  const renderEmployees = () => (
+    <div className="space-y-4">
+      <h2 className="text-xl font-bold">Employee Management</h2>
+      
+      {/* Pending Approvals */}
+      {pendingEmployees && pendingEmployees.length > 0 && (
+        <Card className="border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/50">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              Pending Approvals
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {pendingEmployees.map((employee) => (
+              <div key={employee.id} className="bg-background p-3 rounded-lg" data-testid={`pending-employee-${employee.id}`}>
+                <div className="mb-3">
+                  <p className="font-medium" data-testid={`text-employee-name-${employee.id}`}>
+                    {employee.firstName} {employee.lastName}
+                  </p>
+                  <p className="text-sm text-muted-foreground" data-testid={`text-employee-email-${employee.id}`}>
+                    {employee.email}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    className="flex-1"
+                    onClick={() => handleApprove(employee.id, true)}
+                    data-testid={`button-approve-${employee.id}`}
+                  >
+                    <CheckCircle className="h-4 w-4 mr-1" />
+                    Approve
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => handleApprove(employee.id, false)}
+                    data-testid={`button-reject-${employee.id}`}
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}
       
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Approved Employees</CardTitle>
-            <CardDescription>Active employees with full access</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {approvedEmployees?.map((employee) => (
-                <div key={employee.id} className="flex justify-between items-center" data-testid={`approved-employee-${employee.id}`}>
-                  <div>
-                    <p className="font-medium">{employee.firstName} {employee.lastName}</p>
-                    <p className="text-sm text-muted-foreground">{employee.email}</p>
-                  </div>
-                  <Badge variant="default" className="bg-green-500">
-                    <CheckCircle className="h-3 w-3 mr-1" />
-                    Approved
-                  </Badge>
-                </div>
-              ))}
-              {(!approvedEmployees || approvedEmployees.length === 0) && (
-                <p className="text-sm text-muted-foreground">No approved employees</p>
-              )}
+      {/* Approved Employees */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Approved Employees</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {approvedEmployees?.map((employee) => (
+            <div 
+              key={employee.id} 
+              className="flex justify-between items-center p-3 bg-muted/50 rounded-lg" 
+              data-testid={`approved-employee-${employee.id}`}
+            >
+              <div>
+                <p className="font-medium">{employee.firstName} {employee.lastName}</p>
+                <p className="text-sm text-muted-foreground">{employee.email}</p>
+              </div>
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-400">
+                <CheckCircle className="h-3 w-3 mr-1" />
+                Active
+              </Badge>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Job Assignments</CardTitle>
-            <CardDescription>Current employee workload</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {leads?.filter(lead => lead.assignedToUserId).slice(0, 5).map((lead) => (
-                <div key={lead.id} className="flex justify-between items-center">
-                  <div>
-                    <p className="font-medium">{lead.firstName} {lead.lastName}</p>
-                    <p className="text-sm text-muted-foreground">{lead.serviceType}</p>
-                  </div>
-                  <Badge variant="outline">Assigned</Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          ))}
+          {(!approvedEmployees || approvedEmployees.length === 0) && (
+            <p className="text-sm text-muted-foreground text-center py-4">No approved employees</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 
   const renderTreasury = () => (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Treasury Management</h2>
-        <Button asChild data-testid="button-full-treasury">
-          <Link href="/treasury">Open Full Treasury</Link>
+        <h2 className="text-xl font-bold">Treasury</h2>
+        <Button asChild size="sm" data-testid="button-full-treasury">
+          <Link href="/treasury">Open Full</Link>
         </Button>
       </div>
       
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Total Balance</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">$45,231.80</div>
-            <p className="text-sm text-muted-foreground">+2.5% from last month</p>
+      <div className="grid gap-3">
+        <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-950 dark:to-emerald-900 border-0">
+          <CardContent className="p-4">
+            <div className="text-sm text-emerald-700 dark:text-emerald-300 mb-1">Total Balance</div>
+            <div className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">$45,231.80</div>
+            <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">+2.5% from last month</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Moonshot Deposits</CardTitle>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground mb-1">Moonshot Deposits</div>
             <div className="text-2xl font-bold">1,245 JCM</div>
-            <p className="text-sm text-muted-foreground">JC Moves Coins</p>
+            <p className="text-sm text-muted-foreground mt-1">JC Moves Coins</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Recent Transactions</CardTitle>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="p-4">
+            <div className="text-sm text-muted-foreground mb-1">Recent Transactions</div>
             <div className="text-2xl font-bold">23</div>
-            <p className="text-sm text-muted-foreground">This week</p>
+            <p className="text-sm text-muted-foreground mt-1">This week</p>
           </CardContent>
         </Card>
       </div>
     </div>
   );
 
-  const renderAnalytics = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Analytics & Reports</h2>
+  const renderMore = () => (
+    <div className="space-y-4">
+      <h2 className="text-xl font-bold">More Options</h2>
       
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Lead Conversion Rate</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">68%</div>
-            <p className="text-sm text-muted-foreground">+5% from last month</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Average Job Value</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">$1,250</div>
-            <p className="text-sm text-muted-foreground">+12% from last month</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Customer Satisfaction</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">4.8/5</div>
-            <p className="text-sm text-muted-foreground">Based on 45 reviews</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Employee Utilization</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">85%</div>
-            <p className="text-sm text-muted-foreground">Optimal range</p>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-
-  const renderSystem = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold">System Health</h2>
-      
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Server Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span>Uptime</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  99.9%
-                </Badge>
+      <Card>
+        <CardContent className="p-0">
+          <Link href="/admin/users">
+            <div className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer border-b last:border-0">
+              <div className="flex items-center gap-3">
+                <Users className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="font-medium">User Management</p>
+                  <p className="text-sm text-muted-foreground">Manage all users</p>
+                </div>
               </div>
-              <div className="flex justify-between items-center">
-                <span>Memory Usage</span>
-                <Badge variant="outline">2.1GB / 4GB</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span>CPU Usage</span>
-                <Badge variant="outline">45%</Badge>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </Link>
+          
+          <div className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer border-b last:border-0">
+            <div className="flex items-center gap-3">
+              <BarChart3 className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <p className="font-medium">Analytics</p>
+                <p className="text-sm text-muted-foreground">View reports</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Services</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span>Database</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  Healthy
-                </Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span>Email Service</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  Active
-                </Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span>Authentication</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  Online
-                </Badge>
+            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+          </div>
+          
+          <div className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer border-b last:border-0">
+            <div className="flex items-center gap-3">
+              <Activity className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <p className="font-medium">System Health</p>
+                <p className="text-sm text-muted-foreground">Monitor status</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-
-  const renderSettings = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold">System Settings</h2>
-      
-      <div className="grid gap-6 md:grid-cols-1">
-        <Card>
-          <CardHeader>
-            <CardTitle>Application Settings</CardTitle>
-            <CardDescription>Configure system-wide settings</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="font-medium">Email Notifications</p>
-                  <p className="text-sm text-muted-foreground">Send email alerts for new leads</p>
-                </div>
-                <Button variant="outline" size="sm">Configure</Button>
-              </div>
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="font-medium">Treasury Settings</p>
-                  <p className="text-sm text-muted-foreground">Manage Moonshot crypto integration</p>
-                </div>
-                <Button variant="outline" size="sm">Configure</Button>
-              </div>
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="font-medium">User Permissions</p>
-                  <p className="text-sm text-muted-foreground">Configure role-based access</p>
-                </div>
-                <Button variant="outline" size="sm">Configure</Button>
+            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+          </div>
+          
+          <div className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer">
+            <div className="flex items-center gap-3">
+              <Settings className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <p className="font-medium">Settings</p>
+                <p className="text-sm text-muted-foreground">Configure system</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Link href="/">
+        <Button variant="outline" className="w-full" data-testid="button-back-main">
+          Back to Main App
+        </Button>
+      </Link>
     </div>
   );
 
   const renderContent = () => {
     switch (activeSection) {
       case "overview": return renderOverview();
-      case "users": return renderUsers();
       case "leads": return renderLeads();
       case "employees": return renderEmployees();
       case "treasury": return renderTreasury();
-      case "analytics": return renderAnalytics();
-      case "system": return renderSystem();
-      case "settings": return renderSettings();
+      case "more": return renderMore();
       default: return renderOverview();
     }
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden" 
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <div className={cn(
-        "fixed inset-y-0 left-0 z-50 w-64 bg-card border-r transform transition-transform lg:translate-x-0 lg:static lg:inset-0",
-        sidebarOpen ? "translate-x-0" : "-translate-x-full"
-      )}>
-        <div className="flex h-full flex-col">
-          {/* Sidebar header */}
-          <div className="flex h-16 items-center justify-between px-6 border-b">
-            <h2 className="text-lg font-semibold">Admin Dashboard</h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="lg:hidden"
-              onClick={() => setSidebarOpen(false)}
-              data-testid="button-close-sidebar"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {/* Sidebar navigation */}
-          <nav className="flex-1 p-4 space-y-2">
-            {sidebarItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Button
-                  key={item.id}
-                  variant={activeSection === item.id ? "default" : "ghost"}
-                  className="w-full justify-start"
-                  onClick={() => {
-                    setActiveSection(item.id);
-                    setSidebarOpen(false);
-                  }}
-                  data-testid={`button-nav-${item.id}`}
-                >
-                  <Icon className="h-4 w-4 mr-2" />
-                  {item.label}
-                </Button>
-              );
-            })}
-          </nav>
-
-          {/* Sidebar footer */}
-          <div className="p-4 border-t">
-            <Button variant="outline" className="w-full" asChild>
-              <Link href="/">Back to Main App</Link>
-            </Button>
-          </div>
+    <div className="min-h-screen bg-background pb-20 md:pb-6">
+      {/* Mobile Header */}
+      <div className="sticky top-0 z-40 bg-background border-b px-4 py-3">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-bold">Admin Dashboard</h1>
+          <span className="text-sm text-muted-foreground">JC ON THE MOVE</span>
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="lg:pl-64">
-        {/* Top header */}
-        <div className="sticky top-0 z-40 flex h-16 items-center gap-x-4 border-b bg-background px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="lg:hidden"
-            onClick={() => setSidebarOpen(true)}
-            data-testid="button-open-sidebar"
-          >
-            <Menu className="h-4 w-4" />
-          </Button>
+      {/* Main Content */}
+      <main className="px-4 py-4 max-w-2xl mx-auto">
+        {renderContent()}
+      </main>
 
-          <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6">
-            <div className="flex items-center gap-x-4 lg:gap-x-6">
-              <h1 className="text-xl font-semibold">
-                {sidebarItems.find(item => item.id === activeSection)?.label || "Overview"}
-              </h1>
-            </div>
-            <div className="flex flex-1 justify-end">
-              <div className="flex items-center gap-x-4 lg:gap-x-6">
-                <span className="text-sm text-muted-foreground">JC ON THE MOVE Admin</span>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Bottom Navigation - Mobile */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t md:hidden">
+        <nav className="flex justify-around items-center h-16">
+          {navigationItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeSection === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveSection(item.id)}
+                className={cn(
+                  "flex flex-col items-center justify-center flex-1 h-full transition-colors",
+                  isActive ? "text-primary" : "text-muted-foreground"
+                )}
+                data-testid={`button-nav-${item.id}`}
+              >
+                <Icon className="h-5 w-5 mb-1" />
+                <span className="text-xs">{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
 
-        {/* Page content */}
-        <main className="p-4 sm:p-6 lg:p-8">
-          {renderContent()}
-        </main>
+      {/* Tablet/Desktop Navigation */}
+      <div className="hidden md:block fixed bottom-0 left-0 right-0 z-50 bg-background border-t">
+        <nav className="flex justify-center items-center h-14 gap-2 px-4 max-w-4xl mx-auto">
+          {navigationItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeSection === item.id;
+            return (
+              <Button
+                key={item.id}
+                variant={isActive ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setActiveSection(item.id)}
+                className="flex items-center gap-2"
+                data-testid={`button-nav-${item.id}`}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="hidden sm:inline">{item.label}</span>
+              </Button>
+            );
+          })}
+        </nav>
       </div>
     </div>
   );
