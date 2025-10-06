@@ -15,6 +15,11 @@ export interface IStorage {
   getEmployees(): Promise<User[]>;
   getAllUsers(): Promise<User[]>;
   
+  // Employee approval management
+  updateUserApproval(userId: string, isApproved: boolean): Promise<User | undefined>;
+  getPendingEmployees(): Promise<User[]>;
+  getApprovedEmployees(): Promise<User[]>;
+  
   // Referral operations
   generateReferralCode(userId: string): Promise<string>;
   getReferralCode(userId: string): Promise<string | null>;
@@ -246,6 +251,32 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(users)
       .orderBy(desc(users.createdAt));
+  }
+
+  // Employee approval management
+  async updateUserApproval(userId: string, isApproved: boolean): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({ isApproved, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return user || undefined;
+  }
+
+  async getPendingEmployees(): Promise<User[]> {
+    return await db
+      .select()
+      .from(users)
+      .where(and(eq(users.role, 'employee'), eq(users.isApproved, false)))
+      .orderBy(desc(users.createdAt));
+  }
+
+  async getApprovedEmployees(): Promise<User[]> {
+    return await db
+      .select()
+      .from(users)
+      .where(and(eq(users.role, 'employee'), eq(users.isApproved, true)))
+      .orderBy(users.firstName, users.lastName);
   }
 
   // Referral operations
