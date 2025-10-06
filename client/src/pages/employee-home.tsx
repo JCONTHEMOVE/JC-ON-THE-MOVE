@@ -203,7 +203,7 @@ export default function EmployeeHomePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <blockquote className="text-lg italic text-foreground mb-2">
+            <blockquote className="text-xl font-bold italic text-foreground mb-2">
               "{scripture.verse}"
             </blockquote>
             <p className="text-sm text-muted-foreground font-semibold">
