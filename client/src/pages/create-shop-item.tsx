@@ -76,20 +76,43 @@ export function CreateShopItemPage() {
   });
 
   const handleAddPhoto = () => {
-    if (photoInputValue && !photoUrls.includes(photoInputValue)) {
-      const newPhotos = [...photoUrls, photoInputValue];
-      setPhotoUrls(newPhotos);
-      form.setValue("photos", newPhotos);
-      setPhotoInputValue("");
-      setCurrentPhotoIndex(newPhotos.length - 1);
+    if (!photoInputValue) return;
+    
+    // Check if already at 10-photo limit
+    if (photoUrls.length >= 10) {
+      toast({
+        title: "Photo limit reached",
+        description: "Maximum 10 photos allowed",
+        variant: "destructive",
+      });
+      return;
     }
+    
+    // Check for duplicate
+    if (photoUrls.includes(photoInputValue)) {
+      toast({
+        title: "Duplicate photo",
+        description: "This photo URL has already been added",
+      });
+      return;
+    }
+    
+    const newPhotos = [...photoUrls, photoInputValue];
+    setPhotoUrls(newPhotos);
+    form.setValue("photos", newPhotos);
+    setPhotoInputValue("");
+    setCurrentPhotoIndex(newPhotos.length - 1);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach(file => {
+    const fileArray = Array.from(files);
+    const validFiles: File[] = [];
+
+    // Validate all files first
+    for (const file of fileArray) {
       // Check file size (max 25MB to support 40MP photos)
       if (file.size > 25 * 1024 * 1024) {
         toast({
@@ -97,7 +120,7 @@ export function CreateShopItemPage() {
           description: `${file.name} exceeds 25MB limit`,
           variant: "destructive",
         });
-        return;
+        continue;
       }
 
       // Check file type
@@ -107,37 +130,66 @@ export function CreateShopItemPage() {
           description: `${file.name} is not an image`,
           variant: "destructive",
         });
-        return;
+        continue;
       }
 
-      // Convert to base64
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64String = event.target?.result as string;
-        if (base64String && !photoUrls.includes(base64String)) {
-          const newPhotos = [...photoUrls, base64String];
-          if (newPhotos.length <= 10) {
-            setPhotoUrls(newPhotos);
-            form.setValue("photos", newPhotos);
-            setCurrentPhotoIndex(newPhotos.length - 1);
-          } else {
-            toast({
-              title: "Photo limit reached",
-              description: "Maximum 10 photos allowed",
-              variant: "destructive",
-            });
-          }
-        }
-      };
-      reader.onerror = () => {
+      validFiles.push(file);
+    }
+
+    // Convert all valid files to base64
+    const base64Results: string[] = [];
+    for (const file of validFiles) {
+      try {
+        const base64String = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const result = event.target?.result as string;
+            resolve(result);
+          };
+          reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+          reader.readAsDataURL(file);
+        });
+        base64Results.push(base64String);
+      } catch (error) {
         toast({
           title: "Upload failed",
-          description: `Failed to read ${file.name}`,
+          description: error instanceof Error ? error.message : `Failed to read ${file.name}`,
           variant: "destructive",
         });
-      };
-      reader.readAsDataURL(file);
-    });
+      }
+    }
+
+    // Update state with all new photos at once
+    if (base64Results.length > 0) {
+      setPhotoUrls(prevPhotos => {
+        // Filter out duplicates - check against both existing and newly added photos
+        const uniqueNewPhotos = base64Results.filter((photo, index, self) => 
+          !prevPhotos.includes(photo) && self.indexOf(photo) === index
+        );
+        
+        if (uniqueNewPhotos.length === 0) {
+          toast({
+            title: "No new photos",
+            description: "All selected photos were already added",
+          });
+          return prevPhotos;
+        }
+        
+        const newPhotos = [...prevPhotos, ...uniqueNewPhotos].slice(0, 10);
+        form.setValue("photos", newPhotos);
+        setCurrentPhotoIndex(newPhotos.length - 1);
+        
+        if (prevPhotos.length + uniqueNewPhotos.length > 10) {
+          toast({
+            title: "Photo limit reached",
+            description: `Added ${newPhotos.length - prevPhotos.length} of ${uniqueNewPhotos.length} photos. Maximum 10 photos allowed.`,
+            variant: "destructive",
+          });
+        }
+        
+        return newPhotos;
+      });
+    }
 
     // Reset input
     e.target.value = '';
