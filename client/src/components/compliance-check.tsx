@@ -19,7 +19,8 @@ export function ComplianceCheck({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (user && !user.tosAccepted) {
+    // Show modal if user is missing either DOB or TOS acceptance
+    if (user && (!user.tosAccepted || !user.dateOfBirth)) {
       setShowComplianceModal(true);
     }
   }, [user]);
