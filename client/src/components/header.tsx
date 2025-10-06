@@ -189,13 +189,22 @@ export default function Header() {
                     </a>
                   </div>
                 ) : (
-                  <a 
-                    href="/api/login" 
-                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                    data-testid="button-login"
-                  >
-                    Login
-                  </a>
+                  <div className="flex items-center space-x-2">
+                    <a 
+                      href="/api/login?role=customer" 
+                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-customer-login"
+                    >
+                      Customer Portal
+                    </a>
+                    <a 
+                      href="/api/login?role=employee" 
+                      className="bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                      data-testid="button-employee-login"
+                    >
+                      Employee Portal
+                    </a>
+                  </div>
                 )}
               </div>
             </div>
@@ -379,13 +388,22 @@ export default function Header() {
                   </a>
                 </>
               ) : (
-                <a 
-                  href="/api/login" 
-                  className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                  data-testid="button-mobile-login"
-                >
-                  Login
-                </a>
+                <div className="flex flex-col space-y-2">
+                  <a 
+                    href="/api/login?role=customer" 
+                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                    data-testid="button-mobile-customer-login"
+                  >
+                    Customer Portal
+                  </a>
+                  <a 
+                    href="/api/login?role=employee" 
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                    data-testid="button-mobile-employee-login"
+                  >
+                    Employee Portal
+                  </a>
+                </div>
               )}
             </div>
           </div>

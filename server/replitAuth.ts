@@ -171,7 +171,15 @@ export async function setupAuth(app: Express) {
   app.get("/api/login", (req, res, next) => {
     // Handle localhost with port for development
     const hostname = req.hostname === 'localhost' ? 'localhost:5000' : req.hostname;
-    console.log(`Login attempt for hostname: ${hostname}, original: ${req.hostname}`);
+    
+    // Store the requested role in session before authentication
+    const requestedRole = req.query.role as string;
+    if (requestedRole === 'customer' || requestedRole === 'employee') {
+      (req.session as any).requestedRole = requestedRole;
+      console.log(`Login attempt for hostname: ${hostname}, requested role: ${requestedRole}`);
+    } else {
+      console.log(`Login attempt for hostname: ${hostname}, no role specified (defaulting to employee)`);
+    }
     
     passport.authenticate(`replitauth:${hostname}`, {
       scope: ["openid", "email", "profile", "offline_access"],
@@ -183,10 +191,50 @@ export async function setupAuth(app: Express) {
     const hostname = req.hostname === 'localhost' ? 'localhost:5000' : req.hostname;
     console.log(`Callback for hostname: ${hostname}, original: ${req.hostname}`);
     
-    passport.authenticate(`replitauth:${hostname}`, {
-      successReturnToOrRedirect: "/",
-      failureRedirect: "/api/login",
-      failureFlash: false
+    passport.authenticate(`replitauth:${hostname}`, async (err: any, user: any, info: any) => {
+      if (err) {
+        console.error('Authentication error:', err);
+        return res.redirect("/api/login");
+      }
+      if (!user) {
+        console.error('No user returned from authentication');
+        return res.redirect("/api/login");
+      }
+
+      // Log in the user
+      req.logIn(user, async (loginErr) => {
+        if (loginErr) {
+          console.error('Login error:', loginErr);
+          return res.redirect("/api/login");
+        }
+
+        // Check if there's a requested role in the session
+        const requestedRole = (req.session as any).requestedRole;
+        const userClaims = (req.user as any)?.claims;
+        if (requestedRole && userClaims?.sub) {
+          try {
+            const userId = userClaims.sub;
+            const existingUser = await storage.getUser(userId);
+            
+            // Only update role if this is a new user (created in the last 5 seconds)
+            // This prevents changing existing users' roles
+            if (existingUser && existingUser.createdAt) {
+              const userAge = Date.now() - new Date(existingUser.createdAt).getTime();
+              if (userAge < 5000) { // Less than 5 seconds old = new user
+                await storage.updateUserRole(userId, requestedRole);
+                console.log(`Set role for new user ${existingUser.email}: ${requestedRole}`);
+              }
+            }
+            
+            // Clear the requested role from session
+            delete (req.session as any).requestedRole;
+          } catch (error) {
+            console.error('Error setting user role:', error);
+          }
+        }
+
+        res.redirect("/");
+      });
     })(req, res, next);
   });
 
