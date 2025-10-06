@@ -445,6 +445,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get single lead by ID (business owner only)
+  app.get("/api/leads/:id", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const lead = await storage.getLead(id);
+      
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      res.json(lead);
+    } catch (error) {
+      console.error("Error fetching lead:", error);
+      res.status(500).json({ error: "Failed to fetch lead" });
+    }
+  });
+
   // Protected routes - Update lead status (dashboard only - business owner only)
   app.patch("/api/leads/:id/status", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {

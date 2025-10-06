@@ -23,6 +23,7 @@ import CustomerMobileInterface from "@/components/customer-mobile-interface";
 import { ShopCatalogPage } from "@/pages/shop-catalog";
 import { CreateShopItemPage } from "@/pages/create-shop-item";
 import { ShopItemDetailPage } from "@/pages/shop-item-detail";
+import JobDetailPage from "@/pages/job-detail";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -109,6 +110,13 @@ function AuthenticatedApp() {
         <Route path="/admin-moonshot">
           <RouteGuard allowedRoles={['admin']}>
             <PageWrapper component={AdminMoonshotPage} />
+          </RouteGuard>
+        </Route>
+        
+        {/* Job detail route */}
+        <Route path="/job/:id">
+          <RouteGuard allowedRoles={['admin']}>
+            <JobDetailPage />
           </RouteGuard>
         </Route>
         

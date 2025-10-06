@@ -27,7 +27,7 @@ import {
   Briefcase
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 
 interface Lead {
   id: string;
@@ -75,6 +75,7 @@ export default function AdminDashboardFull() {
   const { hasAdminAccess, isLoading: authLoading } = useAuth();
   const [activeSection, setActiveSection] = useState("treasury");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [, navigate] = useLocation();
 
   // Data queries
   const { data: leads, isLoading: leadsLoading } = useQuery<Lead[]>({
@@ -320,7 +321,12 @@ export default function AdminDashboardFull() {
                     {lead.estimatedValue && (
                       <Badge variant="outline">${lead.estimatedValue}</Badge>
                     )}
-                    <Button variant="outline" size="sm" data-testid={`button-view-lead-${lead.id}`}>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => navigate(`/job/${lead.id}`)}
+                      data-testid={`button-view-lead-${lead.id}`}
+                    >
                       View
                     </Button>
                   </div>
