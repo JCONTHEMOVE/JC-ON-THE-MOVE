@@ -21,9 +21,9 @@ export const GAMIFICATION_REWARDS = {
   },
   JOB_COMPLETION: {
     BASE_POINTS: 100,
-    BASE_TOKENS: "5.0",
+    BASE_TOKENS: "500.0",
     ON_TIME_BONUS: 0.2, // 20% bonus for on-time completion
-    QUALITY_BONUS: 0.3, // 30% bonus for high customer rating
+    QUALITY_BONUS: 0.3, // 30% bonus for high customer rating (4.0+)
   },
   ACHIEVEMENTS: {
     FIRST_WEEK_STREAK: { points: 250, tokens: "10.0" },
@@ -324,7 +324,7 @@ export class GamificationService {
     }
 
     // Quality bonus based on customer rating
-    if (performance.customerRating && performance.customerRating >= 4.5) {
+    if (performance.customerRating && performance.customerRating >= 4.0) {
       tokenMultiplier += GAMIFICATION_REWARDS.JOB_COMPLETION.QUALITY_BONUS;
       points += Math.floor(points * GAMIFICATION_REWARDS.JOB_COMPLETION.QUALITY_BONUS);
     }
