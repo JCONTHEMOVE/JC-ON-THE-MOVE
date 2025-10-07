@@ -7,13 +7,21 @@ import { useState, useEffect } from "react";
 import { Loader2, Zap, Users, Coins } from "lucide-react";
 import { Link } from "wouter";
 
+interface MiningStatus {
+  currentSession: any;
+  accumulatedTokens: string;
+  timeRemaining: number;
+  totalClaimedToday: string;
+  miningSpeed: string;
+}
+
 export default function MiningPage() {
   const { toast } = useToast();
   const [accumulatedTokens, setAccumulatedTokens] = useState("0.00000000");
   const [timeRemaining, setTimeRemaining] = useState(0);
 
   // Get mining status
-  const { data: miningStatus, isLoading } = useQuery({
+  const { data: miningStatus, isLoading } = useQuery<MiningStatus>({
     queryKey: ["/api/mining/status"],
     refetchInterval: 5000, // Refresh every 5 seconds
   });
@@ -21,9 +29,7 @@ export default function MiningPage() {
   // Start mining mutation
   const startMiningMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("/api/mining/start", {
-        method: "POST",
-      });
+      return await apiRequest("/api/mining/start", "POST");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mining/status"] });
@@ -44,9 +50,7 @@ export default function MiningPage() {
   // Claim tokens mutation
   const claimMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("/api/mining/claim", {
-        method: "POST",
-      });
+      return await apiRequest("/api/mining/claim", "POST");
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/mining/status"] });
