@@ -278,6 +278,21 @@ export const priceHistory = pgTable("price_history", {
   index("idx_price_history_created").on(table.createdAt),
 ]);
 
+// Help requests for employee support
+export const helpRequests = pgTable("help_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  message: text("message").notNull(),
+  imageUrls: text("image_urls").array(), // Array of image URLs
+  status: text("status").notNull().default("pending"), // 'pending', 'in_progress', 'resolved'
+  adminResponse: text("admin_response"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => [
+  index("idx_help_requests_user").on(table.userId),
+  index("idx_help_requests_status").on(table.status),
+]);
+
 // Treasury withdrawal tracking for blockchain execution
 export const treasuryWithdrawals = pgTable("treasury_withdrawals", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -843,3 +858,15 @@ export const insertPriceHistorySchema = createInsertSchema(priceHistory).omit({
 
 export type PriceHistory = typeof priceHistory.$inferSelect;
 export type InsertPriceHistory = z.infer<typeof insertPriceHistorySchema>;
+
+// Help request schemas
+export const insertHelpRequestSchema = createInsertSchema(helpRequests).omit({
+  id: true,
+  status: true,
+  adminResponse: true,
+  createdAt: true,
+  resolvedAt: true,
+});
+
+export type HelpRequest = typeof helpRequests.$inferSelect;
+export type InsertHelpRequest = z.infer<typeof insertHelpRequestSchema>;

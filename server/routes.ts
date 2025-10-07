@@ -431,6 +431,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Profile image upload (base64 encoded)
+  app.post('/api/user/profile-image', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { profileImageUrl } = req.body;
+
+      if (!profileImageUrl || typeof profileImageUrl !== 'string') {
+        return res.status(400).json({ message: "Profile image is required" });
+      }
+
+      // Validate base64 image format
+      if (!profileImageUrl.startsWith('data:image/')) {
+        return res.status(400).json({ message: "Invalid image format. Must be a base64 encoded image" });
+      }
+
+      const updatedUser = await storage.updateUserProfileImage(userId, profileImageUrl);
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating profile image:", error);
+      res.status(500).json({ message: "Failed to update profile image" });
+    }
+  });
+
+  // Help request submission with optional images
+  app.post('/api/support/help-request', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { message, imageUrls } = req.body;
+
+      if (!message || typeof message !== 'string' || message.trim().length === 0) {
+        return res.status(400).json({ message: "Help message is required" });
+      }
+
+      // Validate image URLs if provided
+      const validatedImageUrls: string[] = [];
+      if (imageUrls && Array.isArray(imageUrls)) {
+        for (const url of imageUrls) {
+          if (url && typeof url === 'string' && url.startsWith('data:image/')) {
+            validatedImageUrls.push(url);
+          }
+        }
+      }
+
+      const helpRequest = await storage.createHelpRequest({
+        userId,
+        message: message.trim(),
+        imageUrls: validatedImageUrls.length > 0 ? validatedImageUrls : null,
+      });
+
+      res.json(helpRequest);
+    } catch (error) {
+      console.error("Error creating help request:", error);
+      res.status(500).json({ message: "Failed to submit help request" });
+    }
+  });
+
   // Employee job submission - track who created the job for rewards
   app.post("/api/leads/employee", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {

@@ -23,6 +23,12 @@ export interface IStorage {
   // User compliance (age and TOS)
   updateUserCompliance(userId: string, dateOfBirth: string, tosAccepted: boolean): Promise<User | undefined>;
   
+  // Profile image upload
+  updateUserProfileImage(userId: string, profileImageUrl: string): Promise<User | undefined>;
+  
+  // Help request operations
+  createHelpRequest(request: { userId: string; message: string; imageUrls: string[] | null }): Promise<any>;
+  
   // Referral operations
   generateReferralCode(userId: string): Promise<string>;
   getReferralCode(userId: string): Promise<string | null>;
@@ -279,6 +285,31 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, userId))
       .returning();
     return user || undefined;
+  }
+
+  async updateUserProfileImage(userId: string, profileImageUrl: string): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({ 
+        profileImageUrl,
+        updatedAt: new Date() 
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return user || undefined;
+  }
+
+  async createHelpRequest(request: { userId: string; message: string; imageUrls: string[] | null }): Promise<any> {
+    const { helpRequests } = await import("@shared/schema");
+    const [helpRequest] = await db
+      .insert(helpRequests)
+      .values({
+        userId: request.userId,
+        message: request.message,
+        imageUrls: request.imageUrls,
+      })
+      .returning();
+    return helpRequest;
   }
 
   async getPendingEmployees(): Promise<User[]> {

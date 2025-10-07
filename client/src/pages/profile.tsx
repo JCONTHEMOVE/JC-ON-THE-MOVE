@@ -52,10 +52,15 @@ export default function ProfilePage() {
 
   const uploadProfileImageMutation = useMutation({
     mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append('profileImage', file);
+      // Convert file to base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
       
-      const response = await apiRequest('POST', '/api/user/profile-image', formData);
+      const profileImageUrl = await base64Promise;
+      const response = await apiRequest('POST', '/api/user/profile-image', { profileImageUrl });
       return await response.json();
     },
     onSuccess: () => {
@@ -78,13 +83,20 @@ export default function ProfilePage() {
 
   const submitHelpRequestMutation = useMutation({
     mutationFn: async (data: { message: string; images: File[] }) => {
-      const formData = new FormData();
-      formData.append('message', data.message);
-      data.images.forEach((image, index) => {
-        formData.append(`image${index}`, image);
+      // Convert images to base64
+      const imagePromises = data.images.map(file => {
+        return new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
       });
       
-      const response = await apiRequest('POST', '/api/support/help-request', formData);
+      const imageUrls = await Promise.all(imagePromises);
+      const response = await apiRequest('POST', '/api/support/help-request', { 
+        message: data.message,
+        imageUrls 
+      });
       return await response.json();
     },
     onSuccess: () => {
