@@ -165,12 +165,17 @@ export default function Header() {
                 
                 {isAuthenticated ? (
                   <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2 text-sm">
+                    <Link
+                      href="/profile"
+                      className="flex items-center space-x-2 text-sm hover:text-primary transition-colors cursor-pointer"
+                      data-testid="link-profile"
+                    >
                       {user?.profileImageUrl ? (
                         <img 
                           src={user.profileImageUrl} 
                           alt="Profile" 
                           className="w-6 h-6 rounded-full object-cover"
+                          data-testid="img-profile-avatar"
                         />
                       ) : (
                         <User className="h-5 w-5 text-muted-foreground" />
@@ -178,7 +183,7 @@ export default function Header() {
                       <span className="text-muted-foreground">
                         {user?.firstName || user?.email || 'User'}
                       </span>
-                    </div>
+                    </Link>
                     <a 
                       href="/api/logout" 
                       className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
@@ -364,12 +369,18 @@ export default function Header() {
               
               {isAuthenticated ? (
                 <>
-                  <div className="flex items-center space-x-2 px-3 py-2 text-sm">
+                  <Link
+                    href="/profile"
+                    className="flex items-center space-x-2 px-3 py-2 text-sm hover:text-primary transition-colors cursor-pointer"
+                    data-testid="link-mobile-profile"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
                     {user?.profileImageUrl ? (
                       <img 
                         src={user.profileImageUrl} 
                         alt="Profile" 
                         className="w-6 h-6 rounded-full object-cover"
+                        data-testid="img-mobile-profile-avatar"
                       />
                     ) : (
                       <User className="h-5 w-5 text-muted-foreground" />
@@ -377,7 +388,7 @@ export default function Header() {
                     <span className="text-muted-foreground">
                       {user?.firstName || user?.email || 'User'}
                     </span>
-                  </div>
+                  </Link>
                   <a 
                     href="/api/logout" 
                     className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
