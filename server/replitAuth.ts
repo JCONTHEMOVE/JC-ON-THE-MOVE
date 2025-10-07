@@ -195,8 +195,13 @@ export async function setupAuth(app: Express) {
       console.log(`Login attempt for hostname: ${hostname}, no role specified (defaulting to employee)`);
     }
     
+    // Check if user has previously consented (has existing session)
+    const hasConsented = (req.session as any).hasConsented || false;
+    
     passport.authenticate(`replitauth:${hostname}`, {
       scope: ["openid", "email", "profile", "offline_access"],
+      // Don't force consent prompt if user has already consented
+      prompt: hasConsented ? undefined : 'consent',
     })(req, res, next);
   });
 
@@ -222,6 +227,9 @@ export async function setupAuth(app: Express) {
           return res.redirect("/api/login");
         }
 
+        // Mark that user has consented to save OAuth permissions
+        (req.session as any).hasConsented = true;
+        
         // Check if there's a requested role in the session
         const requestedRole = (req.session as any).requestedRole;
         const userClaims = (req.user as any)?.claims;
