@@ -250,6 +250,7 @@ function BusinessOwnerDashboard() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [serviceFilter, setServiceFilter] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState<string>("leads");
 
   const { data: leads = [], isLoading: leadsLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads"],
@@ -389,7 +390,15 @@ function BusinessOwnerDashboard() {
 
         {/* Business Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card data-testid="stat-new-leads">
+          <Card 
+            data-testid="stat-new-leads" 
+            className="cursor-pointer hover:shadow-lg transition-shadow"
+            onClick={() => {
+              setActiveTab("leads");
+              setStatusFilter("new");
+              setServiceFilter("all");
+            }}
+          >
             <CardContent className="p-6">
               <div className="flex items-center">
                 <div className="bg-primary text-primary-foreground p-3 rounded-lg">
@@ -403,7 +412,15 @@ function BusinessOwnerDashboard() {
             </CardContent>
           </Card>
           
-          <Card data-testid="stat-pending-quotes">
+          <Card 
+            data-testid="stat-pending-quotes"
+            className="cursor-pointer hover:shadow-lg transition-shadow"
+            onClick={() => {
+              setActiveTab("leads");
+              setStatusFilter("contacted");
+              setServiceFilter("all");
+            }}
+          >
             <CardContent className="p-6">
               <div className="flex items-center">
                 <div className="bg-secondary text-secondary-foreground p-3 rounded-lg">
@@ -417,7 +434,15 @@ function BusinessOwnerDashboard() {
             </CardContent>
           </Card>
           
-          <Card data-testid="stat-confirmed-jobs">
+          <Card 
+            data-testid="stat-confirmed-jobs"
+            className="cursor-pointer hover:shadow-lg transition-shadow"
+            onClick={() => {
+              setActiveTab("leads");
+              setStatusFilter("confirmed");
+              setServiceFilter("all");
+            }}
+          >
             <CardContent className="p-6">
               <div className="flex items-center">
                 <div className="bg-green-500 text-white p-3 rounded-lg">
@@ -431,7 +456,15 @@ function BusinessOwnerDashboard() {
             </CardContent>
           </Card>
           
-          <Card data-testid="stat-employees">
+          <Card 
+            data-testid="stat-employees"
+            className="cursor-pointer hover:shadow-lg transition-shadow"
+            onClick={() => {
+              setActiveTab("employees");
+              setStatusFilter("all");
+              setServiceFilter("all");
+            }}
+          >
             <CardContent className="p-6">
               <div className="flex items-center">
                 <div className="bg-blue-500 text-white p-3 rounded-lg">
@@ -556,7 +589,7 @@ function BusinessOwnerDashboard() {
           )}
         </div>
 
-        <Tabs defaultValue="leads" className="space-y-8">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <TabsList data-testid="dashboard-tabs">
             <TabsTrigger value="leads">Lead Management</TabsTrigger>
             <TabsTrigger value="employees">Employee Management</TabsTrigger>
