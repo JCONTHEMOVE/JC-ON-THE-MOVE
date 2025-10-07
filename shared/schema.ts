@@ -293,6 +293,38 @@ export const helpRequests = pgTable("help_requests", {
   index("idx_help_requests_status").on(table.status),
 ]);
 
+// Token mining sessions - passive JCMOVES generation (864 tokens/24hrs per user)
+export const miningSessions = pgTable("mining_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id).unique(), // One active session per user
+  startTime: timestamp("start_time").notNull().default(sql`now()`),
+  lastClaimTime: timestamp("last_claim_time").notNull().default(sql`now()`),
+  accumulatedTokens: decimal("accumulated_tokens", { precision: 18, scale: 8 }).notNull().default("0.00000000"),
+  miningSpeed: decimal("mining_speed", { precision: 5, scale: 2 }).notNull().default("1.00"), // Speed multiplier (1X, 2X, etc.)
+  status: text("status").notNull().default("active"), // 'active', 'paused', 'completed'
+  nextClaimAt: timestamp("next_claim_at").notNull(), // 24 hours from start
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_mining_sessions_user").on(table.userId),
+  index("idx_mining_sessions_status").on(table.status),
+  index("idx_mining_sessions_next_claim").on(table.nextClaimAt),
+]);
+
+// Mining claims history
+export const miningClaims = pgTable("mining_claims", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  sessionId: varchar("session_id").notNull().references(() => miningSessions.id),
+  tokenAmount: decimal("token_amount", { precision: 18, scale: 8 }).notNull(),
+  claimTime: timestamp("claim_time").notNull().default(sql`now()`),
+  claimType: text("claim_type").notNull().default("auto"), // 'auto', 'manual'
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_mining_claims_user").on(table.userId),
+  index("idx_mining_claims_session").on(table.sessionId),
+]);
+
 // Treasury withdrawal tracking for blockchain execution
 export const treasuryWithdrawals = pgTable("treasury_withdrawals", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -870,3 +902,23 @@ export const insertHelpRequestSchema = createInsertSchema(helpRequests).omit({
 
 export type HelpRequest = typeof helpRequests.$inferSelect;
 export type InsertHelpRequest = z.infer<typeof insertHelpRequestSchema>;
+
+// Mining session schemas
+export const insertMiningSessionSchema = createInsertSchema(miningSessions).omit({
+  id: true,
+  accumulatedTokens: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertMiningClaimSchema = createInsertSchema(miningClaims).omit({
+  id: true,
+  claimTime: true,
+  createdAt: true,
+});
+
+export type MiningSession = typeof miningSessions.$inferSelect;
+export type InsertMiningSession = z.infer<typeof insertMiningSessionSchema>;
+export type MiningClaim = typeof miningClaims.$inferSelect;
+export type InsertMiningClaim = z.infer<typeof insertMiningClaimSchema>;
