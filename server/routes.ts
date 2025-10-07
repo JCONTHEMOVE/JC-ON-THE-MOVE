@@ -1171,128 +1171,129 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Cashout endpoints disabled - will be available when connected to Solana blockchain
   // Cashout request
-  app.post("/api/rewards/cashout", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      
-      // Validate request body with Zod
-      const validatedData = cashoutSchema.parse(req.body);
-      const { tokenAmount, bankDetails } = validatedData;
-
-      // Validate bank details
-      const validation = cryptoCashoutService.validateBankDetails(bankDetails);
-      if (!validation.valid) {
-        return res.status(400).json({ error: validation.errors.join(', ') });
-      }
-
-      // Get current wallet balance
-      const wallet = await db
-        .select()
-        .from(walletAccounts)
-        .where(eq(walletAccounts.userId, userId))
-        .limit(1);
-
-      if (wallet.length === 0 || parseFloat(wallet[0].tokenBalance || '0') < tokenAmount) {
-        return res.status(400).json({ error: "Insufficient balance" });
-      }
-
-      // Check eligibility
-      const eligibility = await rewardsService.validateCashoutEligibility(
-        parseFloat(wallet[0].tokenBalance || '0'),
-        tokenAmount
-      );
-
-      if (!eligibility.eligible) {
-        return res.status(400).json({ error: eligibility.reason });
-      }
-
-      // Calculate cash amount
-      const cashAmount = await moonshotService.calculateCashValue(tokenAmount);
-      const conversionRate = await moonshotService.getTokenPrice();
-
-      // Encrypt bank details for secure storage
-      const encryptedBankDetails = await EncryptionService.encryptBankDetails(bankDetails);
-
-      // Create cashout request with encrypted bank details
-      const cashoutRequest = await db.insert(cashoutRequests).values({
-        userId,
-        tokenAmount: tokenAmount.toString(),
-        cashAmount: cashAmount.toString(),
-        conversionRate: conversionRate.toString(),
-        bankDetails: encryptedBankDetails
-      }).returning();
-
-      // Initiate external cashout
-      const externalResult = await cryptoCashoutService.initiateCashout({
-        userId,
-        tokenAmount,
-        cashAmount,
-        bankDetails
-      });
-
-      // Update request with external transaction ID
-      await db
-        .update(cashoutRequests)
-        .set({
-          externalTransactionId: externalResult.id,
-          status: externalResult.status,
-          failureReason: externalResult.failureReason
-        })
-        .where(eq(cashoutRequests.id, cashoutRequest[0].id));
-
-      if (externalResult.status !== 'failed') {
-        // Deduct from wallet balance (reserve tokens)
-        await db
-          .update(walletAccounts)
-          .set({
-            tokenBalance: (parseFloat(wallet[0].tokenBalance || '0') - tokenAmount).toString(),
-            lastActivity: new Date()
-          })
-          .where(eq(walletAccounts.userId, userId));
-      }
-
-      res.json({
-        success: true,
-        cashoutId: cashoutRequest[0].id,
-        externalId: externalResult.id,
-        status: externalResult.status,
-        cashAmount,
-        estimatedCompletion: "1-3 business days"
-      });
-
-    } catch (error) {
-      console.error("Cashout error:", error);
-      res.status(500).json({ error: "Cashout request failed" });
-    }
-  });
+  // app.post("/api/rewards/cashout", isAuthenticated, async (req: any, res) => {
+  //   try {
+  //     const userId = req.user.claims.sub;
+  //     
+  //     // Validate request body with Zod
+  //     const validatedData = cashoutSchema.parse(req.body);
+  //     const { tokenAmount, bankDetails } = validatedData;
+  //
+  //     // Validate bank details
+  //     const validation = cryptoCashoutService.validateBankDetails(bankDetails);
+  //     if (!validation.valid) {
+  //       return res.status(400).json({ error: validation.errors.join(', ') });
+  //     }
+  //
+  //     // Get current wallet balance
+  //     const wallet = await db
+  //       .select()
+  //       .from(walletAccounts)
+  //       .where(eq(walletAccounts.userId, userId))
+  //       .limit(1);
+  //
+  //     if (wallet.length === 0 || parseFloat(wallet[0].tokenBalance || '0') < tokenAmount) {
+  //       return res.status(400).json({ error: "Insufficient balance" });
+  //     }
+  //
+  //     // Check eligibility
+  //     const eligibility = await rewardsService.validateCashoutEligibility(
+  //       parseFloat(wallet[0].tokenBalance || '0'),
+  //       tokenAmount
+  //     );
+  //
+  //     if (!eligibility.eligible) {
+  //       return res.status(400).json({ error: eligibility.reason });
+  //     }
+  //
+  //     // Calculate cash amount
+  //     const cashAmount = await moonshotService.calculateCashValue(tokenAmount);
+  //     const conversionRate = await moonshotService.getTokenPrice();
+  //
+  //     // Encrypt bank details for secure storage
+  //     const encryptedBankDetails = await EncryptionService.encryptBankDetails(bankDetails);
+  //
+  //     // Create cashout request with encrypted bank details
+  //     const cashoutRequest = await db.insert(cashoutRequests).values({
+  //       userId,
+  //       tokenAmount: tokenAmount.toString(),
+  //       cashAmount: cashAmount.toString(),
+  //       conversionRate: conversionRate.toString(),
+  //       bankDetails: encryptedBankDetails
+  //     }).returning();
+  //
+  //     // Initiate external cashout
+  //     const externalResult = await cryptoCashoutService.initiateCashout({
+  //       userId,
+  //       tokenAmount,
+  //       cashAmount,
+  //       bankDetails
+  //     });
+  //
+  //     // Update request with external transaction ID
+  //     await db
+  //       .update(cashoutRequests)
+  //       .set({
+  //         externalTransactionId: externalResult.id,
+  //         status: externalResult.status,
+  //         failureReason: externalResult.failureReason
+  //       })
+  //       .where(eq(cashoutRequests.id, cashoutRequest[0].id));
+  //
+  //     if (externalResult.status !== 'failed') {
+  //       // Deduct from wallet balance (reserve tokens)
+  //       await db
+  //         .update(walletAccounts)
+  //         .set({
+  //           tokenBalance: (parseFloat(wallet[0].tokenBalance || '0') - tokenAmount).toString(),
+  //           lastActivity: new Date()
+  //         })
+  //         .where(eq(walletAccounts.userId, userId));
+  //     }
+  //
+  //     res.json({
+  //       success: true,
+  //       cashoutId: cashoutRequest[0].id,
+  //       externalId: externalResult.id,
+  //       status: externalResult.status,
+  //       cashAmount,
+  //       estimatedCompletion: "1-3 business days"
+  //     });
+  //
+  //   } catch (error) {
+  //     console.error("Cashout error:", error);
+  //     res.status(500).json({ error: "Cashout request failed" });
+  //   }
+  // });
 
   // Get cashout history
-  app.get("/api/rewards/cashouts", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      
-      const cashouts = await db
-        .select({
-          id: cashoutRequests.id,
-          tokenAmount: cashoutRequests.tokenAmount,
-          cashAmount: cashoutRequests.cashAmount,
-          status: cashoutRequests.status,
-          createdAt: cashoutRequests.createdAt,
-          processedDate: cashoutRequests.processedDate,
-          failureReason: cashoutRequests.failureReason
-        })
-        .from(cashoutRequests)
-        .where(eq(cashoutRequests.userId, userId))
-        .orderBy(desc(cashoutRequests.createdAt))
-        .limit(50);
-
-      res.json(cashouts);
-    } catch (error) {
-      console.error("Error getting cashout history:", error);
-      res.status(500).json({ error: "Failed to get cashout history" });
-    }
-  });
+  // app.get("/api/rewards/cashouts", isAuthenticated, async (req: any, res) => {
+  //   try {
+  //     const userId = req.user.claims.sub;
+  //     
+  //     const cashouts = await db
+  //       .select({
+  //         id: cashoutRequests.id,
+  //         tokenAmount: cashoutRequests.tokenAmount,
+  //         cashAmount: cashoutRequests.cashAmount,
+  //         status: cashoutRequests.status,
+  //         createdAt: cashoutRequests.createdAt,
+  //         processedDate: cashoutRequests.processedDate,
+  //         failureReason: cashoutRequests.failureReason
+  //       })
+  //       .from(cashoutRequests)
+  //       .where(eq(cashoutRequests.userId, userId))
+  //       .orderBy(desc(cashoutRequests.createdAt))
+  //       .limit(50);
+  //
+  //     res.json(cashouts);
+  //   } catch (error) {
+  //     console.error("Error getting cashout history:", error);
+  //     res.status(500).json({ error: "Failed to get cashout history" });
+  //   }
+  // });
 
   // Admin/Business owner routes for rewards management
   app.get("/api/admin/rewards/stats", isAuthenticated, requireBusinessOwner, async (req, res) => {

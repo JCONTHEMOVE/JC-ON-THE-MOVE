@@ -28,6 +28,13 @@ This is a full-stack moving and junk removal service website built with React, T
 - **Terms Page**: Added `/terms` route with comprehensive Terms of Service document
 - **Federal/State Compliance**: System meets legal requirements for all 50 US states
 
+## Cash Out Feature Removal (October 7, 2025)
+- **Feature Disabled**: Removed Cash Out Tokens feature from Rewards Dashboard
+- **Future Implementation**: Feature will be re-enabled when Solana blockchain integration is completed
+- **Backend**: Cashout API endpoints commented out in server/routes.ts
+- **Frontend**: Removed cashout tab, form, and related UI components from rewards dashboard
+- **Database**: cashoutRequests table schema preserved for future use
+
 ## Deployment Fixes (September 30, 2025)
 - **Graceful Authentication Error Handling**: Modified `server/replitAuth.ts` to handle missing `REPLIT_DOMAINS` environment variable without crashing the server
 - **Route Registration Error Handling**: Added try-catch in `server/routes.ts` to prevent authentication setup failures from blocking route registration
