@@ -3079,6 +3079,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============ MINING ENDPOINTS ============
+  
+  // Start or resume mining session
+  app.post("/api/mining/start", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { miningService } = await import('./services/mining');
+      
+      const result = await miningService.startMining(userId);
+      res.json(result);
+    } catch (error) {
+      console.error("Error starting mining:", error);
+      res.status(500).json({ error: "Failed to start mining" });
+    }
+  });
+
+  // Get mining status and stats
+  app.get("/api/mining/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { miningService } = await import('./services/mining');
+      
+      const stats = await miningService.getMiningStats(userId);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting mining status:", error);
+      res.status(500).json({ error: "Failed to get mining status" });
+    }
+  });
+
+  // Manually claim accumulated tokens
+  app.post("/api/mining/claim", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { miningService } = await import('./services/mining');
+      
+      const result = await miningService.claimTokens(userId, 'manual');
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error || "Failed to claim tokens" });
+      }
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error claiming mining tokens:", error);
+      res.status(500).json({ error: "Failed to claim tokens" });
+    }
+  });
+
+  // Auto-claim endpoint (called by cron/scheduler)
+  app.post("/api/mining/auto-claim", async (req, res) => {
+    try {
+      const { miningService } = await import('./services/mining');
+      await miningService.autoClaimExpiredSessions();
+      res.json({ success: true, message: "Auto-claim completed" });
+    } catch (error) {
+      console.error("Error in auto-claim:", error);
+      res.status(500).json({ error: "Failed to auto-claim" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
