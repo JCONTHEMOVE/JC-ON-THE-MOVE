@@ -41,7 +41,8 @@ import {
   TrendingUp,
   Coins,
   Download,
-  ShoppingBag
+  ShoppingBag,
+  Plus
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
@@ -744,6 +745,14 @@ export default function MobileLeadManager() {
               <p className="text-sm text-muted-foreground mb-4">
                 Swipe right to accept • Tap for details
               </p>
+              <Button
+                onClick={() => window.location.href = '/employee/add-job'}
+                className="w-full mb-4"
+                data-testid="button-add-job-mobile"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add a Job
+              </Button>
               {availableJobs.length === 0 && (
                 <div className="text-center py-12">
                   <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />

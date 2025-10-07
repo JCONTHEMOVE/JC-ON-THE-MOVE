@@ -32,6 +32,7 @@ export const leads = pgTable("leads", {
   details: text("details"),
   status: text("status").notNull().default("new"), // 'new', 'contacted', 'quoted', 'accepted', 'in_progress', 'completed'
   assignedToUserId: varchar("assigned_to_user_id").references(() => users.id),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id), // Track employee who created the job for rewards
   truckConfig: text("truck_config"), // 'customer_truck', 'company_truck', 'no_truck'
   crewSize: integer("crew_size").default(2), // Number of crew members needed (2 is standard)
   photos: jsonb("photos").default("[]"), // Array of photo objects with metadata

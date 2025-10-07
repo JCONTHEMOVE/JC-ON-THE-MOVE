@@ -377,11 +377,47 @@ export class GamificationService {
         newLevel,
         customerRating: performance.customerRating
       });
-
-      return { points, tokens: tokenAmount, level: newLevel };
     }
 
-    return { points, tokens: tokenAmount, level: 1 };
+    // Check if this job was created by an employee and reward them too
+    const lead = await storage.getLead(jobId);
+    if (lead && lead.createdByUserId && lead.createdByUserId !== userId) {
+      // Award bonus to employee who created the job (50% of completion reward)
+      const creatorBonusTokens = (parseFloat(tokenAmount) * 0.5).toFixed(8);
+      const creatorBonusPoints = Math.floor(points * 0.5);
+
+      await treasuryService.distributeTokens(
+        parseFloat(creatorBonusTokens),
+        `Job creation bonus - Job #${jobId} completed`,
+        "job_creation_bonus",
+        lead.createdByUserId
+      );
+
+      await storage.createPointTransaction({
+        userId: lead.createdByUserId,
+        points: creatorBonusPoints,
+        transactionType: "job_creation_bonus",
+        relatedEntityType: "lead",
+        relatedEntityId: jobId,
+        description: `Job creation bonus - Job #${jobId} completed`,
+        metadata: {
+          completedBy: userId,
+          tokenAmount: creatorBonusTokens
+        }
+      });
+
+      // Update creator's stats
+      const creatorStats = await storage.getEmployeeStats(lead.createdByUserId);
+      if (creatorStats) {
+        await storage.updateEmployeeStats(lead.createdByUserId, {
+          totalPoints: (creatorStats.totalPoints || 0) + creatorBonusPoints,
+          totalEarnedTokens: (parseFloat(creatorStats.totalEarnedTokens || "0") + parseFloat(creatorBonusTokens)).toFixed(8),
+          lastActivityDate: new Date()
+        });
+      }
+    }
+
+    return { points, tokens: tokenAmount, level: stats ? this.calculateLevel((stats.totalPoints || 0) + points) : 1 };
   }
 
   /**

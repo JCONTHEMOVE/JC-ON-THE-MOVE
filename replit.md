@@ -4,6 +4,15 @@ This is a full-stack moving and junk removal service website built with React, T
 
 # Recent Changes
 
+## Employee Job Creation Feature (October 7, 2025)
+- **Employee Job Submission**: Added "Add a Job" button to Employee Dashboard Jobs tab for employees to submit job requests on behalf of customers
+- **Job Tracking**: Added `createdByUserId` field to leads table to track which employee created each job
+- **Reward System**: Employees earn 50% bonus rewards when jobs they created are confirmed and completed by other employees
+- **API Endpoint**: Created `/api/leads/employee` endpoint for employee job submissions with proper tracking
+- **Email Notifications**: Email alerts indicate when jobs are employee-created with creator information
+- **Cache Management**: Updated query invalidation to refresh available jobs list after employee job submission
+- **Route Addition**: Added `/employee/add-job` page with full quote form for employee use
+
 ## Age Verification & Terms of Service Compliance (October 6, 2025)
 - **Legal Compliance**: Added mandatory age verification (18+) and Terms of Service acceptance for all users
 - **Database Schema**: Added `dateOfBirth`, `tosAccepted`, and `tosAcceptedAt` fields to users table

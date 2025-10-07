@@ -431,6 +431,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Employee job submission - track who created the job for rewards
+  app.post("/api/leads/employee", isAuthenticated, requireEmployee, async (req: any, res) => {
+    try {
+      const employeeId = req.currentUser.id;
+      const leadData = insertLeadSchema.parse(req.body);
+      
+      // Create lead with createdByUserId to track the employee
+      const lead = await storage.createLead({
+        ...leadData,
+        createdByUserId: employeeId
+      });
+      
+      // Send email notification
+      const emailContent = generateLeadNotificationEmail(lead);
+      const companyEmail = process.env.COMPANY_EMAIL || "upmichiganstatemovers@gmail.com";
+      
+      await sendEmail({
+        to: companyEmail,
+        from: companyEmail,
+        subject: `New Employee-Created ${lead.serviceType} Lead - ${lead.firstName} ${lead.lastName}`,
+        text: `${emailContent.text}\n\nCreated by Employee ID: ${employeeId}`,
+        html: `${emailContent.html}<p><strong>Created by Employee ID:</strong> ${employeeId}</p>`,
+      });
+
+      res.json({ success: true, leadId: lead.id, message: "Job created! You'll earn rewards when it's confirmed and completed." });
+    } catch (error) {
+      console.error("Error creating employee lead:", error);
+      res.status(400).json({ error: "Invalid lead data" });
+    }
+  });
+
   // Admin: Employee approval management
   app.get('/api/admin/employees/pending', isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {

@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Users, ClipboardList, CheckCircle, DollarSign, Eye, Mail, Phone, UserCheck, Briefcase, Clock, UserPlus, Wallet, TrendingUp, AlertTriangle, Activity, PiggyBank } from "lucide-react";
+import { ArrowLeft, Users, ClipboardList, CheckCircle, DollarSign, Eye, Mail, Phone, UserCheck, Briefcase, Clock, UserPlus, Wallet, TrendingUp, AlertTriangle, Activity, PiggyBank, Plus } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import MobileLeadManager from "@/components/mobile-lead-manager";
 
@@ -107,10 +107,18 @@ function EmployeeDashboard() {
           <TabsContent value="available">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Briefcase className="h-5 w-5" />
-                  Available Jobs ({availableJobs.length})
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Briefcase className="h-5 w-5" />
+                    Available Jobs ({availableJobs.length})
+                  </CardTitle>
+                  <Link href="/employee/add-job">
+                    <Button variant="default" className="flex items-center gap-2" data-testid="button-add-job">
+                      <Plus className="h-4 w-4" />
+                      Add a Job
+                    </Button>
+                  </Link>
+                </div>
               </CardHeader>
               <CardContent>
                 {availableJobs.length === 0 ? (

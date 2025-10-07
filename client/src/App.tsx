@@ -13,6 +13,7 @@ import HomePage from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
 import RewardsPage from "@/pages/rewards";
 import EmployeeHomePage from "@/pages/employee-home";
+import EmployeeAddJob from "@/pages/employee-add-job";
 import CustomerPortal from "@/pages/customer-portal";
 import PendingApprovalPage from "@/pages/pending-approval";
 import TreasuryDashboard from "@/pages/treasury-dashboard";
@@ -70,6 +71,11 @@ function AuthenticatedApp() {
           <Route path="/dashboard">
             <RouteGuard allowedRoles={['admin', 'employee']}>
               <PageWrapper component={Dashboard} />
+            </RouteGuard>
+          </Route>
+          <Route path="/employee/add-job">
+            <RouteGuard allowedRoles={['admin', 'employee']}>
+              <EmployeeAddJob />
             </RouteGuard>
           </Route>
           <Route path="/rewards">
