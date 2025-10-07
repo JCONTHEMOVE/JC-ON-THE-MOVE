@@ -12,6 +12,7 @@ import Footer from "@/components/footer";
 import HomePage from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
 import RewardsPage from "@/pages/rewards";
+import ProfilePage from "@/pages/profile";
 import EmployeeHomePage from "@/pages/employee-home";
 import EmployeeAddJob from "@/pages/employee-add-job";
 import CustomerPortal from "@/pages/customer-portal";
@@ -80,6 +81,9 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/rewards">
             <PageWrapper component={RewardsPage} />
+          </Route>
+          <Route path="/profile">
+            <PageWrapper component={ProfilePage} />
           </Route>
           <Route path="/pending-approval">
             <PendingApprovalPage />
