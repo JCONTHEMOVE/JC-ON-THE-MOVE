@@ -29,7 +29,7 @@ export default function MiningPage() {
   // Start mining mutation
   const startMiningMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("/api/mining/start", "POST");
+      return await apiRequest("POST", "/api/mining/start");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mining/status"] });
@@ -50,7 +50,7 @@ export default function MiningPage() {
   // Claim tokens mutation
   const claimMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("/api/mining/claim", "POST");
+      return await apiRequest("POST", "/api/mining/claim");
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/mining/status"] });
