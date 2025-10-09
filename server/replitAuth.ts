@@ -300,15 +300,28 @@ export async function setupAuth(app: Express) {
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
   const user = req.user as any;
+  
+  console.log('[AUTH CHECK] Path:', req.path);
+  console.log('[AUTH CHECK] Session ID:', req.sessionID || 'No session ID');
+  console.log('[AUTH CHECK] req.isAuthenticated():', req.isAuthenticated());
+  console.log('[AUTH CHECK] User object exists:', !!user);
+  console.log('[AUTH CHECK] User expires_at:', user?.expires_at || 'No expires_at');
+  console.log('[AUTH CHECK] Cookie header:', req.headers.cookie ? 'Present' : 'Missing');
 
   if (!req.isAuthenticated() || !user.expires_at) {
+    console.log('[AUTH CHECK] ❌ Authentication failed');
     return res.status(401).json({ message: "Unauthorized" });
   }
-
+  
+  console.log('[AUTH CHECK] ✅ User is authenticated');
+  
   const now = Math.floor(Date.now() / 1000);
   if (now <= user.expires_at) {
+    console.log('[AUTH CHECK] ✅ Token is valid, proceeding');
     return next();
   }
+  
+  console.log('[AUTH CHECK] Token expired, attempting refresh');
 
   const refreshToken = user.refresh_token;
   if (!refreshToken) {

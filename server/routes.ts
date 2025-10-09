@@ -3084,14 +3084,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Start or resume mining session
   app.post("/api/mining/start", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
-      const { miningService } = await import('./services/mining');
+      console.log("[MINING] Start mining request received");
+      console.log("[MINING] User object:", req.user ? "present" : "missing");
       
+      if (!req.user || !req.user.id) {
+        console.error("[MINING] No user ID found in request");
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const userId = req.user.id;
+      console.log("[MINING] Starting mining for user:", userId);
+      
+      const { miningService } = await import('./services/mining');
       const result = await miningService.startMining(userId);
+      
+      console.log("[MINING] Mining started successfully:", result);
       res.json(result);
     } catch (error) {
-      console.error("Error starting mining:", error);
-      res.status(500).json({ error: "Failed to start mining" });
+      console.error("[MINING] Error starting mining:", error);
+      console.error("[MINING] Error stack:", error instanceof Error ? error.stack : 'No stack trace');
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to start mining" });
     }
   });
 
