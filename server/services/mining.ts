@@ -134,28 +134,33 @@ export class MiningService {
       // Get current token price for treasury deduction
       const tokenPrice = await this.getCurrentTokenPrice();
 
-      // Deduct from treasury and credit to user wallet
-      const cashValue = tokensToClaim * tokenPrice;
-      
-      // Check treasury availability
-      const treasuryAvailability = await treasuryService.checkFundingAvailability(tokensToClaim, tokenPrice);
-      if (!treasuryAvailability.available) {
+      // Check if treasury can distribute tokens
+      const canDistribute = await treasuryService.canDistributeTokens(tokensToClaim);
+      if (!canDistribute.canDistribute) {
         return { 
           success: false, 
           tokensClaimed: "0", 
           newBalance: "0", 
-          error: "Insufficient treasury funds" 
+          error: canDistribute.reason || "Insufficient treasury funds" 
         };
       }
 
-      // Deduct from treasury
-      await treasuryService.deductFromReserve(
+      // Distribute tokens from treasury
+      const distributionResult = await treasuryService.distributeTokens(
         tokensToClaim,
         `Mining claim - ${claimType}`,
-        tokenPrice,
         'mining_claim',
         session.id
       );
+
+      if (!distributionResult.success) {
+        return { 
+          success: false, 
+          tokensClaimed: "0", 
+          newBalance: "0", 
+          error: distributionResult.error || "Failed to distribute tokens from treasury" 
+        };
+      }
 
       // Credit user wallet
       const [wallet] = await db
