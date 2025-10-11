@@ -166,9 +166,11 @@ export async function setupAuth(app: Express) {
   }
 
   passport.serializeUser((user: Express.User, cb) => {
+    console.log('[PASSPORT] Serializing user:', user);
     cb(null, user);
   });
   passport.deserializeUser((user: Express.User, cb) => {
+    console.log('[PASSPORT] Deserializing user:', user);
     cb(null, user);
   });
 
