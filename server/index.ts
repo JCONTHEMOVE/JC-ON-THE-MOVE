@@ -37,6 +37,12 @@ app.use((req, res, next) => {
       }
 
       log(logLine);
+      
+      // Log cookie headers for debugging
+      const setCookie = res.getHeader('Set-Cookie');
+      if (setCookie) {
+        console.log('[COOKIE] Set-Cookie header sent:', setCookie);
+      }
     }
   });
 

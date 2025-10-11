@@ -35,22 +35,25 @@ export function getSession() {
     tableName: "sessions",
   });
   
-  // Always use secure cookies for HTTPS connections (Replit apps use HTTPS)
-  // Only disable secure for localhost development
-  const isLocalhost = process.env.NODE_ENV === 'development' && 
-                      process.env.REPLIT_DOMAINS?.includes('localhost');
+  // Cookie security configuration
+  // In production, always use secure cookies
+  // In development, only use secure: false for actual localhost (not replit.app domains)
+  const useSecureCookies = process.env.NODE_ENV === 'production' || 
+                           !process.env.REPLIT_DOMAINS?.includes('localhost');
+  
+  console.log(`[SESSION] Cookie configuration: secure=${useSecureCookies}, environment=${process.env.NODE_ENV}`);
   
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
     resave: false,
-    saveUninitialized: false,
+    saveUninitialized: true, // Changed to true to ensure cookies are sent even for new sessions
     cookie: {
       httpOnly: true,
-      secure: !isLocalhost, // Secure cookies for all HTTPS (including replit.app)
-      sameSite: 'lax', // CSRF protection
+      secure: useSecureCookies,
+      sameSite: 'lax',
       maxAge: sessionTtl,
-      domain: undefined, // Let browser handle domain automatically
+      domain: undefined,
     },
   });
 }
