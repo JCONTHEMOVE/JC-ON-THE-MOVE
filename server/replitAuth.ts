@@ -35,9 +35,10 @@ export function getSession() {
     tableName: "sessions",
   });
   
-  // Determine if we should use secure cookies based on the actual protocol
-  const isSecureContext = process.env.NODE_ENV === 'production' && 
-                          !process.env.REPLIT_DOMAINS?.includes('replit.app');
+  // Always use secure cookies for HTTPS connections (Replit apps use HTTPS)
+  // Only disable secure for localhost development
+  const isLocalhost = process.env.NODE_ENV === 'development' && 
+                      process.env.REPLIT_DOMAINS?.includes('localhost');
   
   return session({
     secret: process.env.SESSION_SECRET!,
@@ -46,7 +47,7 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: isSecureContext, // Only secure for custom domains in production
+      secure: !isLocalhost, // Secure cookies for all HTTPS (including replit.app)
       sameSite: 'lax', // CSRF protection
       maxAge: sessionTtl,
       domain: undefined, // Let browser handle domain automatically
