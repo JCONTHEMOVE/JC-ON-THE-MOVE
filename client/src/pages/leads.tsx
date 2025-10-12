@@ -139,8 +139,67 @@ export default function LeadsPage() {
     setIsDialogOpen(true);
   };
 
-  // Filter to show only new leads
+  // Organize leads by status
   const newLeads = leads.filter(lead => lead.status === "new");
+  const contactedLeads = leads.filter(lead => lead.status === "contacted");
+  const quotedLeads = leads.filter(lead => lead.status === "quoted");
+  const confirmedLeads = leads.filter(lead => lead.status === "confirmed");
+  const activeLeads = leads.filter(lead => ["available", "accepted", "in_progress"].includes(lead.status));
+  const completedLeads = leads.filter(lead => lead.status === "completed");
+
+  const renderLeadCard = (lead: Lead) => (
+    <Card key={lead.id} className="border" data-testid={`lead-card-${lead.id}`}>
+      <CardContent className="p-6">
+        <div className="flex justify-between items-start">
+          <div className="space-y-2 flex-1">
+            <div className="flex items-center gap-3">
+              <h3 className="font-semibold text-lg">
+                {lead.firstName} {lead.lastName}
+              </h3>
+              <Badge className={getServiceBadgeColor(lead.serviceType)}>
+                {lead.serviceType === "residential" && "Residential"}
+                {lead.serviceType === "commercial" && "Commercial"}
+                {lead.serviceType === "junk" && "Junk Removal"}
+              </Badge>
+              <Badge variant={getStatusBadgeVariant(lead.status)}>
+                {lead.status.charAt(0).toUpperCase() + lead.status.slice(1)}
+              </Badge>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              <p>📧 {lead.email} • 📞 {lead.phone}</p>
+              <p>📅 Move Date: {lead.moveDate || "Not specified"}</p>
+              <p>📍 From: {lead.fromAddress}</p>
+              {lead.toAddress && <p>📍 To: {lead.toAddress}</p>}
+              {lead.details && <p>💬 {lead.details}</p>}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Posted: {new Date(lead.createdAt).toLocaleString()}
+            </p>
+          </div>
+          <div className="flex gap-2 ml-4">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => handleViewLead(lead)}
+              data-testid={`view-button-${lead.id}`}
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" asChild data-testid={`email-button-${lead.id}`}>
+              <a href={`mailto:${lead.email}`}>
+                <Mail className="h-4 w-4" />
+              </a>
+            </Button>
+            <Button variant="ghost" size="sm" asChild data-testid={`phone-button-${lead.id}`}>
+              <a href={`tel:${lead.phone}`}>
+                <Phone className="h-4 w-4" />
+              </a>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -172,80 +231,112 @@ export default function LeadsPage() {
           </TabsList>
 
           <TabsContent value="view">
-            <Card>
-              <CardHeader>
-                <CardTitle>New Leads ({newLeads.length})</CardTitle>
-                <CardDescription>Recent customer inquiries awaiting contact</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {isLoading ? (
-                  <div className="text-center py-12">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                    <p className="mt-4 text-muted-foreground">Loading leads...</p>
+            {isLoading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                <p className="mt-4 text-muted-foreground">Loading leads...</p>
+              </div>
+            ) : leads.length === 0 ? (
+              <Card>
+                <CardContent className="py-12">
+                  <div className="text-center">
+                    <p className="text-muted-foreground">No leads at this time.</p>
                   </div>
-                ) : newLeads.length === 0 ? (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground">No new leads at this time.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {newLeads.map((lead) => (
-                      <Card key={lead.id} className="border" data-testid={`lead-card-${lead.id}`}>
-                        <CardContent className="p-6">
-                          <div className="flex justify-between items-start">
-                            <div className="space-y-2 flex-1">
-                              <div className="flex items-center gap-3">
-                                <h3 className="font-semibold text-lg">
-                                  {lead.firstName} {lead.lastName}
-                                </h3>
-                                <Badge className={getServiceBadgeColor(lead.serviceType)}>
-                                  {lead.serviceType === "residential" && "Residential"}
-                                  {lead.serviceType === "commercial" && "Commercial"}
-                                  {lead.serviceType === "junk" && "Junk Removal"}
-                                </Badge>
-                                <Badge variant={getStatusBadgeVariant(lead.status)}>
-                                  {lead.status.charAt(0).toUpperCase() + lead.status.slice(1)}
-                                </Badge>
-                              </div>
-                              <div className="text-sm text-muted-foreground">
-                                <p>📧 {lead.email} • 📞 {lead.phone}</p>
-                                <p>📅 Move Date: {lead.moveDate || "Not specified"}</p>
-                                <p>📍 From: {lead.fromAddress}</p>
-                                {lead.toAddress && <p>📍 To: {lead.toAddress}</p>}
-                                {lead.details && <p>💬 {lead.details}</p>}
-                              </div>
-                              <p className="text-xs text-muted-foreground">
-                                Posted: {new Date(lead.createdAt).toLocaleString()}
-                              </p>
-                            </div>
-                            <div className="flex gap-2 ml-4">
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                onClick={() => handleViewLead(lead)}
-                                data-testid={`view-button-${lead.id}`}
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="sm" asChild data-testid={`email-button-${lead.id}`}>
-                                <a href={`mailto:${lead.email}`}>
-                                  <Mail className="h-4 w-4" />
-                                </a>
-                              </Button>
-                              <Button variant="ghost" size="sm" asChild data-testid={`phone-button-${lead.id}`}>
-                                <a href={`tel:${lead.phone}`}>
-                                  <Phone className="h-4 w-4" />
-                                </a>
-                              </Button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-6">
+                {/* New Leads */}
+                {newLeads.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>New Leads ({newLeads.length})</CardTitle>
+                      <CardDescription>Recent customer inquiries awaiting contact</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {newLeads.map(renderLeadCard)}
+                      </div>
+                    </CardContent>
+                  </Card>
                 )}
-              </CardContent>
-            </Card>
+
+                {/* Contacted Leads */}
+                {contactedLeads.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Contacted Leads ({contactedLeads.length})</CardTitle>
+                      <CardDescription>Leads that have been contacted</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {contactedLeads.map(renderLeadCard)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Quoted Leads */}
+                {quotedLeads.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Quoted Leads ({quotedLeads.length})</CardTitle>
+                      <CardDescription>Leads with active quotes</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {quotedLeads.map(renderLeadCard)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Confirmed Jobs */}
+                {confirmedLeads.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Confirmed Jobs ({confirmedLeads.length})</CardTitle>
+                      <CardDescription>Jobs confirmed and ready to be assigned</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {confirmedLeads.map(renderLeadCard)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Active Jobs */}
+                {activeLeads.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Active Jobs ({activeLeads.length})</CardTitle>
+                      <CardDescription>Jobs currently in progress or assigned</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {activeLeads.map(renderLeadCard)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Completed Jobs */}
+                {completedLeads.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Completed Jobs ({completedLeads.length})</CardTitle>
+                      <CardDescription>Successfully completed jobs</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {completedLeads.map(renderLeadCard)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="add">

@@ -570,9 +570,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       res.json({ success: true, leadId: lead.id, message: "Job created! You'll earn rewards when it's confirmed and completed." });
-    } catch (error) {
-      console.error("Error creating employee lead:", error);
-      res.status(400).json({ error: "Invalid lead data" });
+    } catch (error: any) {
+      console.error("❌ Error creating employee lead:", error);
+      
+      // If it's a Zod validation error, provide details
+      if (error.issues) {
+        console.error("❌ Validation errors:", JSON.stringify(error.issues, null, 2));
+        return res.status(400).json({ 
+          error: "Invalid lead data",
+          details: error.issues.map((issue: any) => ({
+            field: issue.path.join('.'),
+            message: issue.message
+          }))
+        });
+      }
+      
+      res.status(400).json({ error: error.message || "Invalid lead data" });
     }
   });
 
