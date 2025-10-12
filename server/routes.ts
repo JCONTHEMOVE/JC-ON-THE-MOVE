@@ -431,6 +431,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Manual login endpoint (temporary workaround for broken OAuth)
+  app.post('/api/auth/manual-login', async (req: any, res) => {
+    try {
+      const { userId, email } = req.body;
+      
+      if (!userId || !email) {
+        return res.status(400).json({ message: "userId and email are required" });
+      }
+
+      // Create mock user session
+      req.login({
+        claims: {
+          sub: userId,
+          email: email,
+          first_name: 'Darrell',
+          last_name: 'Jackson'
+        },
+        expires_at: 9999999999,
+        access_token: 'test_token'
+      }, (err: any) => {
+        if (err) {
+          console.error('Manual login error:', err);
+          return res.status(500).json({ message: "Login failed" });
+        }
+        console.log(`✅ Manual login successful for ${email}`);
+        res.json({ success: true, message: "Logged in successfully" });
+      });
+    } catch (error) {
+      console.error("Manual login error:", error);
+      res.status(500).json({ message: "Login failed" });
+    }
+  });
+
   // Profile image upload (base64 encoded)
   app.post('/api/user/profile-image', isAuthenticated, async (req: any, res) => {
     try {
