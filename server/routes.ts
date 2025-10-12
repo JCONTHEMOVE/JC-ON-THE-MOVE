@@ -575,6 +575,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get leads by status (business owner only)
+  app.get("/api/leads/status/:status", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { status } = req.params;
+      const leads = await storage.getLeadsByStatus(status);
+      res.json(leads);
+    } catch (error) {
+      console.error("Error fetching leads by status:", error);
+      res.status(500).json({ error: "Failed to fetch leads" });
+    }
+  });
+
   // Get single lead by ID (business owner only)
   app.get("/api/leads/:id", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {

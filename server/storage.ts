@@ -215,6 +215,14 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(leads.createdAt));
   }
 
+  async getLeadsByStatus(status: string): Promise<Lead[]> {
+    return await db
+      .select()
+      .from(leads)
+      .where(eq(leads.status, status))
+      .orderBy(desc(leads.lastQuoteUpdatedAt), desc(leads.createdAt));
+  }
+
   async updateLeadStatus(id: string, status: string): Promise<Lead | undefined> {
     let updateData: any = { status };
     
