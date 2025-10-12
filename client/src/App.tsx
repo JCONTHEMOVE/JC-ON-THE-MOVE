@@ -31,6 +31,7 @@ import JobDetailPage from "@/pages/job-detail";
 import TermsOfService from "@/pages/terms";
 import PendingQuotesPage from "@/pages/pending-quotes";
 import EmployeesPage from "@/pages/employees";
+import LeadDetailPage from "@/pages/lead-detail";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -85,6 +86,11 @@ function AuthenticatedApp() {
           <Route path="/leads">
             <RouteGuard allowedRoles={['admin', 'employee']}>
               <PageWrapper component={LeadsPage} />
+            </RouteGuard>
+          </Route>
+          <Route path="/lead/:id">
+            <RouteGuard allowedRoles={['admin', 'employee']}>
+              <PageWrapper component={LeadDetailPage} />
             </RouteGuard>
           </Route>
           <Route path="/pending-quotes">

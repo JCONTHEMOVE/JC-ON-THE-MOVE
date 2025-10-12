@@ -726,6 +726,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // General update lead endpoint (admin or employee)
+  app.patch("/api/leads/:id", isAuthenticated, requireEmployee, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updateData = req.body;
+      
+      // Update last quote timestamp if quote-related fields are being updated
+      if (updateData.basePrice || updateData.crewSize || updateData.confirmedDate) {
+        updateData.lastQuoteUpdatedAt = new Date();
+      }
+      
+      const updatedLead = await storage.updateLeadQuote(id, updateData);
+      
+      if (!updatedLead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      res.json(updatedLead);
+    } catch (error) {
+      console.error("Error updating lead:", error);
+      res.status(500).json({ error: "Failed to update lead" });
+    }
+  });
+
   // Update lead quote and confirmation (business owner only)
   app.patch("/api/leads/:id/quote", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {

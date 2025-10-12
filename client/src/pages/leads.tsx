@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { ArrowLeft, Home, Building, Trash2, Eye, Mail, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -180,10 +180,12 @@ export default function LeadsPage() {
             <Button 
               variant="ghost" 
               size="sm" 
-              onClick={() => handleViewLead(lead)}
+              asChild
               data-testid={`view-button-${lead.id}`}
             >
-              <Eye className="h-4 w-4" />
+              <Link href={`/lead/${lead.id}`}>
+                <Eye className="h-4 w-4" />
+              </Link>
             </Button>
             <Button variant="ghost" size="sm" asChild data-testid={`email-button-${lead.id}`}>
               <a href={`mailto:${lead.email}`}>
