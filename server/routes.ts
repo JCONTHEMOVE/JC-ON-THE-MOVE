@@ -688,6 +688,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pianoFee: pianoFee.toFixed(2),
         totalSpecialItemsFee: totalSpecialItemsFee.toFixed(2),
         totalPrice: totalPrice.toFixed(2),
+        lastQuoteUpdatedAt: new Date(),
       });
       
       if (!updatedLead) {
