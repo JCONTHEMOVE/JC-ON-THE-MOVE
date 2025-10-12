@@ -644,6 +644,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update lead quote and confirmation (business owner only)
+  app.patch("/api/leads/:id/quote", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const quoteData = req.body;
+      
+      // Calculate special items fees based on weight ($200 base + $150 per 100lbs up to 1000lbs)
+      const calculateHeavyItemFee = (weight: number | null | undefined): number => {
+        if (!weight || weight <= 0) return 0;
+        const cappedWeight = Math.min(weight, 1000); // Cap at 1000 lbs
+        const hundredPounds = Math.floor(cappedWeight / 100);
+        return 200 + (hundredPounds * 150);
+      };
+      
+      // Calculate fees for each special item
+      const hotTubFee = quoteData.hasHotTub ? calculateHeavyItemFee(quoteData.hotTubWeight) : 0;
+      const heavySafeFee = quoteData.hasHeavySafe ? calculateHeavyItemFee(quoteData.heavySafeWeight) : 0;
+      const poolTableFee = quoteData.hasPoolTable ? calculateHeavyItemFee(quoteData.poolTableWeight) : 0;
+      const pianoFee = quoteData.hasPiano ? calculateHeavyItemFee(quoteData.pianoWeight) : 0;
+      
+      const totalSpecialItemsFee = hotTubFee + heavySafeFee + poolTableFee + pianoFee;
+      const basePrice = parseFloat(quoteData.basePrice) || 0;
+      const totalPrice = basePrice + totalSpecialItemsFee;
+      
+      const updatedLead = await storage.updateLeadQuote(id, {
+        ...quoteData,
+        hotTubFee: hotTubFee.toFixed(2),
+        heavySafeFee: heavySafeFee.toFixed(2),
+        poolTableFee: poolTableFee.toFixed(2),
+        pianoFee: pianoFee.toFixed(2),
+        totalSpecialItemsFee: totalSpecialItemsFee.toFixed(2),
+        totalPrice: totalPrice.toFixed(2),
+      });
+      
+      if (!updatedLead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      res.json(updatedLead);
+    } catch (error) {
+      console.error("Error updating lead quote:", error);
+      res.status(500).json({ error: "Failed to update lead quote" });
+    }
+  });
+
   // Submit contact form
   app.post("/api/contacts", async (req, res) => {
     try {
