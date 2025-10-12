@@ -447,6 +447,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get user by ID (for employee access)
+  app.get('/api/users/:id', isAuthenticated, requireEmployee, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const user = await storage.getUser(id);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Return only safe user data
+      res.json({
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+      });
+    } catch (error) {
+      console.error("Error fetching user by ID:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
   // Manual login endpoint (temporary workaround for broken OAuth)
   app.post('/api/auth/manual-login', async (req: any, res) => {
     try {

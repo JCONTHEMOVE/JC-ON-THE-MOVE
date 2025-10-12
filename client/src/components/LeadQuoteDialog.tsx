@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { X, Users } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -142,8 +143,11 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
     }
   };
 
-  // Find created by user from employees list
-  const createdByUser = employees.find(emp => emp.id === lead?.createdByUserId);
+  // Fetch created by user from API
+  const { data: createdByUser } = useQuery<User>({
+    queryKey: ["/api/users", lead?.createdByUserId],
+    enabled: !!lead?.createdByUserId,
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
