@@ -90,8 +90,8 @@ export default function RewardsDashboard() {
     queryKey: ['/api/rewards/wallet'],
   });
 
-  // Fetch check-in status
-  const { data: checkinStatus, isLoading: checkinLoading } = useQuery<CheckinStatus>({
+  // Fetch check-in status (for streak display only)
+  const { data: checkinStatus } = useQuery<CheckinStatus>({
     queryKey: ['/api/rewards/checkin/status'],
   });
 
@@ -121,52 +121,6 @@ export default function RewardsDashboard() {
     refetchInterval: 5000,
   });
 
-  // Generate device fingerprint
-  const generateDeviceFingerprint = () => {
-    return {
-      userAgent: navigator.userAgent,
-      screenResolution: `${screen.width}x${screen.height}`,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      language: navigator.language,
-      platform: navigator.platform
-    };
-  };
-
-  // Daily check-in mutation
-  const checkinMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest('POST', '/api/rewards/checkin', {
-        deviceFingerprint: generateDeviceFingerprint()
-      });
-      return await response.json();
-    },
-    onSuccess: (data) => {
-      if (data.success) {
-        toast({
-          title: "Check-in successful!",
-          description: data.message,
-        });
-        queryClient.invalidateQueries({ queryKey: ['/api/rewards/checkin/status'] });
-        queryClient.invalidateQueries({ queryKey: ['/api/rewards/wallet'] });
-        queryClient.invalidateQueries({ queryKey: ['/api/rewards/history'] });
-      } else {
-        toast({
-          title: "Check-in failed",
-          description: data.message,
-          variant: "destructive"
-        });
-      }
-    },
-    onError: (error: Error) => {
-      if (error.message.includes('401')) return;
-      toast({
-        title: "Check-in failed",
-        description: error.message || "Something went wrong. Please try again.",
-        variant: "destructive"
-      });
-    }
-  });
-
   // Start mining mutation
   const startMiningMutation = useMutation({
     mutationFn: async () => {
@@ -176,7 +130,7 @@ export default function RewardsDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/mining/status"] });
       toast({
         title: "Mining Started!",
-        description: "Your passive token mining has begun. Earn 864 JCMOVES every 24 hours!",
+        description: "Your passive token mining has begun. Earn 1,728 JCMOVES every 24 hours!",
       });
     },
     onError: (error: any) => {
@@ -244,7 +198,7 @@ export default function RewardsDashboard() {
     }
   });
 
-  // Calculate accumulated tokens in real-time
+  // Calculate accumulated tokens in real-time (2x speed: 0.02 JCMOVES/second = 1728/day)
   useEffect(() => {
     if (!miningStatus?.currentSession) return;
 
@@ -254,13 +208,13 @@ export default function RewardsDashboard() {
       const secondsElapsed = Math.floor((now - lastClaim) / 1000);
       
       const miningSpeed = parseFloat(miningStatus.miningSpeed || "1.00");
-      const tokensPerSecond = 0.01;
+      const tokensPerSecond = 0.02; // 2x increase: 0.02 JCMOVES/second = 1728/day
       const tokensEarned = secondsElapsed * tokensPerSecond * miningSpeed;
       
       const previousAccumulated = parseFloat(miningStatus.currentSession.accumulatedTokens || "0");
       const totalAccumulated = previousAccumulated + tokensEarned;
       
-      const maxTokens = 864 * miningSpeed;
+      const maxTokens = 1728 * miningSpeed; // 2x increase from 864
       const cappedTokens = Math.min(totalAccumulated, maxTokens);
       
       setAccumulatedTokens(cappedTokens.toFixed(8));
@@ -353,7 +307,6 @@ export default function RewardsDashboard() {
     }
   };
 
-  const canCheckin = checkinStatus && !checkinStatus.checkedInToday;
   const tokenBalance = parseFloat(wallet?.tokenBalance || '0');
   const cashValue = parseFloat(wallet?.cashBalance || '0');
   const hasActiveSession = !!miningStatus?.currentSession;
@@ -364,7 +317,7 @@ export default function RewardsDashboard() {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-foreground">Rewards Center</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Earn {tokenInfo?.symbol || 'JCMOVES'} through mining, check-ins, and referrals
+            Earn {tokenInfo?.symbol || 'JCMOVES'} through mining and referrals
           </p>
         </div>
         <div className="text-right">
@@ -409,7 +362,7 @@ export default function RewardsDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Check-in Streak</CardTitle>
+            <CardTitle className="text-sm font-medium">Mining Streak</CardTitle>
             <Zap className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -425,14 +378,10 @@ export default function RewardsDashboard() {
 
       {/* Main Tabs */}
       <Tabs defaultValue="mining" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="mining" data-testid="tab-mining">
             <Zap className="h-4 w-4 mr-2" />
             Mining
-          </TabsTrigger>
-          <TabsTrigger value="checkin" data-testid="tab-checkin">
-            <Calendar className="h-4 w-4 mr-2" />
-            Check-in
           </TabsTrigger>
           <TabsTrigger value="referrals" data-testid="tab-referrals">
             <Users className="h-4 w-4 mr-2" />
@@ -466,7 +415,7 @@ export default function RewardsDashboard() {
                 <Zap className="h-16 w-16 mx-auto text-orange-500 mb-4" />
                 <h2 className="text-xl font-bold mb-2">Start Mining JCMOVES</h2>
                 <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  Begin earning passive tokens automatically. You'll receive 864 JCMOVES every 24 hours!
+                  Begin earning passive tokens automatically. You'll receive 1,728 JCMOVES every 24 hours! (2x Boost Active)
                 </p>
                 <Button
                   onClick={() => startMiningMutation.mutate()}
@@ -549,9 +498,9 @@ export default function RewardsDashboard() {
                   <div className="grid grid-cols-2 gap-4 text-center">
                     <div>
                       <p className="text-2xl font-bold text-orange-500" data-testid="text-daily-rate">
-                        864
+                        1,728
                       </p>
-                      <p className="text-xs text-gray-600 dark:text-gray-400">Tokens/Day</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">Tokens/Day (2X)</p>
                     </div>
                     <div>
                       <p className="text-2xl font-bold text-orange-500" data-testid="text-claimed-today">
@@ -564,51 +513,6 @@ export default function RewardsDashboard() {
               </>
             )}
           </div>
-        </TabsContent>
-
-        {/* Daily Check-in Tab */}
-        <TabsContent value="checkin" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5" />
-                Daily Check-in
-              </CardTitle>
-              <CardDescription>
-                Check in daily to earn {tokenInfo?.symbol || 'tokens'}. Build a streak for bonus rewards!
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  {checkinStatus?.checkedInToday ? (
-                    <div className="flex items-center gap-2 text-green-600">
-                      <CheckCircle className="h-5 w-5" />
-                      <span className="font-medium">Checked in today!</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-5 w-5 text-orange-500" />
-                      <span>Ready to check in</span>
-                    </div>
-                  )}
-                  {checkinStatus?.nextReward && (
-                    <p className="text-sm text-muted-foreground mt-2">
-                      Next reward: {checkinStatus.nextReward.tokenAmount.toFixed(8)} {tokenInfo?.symbol || 'tokens'} 
-                      (${checkinStatus.nextReward.cashValue.toFixed(4)})
-                    </p>
-                  )}
-                </div>
-                <Button 
-                  onClick={() => checkinMutation.mutate()}
-                  disabled={!canCheckin || checkinMutation.isPending}
-                  data-testid="checkin-button"
-                >
-                  {checkinMutation.isPending ? 'Checking in...' : canCheckin ? 'Check In' : 'Already checked in'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         {/* Referrals Tab */}
@@ -771,7 +675,7 @@ export default function RewardsDashboard() {
               ) : (
                 <div className="text-center py-8">
                   <Coins className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">No rewards yet. Start by checking in daily!</p>
+                  <p className="text-muted-foreground">No rewards yet. Start mining to earn tokens!</p>
                 </div>
               )}
             </CardContent>
