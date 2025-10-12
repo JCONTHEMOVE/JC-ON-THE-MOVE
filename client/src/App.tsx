@@ -30,6 +30,7 @@ import { ShopItemDetailPage } from "@/pages/shop-item-detail";
 import JobDetailPage from "@/pages/job-detail";
 import TermsOfService from "@/pages/terms";
 import PendingQuotesPage from "@/pages/pending-quotes";
+import EmployeesPage from "@/pages/employees";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -89,6 +90,11 @@ function AuthenticatedApp() {
           <Route path="/pending-quotes">
             <RouteGuard allowedRoles={['admin', 'employee']}>
               <PageWrapper component={PendingQuotesPage} />
+            </RouteGuard>
+          </Route>
+          <Route path="/employees">
+            <RouteGuard allowedRoles={['admin']}>
+              <PageWrapper component={EmployeesPage} />
             </RouteGuard>
           </Route>
           <Route path="/rewards">
