@@ -64,6 +64,10 @@ export const leads = pgTable("leads", {
   totalSpecialItemsFee: decimal("total_special_items_fee", { precision: 10, scale: 2 }).default("0.00"),
   totalPrice: decimal("total_price", { precision: 10, scale: 2 }), // Base + special items
   
+  // Quote management fields
+  quoteNotes: text("quote_notes"), // Project-specific notes and updates
+  lastQuoteUpdatedAt: timestamp("last_quote_updated_at"), // Track when quote was last modified
+  
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
 
