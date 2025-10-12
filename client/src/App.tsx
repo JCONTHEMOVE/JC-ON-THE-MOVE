@@ -29,6 +29,7 @@ import { CreateShopItemPage } from "@/pages/create-shop-item";
 import { ShopItemDetailPage } from "@/pages/shop-item-detail";
 import JobDetailPage from "@/pages/job-detail";
 import TermsOfService from "@/pages/terms";
+import PendingQuotesPage from "@/pages/pending-quotes";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -83,6 +84,11 @@ function AuthenticatedApp() {
           <Route path="/leads">
             <RouteGuard allowedRoles={['admin', 'employee']}>
               <PageWrapper component={LeadsPage} />
+            </RouteGuard>
+          </Route>
+          <Route path="/pending-quotes">
+            <RouteGuard allowedRoles={['admin', 'employee']}>
+              <PageWrapper component={PendingQuotesPage} />
             </RouteGuard>
           </Route>
           <Route path="/rewards">

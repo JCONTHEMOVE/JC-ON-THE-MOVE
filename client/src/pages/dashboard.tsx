@@ -351,7 +351,7 @@ function BusinessOwnerDashboard() {
 
   const stats = {
     newLeads: leads.filter(lead => lead.status === "new").length,
-    pendingQuotes: leads.filter(lead => lead.status === "contacted").length,
+    pendingQuotes: leads.filter(lead => lead.status === "quoted").length,
     confirmedJobs: leads.filter(lead => lead.status === "confirmed").length,
     totalEmployees: employees.length,
   };
@@ -409,27 +409,24 @@ function BusinessOwnerDashboard() {
             </Card>
           </Link>
           
-          <Card 
-            data-testid="stat-pending-quotes"
-            className="cursor-pointer hover:shadow-lg transition-shadow"
-            onClick={() => {
-              setActiveTab("leads");
-              setStatusFilter("contacted");
-              setServiceFilter("all");
-            }}
-          >
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <div className="bg-secondary text-secondary-foreground p-3 rounded-lg">
-                  <ClipboardList className="h-6 w-6" />
+          <Link href="/pending-quotes">
+            <Card 
+              data-testid="stat-pending-quotes"
+              className="cursor-pointer hover:shadow-lg transition-shadow"
+            >
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <div className="bg-orange-500 text-white p-3 rounded-lg">
+                    <ClipboardList className="h-6 w-6" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-2xl font-bold text-foreground">{stats.pendingQuotes}</p>
+                    <p className="text-muted-foreground">Pending Quotes</p>
+                  </div>
                 </div>
-                <div className="ml-4">
-                  <p className="text-2xl font-bold text-foreground">{stats.pendingQuotes}</p>
-                  <p className="text-muted-foreground">Pending Quotes</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </Link>
           
           <Card 
             data-testid="stat-confirmed-jobs"
