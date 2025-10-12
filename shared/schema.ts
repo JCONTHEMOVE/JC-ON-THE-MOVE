@@ -36,6 +36,34 @@ export const leads = pgTable("leads", {
   truckConfig: text("truck_config"), // 'customer_truck', 'company_truck', 'no_truck'
   crewSize: integer("crew_size").default(2), // Number of crew members needed (2 is standard)
   photos: jsonb("photos").default("[]"), // Array of photo objects with metadata
+  
+  // Quote and pricing fields
+  confirmedDate: text("confirmed_date"), // Admin confirmed move date
+  confirmedFromAddress: text("confirmed_from_address"), // Admin confirmed pickup address
+  confirmedToAddress: text("confirmed_to_address"), // Admin confirmed delivery address
+  basePrice: decimal("base_price", { precision: 10, scale: 2 }), // Base moving quote
+  crewMembers: text("crew_members").array(), // Array of assigned employee IDs
+  
+  // Special moving items with weight tracking
+  hasHotTub: boolean("has_hot_tub").default(false),
+  hotTubWeight: integer("hot_tub_weight"), // Weight in pounds
+  hotTubFee: decimal("hot_tub_fee", { precision: 10, scale: 2 }),
+  
+  hasHeavySafe: boolean("has_heavy_safe").default(false),
+  heavySafeWeight: integer("heavy_safe_weight"), // Weight in pounds
+  heavySafeFee: decimal("heavy_safe_fee", { precision: 10, scale: 2 }),
+  
+  hasPoolTable: boolean("has_pool_table").default(false),
+  poolTableWeight: integer("pool_table_weight"), // Weight in pounds
+  poolTableFee: decimal("pool_table_fee", { precision: 10, scale: 2 }),
+  
+  hasPiano: boolean("has_piano").default(false),
+  pianoWeight: integer("piano_weight"), // Weight in pounds
+  pianoFee: decimal("piano_fee", { precision: 10, scale: 2 }),
+  
+  totalSpecialItemsFee: decimal("total_special_items_fee", { precision: 10, scale: 2 }).default("0.00"),
+  totalPrice: decimal("total_price", { precision: 10, scale: 2 }), // Base + special items
+  
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
 
