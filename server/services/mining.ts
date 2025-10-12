@@ -3,10 +3,10 @@ import { miningSessions, miningClaims, walletAccounts, reserveTransactions, trea
 import { eq, and, sql } from "drizzle-orm";
 import { treasuryService } from "./treasury";
 
-// Mining configuration - 864 JCMOVES per 24 hours
+// Mining configuration - 1728 JCMOVES per 24 hours (0.02 per second)
 const MINING_CONFIG = {
-  TOKENS_PER_SECOND: 0.01, // 0.01 JCMOVES per second
-  TOKENS_PER_24_HOURS: 864, // 0.01 * 60 * 60 * 24 = 864 tokens
+  TOKENS_PER_SECOND: 0.02, // 0.02 JCMOVES per second
+  TOKENS_PER_24_HOURS: 1728, // 0.02 * 60 * 60 * 24 = 1728 tokens
   CYCLE_DURATION_HOURS: 24,
   CYCLE_DURATION_MS: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
 };
