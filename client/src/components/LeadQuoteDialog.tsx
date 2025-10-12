@@ -9,12 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { type Lead, type User } from "@shared/schema";
 import { z } from "zod";
 
 const quoteFormSchema = z.object({
+  status: z.string().min(1, "Status is required"),
   confirmedDate: z.string().min(1, "Date is required"),
   confirmedFromAddress: z.string().min(1, "From address is required"),
   confirmedToAddress: z.string().min(1, "To address is required"),
@@ -44,9 +46,12 @@ interface LeadQuoteDialogProps {
 export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }: LeadQuoteDialogProps) {
   const [selectedCrewMembers, setSelectedCrewMembers] = useState<string[]>([]);
 
+  const [selectedStatus, setSelectedStatus] = useState<string>("");
+
   const quoteForm = useForm<QuoteFormData>({
     resolver: zodResolver(quoteFormSchema),
     defaultValues: {
+      status: "",
       confirmedDate: "",
       confirmedFromAddress: "",
       confirmedToAddress: "",
@@ -88,6 +93,7 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
   useEffect(() => {
     if (lead) {
       quoteForm.reset({
+        status: lead.status || "",
         confirmedDate: lead.confirmedDate || "",
         confirmedFromAddress: lead.confirmedFromAddress || lead.fromAddress,
         confirmedToAddress: lead.confirmedToAddress || lead.toAddress || "",
@@ -104,6 +110,7 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
         quoteNotes: lead.quoteNotes || "",
       });
       setSelectedCrewMembers(lead.crewMembers || []);
+      setSelectedStatus(lead.status || "");
     }
   }, [lead]);
 
@@ -231,6 +238,37 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
             {/* Edit Quote Section */}
             <form onSubmit={onQuoteSubmit} className="space-y-6">
               <h3 className="text-lg font-semibold" data-testid="text-edit-quote-title">Edit Quote</h3>
+
+              {/* Status Dropdown */}
+              <div>
+                <Label htmlFor="status">Status *</Label>
+                <Select
+                  value={selectedStatus}
+                  onValueChange={(value) => {
+                    setSelectedStatus(value);
+                    quoteForm.setValue("status", value);
+                  }}
+                >
+                  <SelectTrigger className="w-full" data-testid="select-status">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new">New</SelectItem>
+                    <SelectItem value="contacted">Contacted</SelectItem>
+                    <SelectItem value="quoted">Quoted</SelectItem>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="available">Available</SelectItem>
+                    <SelectItem value="accepted">Accepted</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+                {quoteForm.formState.errors.status && (
+                  <p className="text-destructive text-sm mt-1" data-testid="error-status">
+                    {quoteForm.formState.errors.status.message}
+                  </p>
+                )}
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
