@@ -64,13 +64,6 @@ export default function Header() {
                         >
                           Rewards
                         </Link>
-                        <Link
-                          href="/mining"
-                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                          data-testid="button-mining"
-                        >
-                          Mining
-                        </Link>
                       </>
                     )}
                     
@@ -90,13 +83,6 @@ export default function Header() {
                           data-testid="button-rewards"
                         >
                           Rewards
-                        </Link>
-                        <Link
-                          href="/mining"
-                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                          data-testid="button-mining"
-                        >
-                          Mining
                         </Link>
                         <Link
                           href="/shop"
@@ -275,14 +261,6 @@ export default function Header() {
                       >
                         Rewards
                       </Link>
-                      <Link
-                        href="/mining"
-                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                        data-testid="button-mobile-mining"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        Mining
-                      </Link>
                     </>
                   )}
                   
@@ -304,14 +282,6 @@ export default function Header() {
                         onClick={() => setMobileMenuOpen(false)}
                       >
                         Rewards
-                      </Link>
-                      <Link
-                        href="/mining"
-                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                        data-testid="button-mobile-mining"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        Mining
                       </Link>
                       <Link
                         href="/shop"

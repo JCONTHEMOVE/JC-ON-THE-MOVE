@@ -28,7 +28,6 @@ import { CreateShopItemPage } from "@/pages/create-shop-item";
 import { ShopItemDetailPage } from "@/pages/shop-item-detail";
 import JobDetailPage from "@/pages/job-detail";
 import TermsOfService from "@/pages/terms";
-import MiningPage from "@/pages/mining";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -82,9 +81,6 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/rewards">
             <PageWrapper component={RewardsPage} />
-          </Route>
-          <Route path="/mining">
-            <PageWrapper component={MiningPage} />
           </Route>
           <Route path="/profile">
             <PageWrapper component={ProfilePage} />

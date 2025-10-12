@@ -18,7 +18,7 @@ import {
   Share2,
   Users,
   Copy,
-  ExternalLink
+  Loader2
 } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 
@@ -52,7 +52,6 @@ interface RewardHistory {
   metadata?: any;
 }
 
-
 interface TokenInfo {
   price: number;
   symbol: string;
@@ -71,10 +70,20 @@ interface ReferralStats {
   }>;
 }
 
+interface MiningStatus {
+  currentSession: any;
+  accumulatedTokens: string;
+  timeRemaining: number;
+  totalClaimedToday: string;
+  miningSpeed: string;
+}
+
 export default function RewardsDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [referralCodeInput, setReferralCodeInput] = useState('');
+  const [accumulatedTokens, setAccumulatedTokens] = useState("0.00000000");
+  const [timeRemaining, setTimeRemaining] = useState(0);
 
   // Fetch wallet data
   const { data: wallet, isLoading: walletLoading } = useQuery<WalletAccount>({
@@ -104,6 +113,12 @@ export default function RewardsDashboard() {
   // Fetch referral stats
   const { data: referralStats } = useQuery<ReferralStats>({
     queryKey: ['/api/referrals/stats'],
+  });
+
+  // Fetch mining status
+  const { data: miningStatus } = useQuery<MiningStatus>({
+    queryKey: ["/api/mining/status"],
+    refetchInterval: 5000,
   });
 
   // Generate device fingerprint
@@ -143,15 +158,56 @@ export default function RewardsDashboard() {
       }
     },
     onError: (error: Error) => {
-      // Don't show error messages for authentication failures
       if (error.message.includes('401')) return;
-      
       toast({
         title: "Check-in failed",
         description: error.message || "Something went wrong. Please try again.",
         variant: "destructive"
       });
     }
+  });
+
+  // Start mining mutation
+  const startMiningMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/mining/start");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mining/status"] });
+      toast({
+        title: "Mining Started!",
+        description: "Your passive token mining has begun. Earn 864 JCMOVES every 24 hours!",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Start Mining",
+        description: error.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Claim tokens mutation
+  const claimMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/mining/claim");
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mining/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/wallet"] });
+      toast({
+        title: "Tokens Claimed!",
+        description: `You've earned ${parseFloat(data.tokensClaimed).toFixed(2)} JCMOVES! New balance: ${parseFloat(data.newBalance).toFixed(2)}`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Claim Failed",
+        description: error.message || "Please try again",
+        variant: "destructive",
+      });
+    },
   });
 
   // Apply referral code mutation
@@ -179,9 +235,7 @@ export default function RewardsDashboard() {
       }
     },
     onError: (error: Error) => {
-      // Don't show error messages for authentication failures
       if (error.message.includes('401')) return;
-      
       toast({
         title: "Error applying referral code",
         description: error.message || "Something went wrong. Please try again.",
@@ -189,6 +243,66 @@ export default function RewardsDashboard() {
       });
     }
   });
+
+  // Calculate accumulated tokens in real-time
+  useEffect(() => {
+    if (!miningStatus?.currentSession) return;
+
+    const updateAccumulated = () => {
+      const now = Date.now();
+      const lastClaim = new Date(miningStatus.currentSession.lastClaimTime).getTime();
+      const secondsElapsed = Math.floor((now - lastClaim) / 1000);
+      
+      const miningSpeed = parseFloat(miningStatus.miningSpeed || "1.00");
+      const tokensPerSecond = 0.01;
+      const tokensEarned = secondsElapsed * tokensPerSecond * miningSpeed;
+      
+      const previousAccumulated = parseFloat(miningStatus.currentSession.accumulatedTokens || "0");
+      const totalAccumulated = previousAccumulated + tokensEarned;
+      
+      const maxTokens = 864 * miningSpeed;
+      const cappedTokens = Math.min(totalAccumulated, maxTokens);
+      
+      setAccumulatedTokens(cappedTokens.toFixed(8));
+    };
+
+    updateAccumulated();
+    const interval = setInterval(updateAccumulated, 100);
+
+    return () => clearInterval(interval);
+  }, [miningStatus]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!miningStatus?.currentSession) return;
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const nextClaim = new Date(miningStatus.currentSession.nextClaimAt).getTime();
+      const remaining = Math.max(0, nextClaim - now);
+      
+      setTimeRemaining(remaining);
+
+      if (remaining === 0 && parseFloat(accumulatedTokens) > 0) {
+        claimMutation.mutate();
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [miningStatus, accumulatedTokens]);
+
+  // Format time remaining
+  const formatTimeRemaining = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  };
 
   // Copy referral code to clipboard
   const copyReferralCode = async () => {
@@ -242,34 +356,35 @@ export default function RewardsDashboard() {
   const canCheckin = checkinStatus && !checkinStatus.checkedInToday;
   const tokenBalance = parseFloat(wallet?.tokenBalance || '0');
   const cashValue = parseFloat(wallet?.cashBalance || '0');
+  const hasActiveSession = !!miningStatus?.currentSession;
 
   return (
-    <div className="container mx-auto p-6 max-w-7xl">
-      <div className="flex items-center justify-between mb-8">
+    <div className="container mx-auto p-4 md:p-6 max-w-7xl">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Rewards Dashboard</h1>
-          <p className="text-muted-foreground mt-1">
-            Earn {tokenInfo?.symbol || 'tokens'} through daily check-ins, bookings, and referrals
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Rewards Center</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Earn {tokenInfo?.symbol || 'JCMOVES'} through mining, check-ins, and referrals
           </p>
         </div>
         <div className="text-right">
-          <p className="text-sm text-muted-foreground">Current Token Price</p>
-          <p className="text-2xl font-bold text-foreground" data-testid="token-price">
+          <p className="text-xs md:text-sm text-muted-foreground">Token Price</p>
+          <p className="text-lg md:text-2xl font-bold text-foreground" data-testid="token-price">
             ${tokenInfo?.price?.toFixed(4) || '0.0000'}
           </p>
         </div>
       </div>
 
       {/* Wallet Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Token Balance</CardTitle>
             <Coins className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="token-balance">
-              {tokenBalance.toFixed(8)} {tokenInfo?.symbol || 'TOKENS'}
+            <div className="text-xl md:text-2xl font-bold" data-testid="token-balance">
+              {tokenBalance.toFixed(2)} {tokenInfo?.symbol || 'JCMOVES'}
             </div>
             <p className="text-xs text-muted-foreground">
               ≈ ${cashValue.toFixed(2)} USD
@@ -283,8 +398,8 @@ export default function RewardsDashboard() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="total-earned">
-              {parseFloat(wallet?.totalEarned || '0').toFixed(8)}
+            <div className="text-xl md:text-2xl font-bold" data-testid="total-earned">
+              {parseFloat(wallet?.totalEarned || '0').toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">
               All-time earnings
@@ -298,7 +413,7 @@ export default function RewardsDashboard() {
             <Zap className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="streak-count">
+            <div className="text-xl md:text-2xl font-bold" data-testid="streak-count">
               {checkinStatus?.streakCount || 0} days
             </div>
             <p className="text-xs text-muted-foreground">
@@ -308,105 +423,197 @@ export default function RewardsDashboard() {
         </Card>
       </div>
 
-      {/* Daily Check-in Section */}
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            Daily Check-in
-          </CardTitle>
-          <CardDescription>
-            Check in daily to earn {tokenInfo?.symbol || 'tokens'}. Build a streak for bonus rewards!
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
-            <div>
-              {checkinStatus?.checkedInToday ? (
-                <div className="flex items-center gap-2 text-green-600">
-                  <CheckCircle className="h-5 w-5" />
-                  <span className="font-medium">Checked in today!</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-orange-500" />
-                  <span>Ready to check in</span>
-                </div>
-              )}
-              {checkinStatus?.nextReward && (
-                <p className="text-sm text-muted-foreground mt-2">
-                  Next reward: {checkinStatus.nextReward.tokenAmount.toFixed(8)} {tokenInfo?.symbol || 'tokens'} 
-                  (${checkinStatus.nextReward.cashValue.toFixed(4)})
-                </p>
-              )}
-            </div>
-            <Button 
-              onClick={() => checkinMutation.mutate()}
-              disabled={!canCheckin || checkinMutation.isPending}
-              data-testid="checkin-button"
-            >
-              {checkinMutation.isPending ? 'Checking in...' : canCheckin ? 'Check In' : 'Already checked in'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Main Tabs */}
-      <Tabs defaultValue="history" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="history" data-testid="tab-history">Rewards History</TabsTrigger>
-          <TabsTrigger value="referrals" data-testid="tab-referrals">Referrals</TabsTrigger>
+      <Tabs defaultValue="mining" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="mining" data-testid="tab-mining">
+            <Zap className="h-4 w-4 mr-2" />
+            Mining
+          </TabsTrigger>
+          <TabsTrigger value="checkin" data-testid="tab-checkin">
+            <Calendar className="h-4 w-4 mr-2" />
+            Check-in
+          </TabsTrigger>
+          <TabsTrigger value="referrals" data-testid="tab-referrals">
+            <Users className="h-4 w-4 mr-2" />
+            Referrals
+          </TabsTrigger>
+          <TabsTrigger value="history" data-testid="tab-history">
+            <Clock className="h-4 w-4 mr-2" />
+            History
+          </TabsTrigger>
         </TabsList>
 
-        {/* Rewards History */}
-        <TabsContent value="history" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Rewards</CardTitle>
-              <CardDescription>Your earning history and reward activities</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {rewardsHistory && rewardsHistory.length > 0 ? (
-                <div className="space-y-4">
-                  {rewardsHistory.slice(0, 10).map((reward) => (
-                    <div key={reward.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center gap-3">
-                        {getRewardTypeIcon(reward.rewardType)}
+        {/* Mining Tab */}
+        <TabsContent value="mining" className="space-y-4">
+          <div className="max-w-2xl mx-auto space-y-4">
+            {/* Balance Card - Gradient Style */}
+            <Card className="p-6 bg-gradient-to-br from-purple-500 via-pink-500 to-red-500 text-white border-0 shadow-xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm opacity-90">Mining Balance</p>
+                  <p className="text-3xl font-bold mt-1">
+                    {parseFloat(accumulatedTokens).toFixed(2)}
+                  </p>
+                  <p className="text-xs opacity-75 mt-1">JCMOVES</p>
+                </div>
+                <Coins className="h-12 w-12 opacity-80" />
+              </div>
+            </Card>
+
+            {!hasActiveSession ? (
+              <Card className="p-8 text-center">
+                <Zap className="h-16 w-16 mx-auto text-orange-500 mb-4" />
+                <h2 className="text-xl font-bold mb-2">Start Mining JCMOVES</h2>
+                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                  Begin earning passive tokens automatically. You'll receive 864 JCMOVES every 24 hours!
+                </p>
+                <Button
+                  onClick={() => startMiningMutation.mutate()}
+                  disabled={startMiningMutation.isPending}
+                  className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600"
+                  data-testid="button-start-mining"
+                >
+                  {startMiningMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Starting...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="mr-2 h-4 w-4" />
+                      Start Mining
+                    </>
+                  )}
+                </Button>
+              </Card>
+            ) : (
+              <>
+                <Card className="p-6 bg-gradient-to-br from-orange-400 to-red-500 text-white border-0 shadow-lg">
+                  <div className="space-y-4">
+                    <div className="text-center">
+                      <p className="text-sm opacity-90">Next Claim In</p>
+                      <p className="text-4xl font-bold font-mono mt-1" data-testid="text-countdown-timer">
+                        {formatTimeRemaining(timeRemaining)}
+                      </p>
+                    </div>
+
+                    <div className="bg-white/20 rounded-lg p-4 backdrop-blur-sm">
+                      <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium">{getRewardTypeLabel(reward.rewardType)}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {new Date(reward.earnedDate).toLocaleDateString()}
+                          <p className="text-xs opacity-90">Accumulating</p>
+                          <p className="text-2xl font-bold" data-testid="text-accumulated-tokens">
+                            {parseFloat(accumulatedTokens).toFixed(4)}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs opacity-90">Speed</p>
+                          <p className="text-2xl font-bold" data-testid="text-mining-speed">
+                            {parseFloat(miningStatus.miningSpeed || "1.00").toFixed(0)}X
                           </p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold">
-                          +{parseFloat(reward.tokenAmount).toFixed(8)} {tokenInfo?.symbol || 'tokens'}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          ${parseFloat(reward.cashValue).toFixed(4)}
-                        </p>
-                        <Badge className={getStatusColor(reward.status)}>
-                          {reward.status}
-                        </Badge>
-                      </div>
                     </div>
-                  ))}
+
+                    <Button
+                      disabled
+                      className="w-full bg-white/30 hover:bg-white/40 text-white border-white/50"
+                      data-testid="button-speed-up"
+                    >
+                      <Zap className="mr-2 h-4 w-4" />
+                      Speed Up (Coming Soon)
+                    </Button>
+
+                    <Button
+                      onClick={() => claimMutation.mutate()}
+                      disabled={claimMutation.isPending || parseFloat(accumulatedTokens) === 0}
+                      className="w-full bg-white text-orange-600 hover:bg-gray-100"
+                      data-testid="button-claim-tokens"
+                    >
+                      {claimMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Claiming...
+                        </>
+                      ) : (
+                        <>
+                          <Coins className="mr-2 h-4 w-4" />
+                          Claim Tokens Now
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </Card>
+
+                <Card className="p-4">
+                  <div className="grid grid-cols-2 gap-4 text-center">
+                    <div>
+                      <p className="text-2xl font-bold text-orange-500" data-testid="text-daily-rate">
+                        864
+                      </p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">Tokens/Day</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-orange-500" data-testid="text-claimed-today">
+                        {parseFloat(miningStatus.totalClaimedToday || "0").toFixed(2)}
+                      </p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">Claimed Today</p>
+                    </div>
+                  </div>
+                </Card>
+              </>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* Daily Check-in Tab */}
+        <TabsContent value="checkin" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-5 w-5" />
+                Daily Check-in
+              </CardTitle>
+              <CardDescription>
+                Check in daily to earn {tokenInfo?.symbol || 'tokens'}. Build a streak for bonus rewards!
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  {checkinStatus?.checkedInToday ? (
+                    <div className="flex items-center gap-2 text-green-600">
+                      <CheckCircle className="h-5 w-5" />
+                      <span className="font-medium">Checked in today!</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-5 w-5 text-orange-500" />
+                      <span>Ready to check in</span>
+                    </div>
+                  )}
+                  {checkinStatus?.nextReward && (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Next reward: {checkinStatus.nextReward.tokenAmount.toFixed(8)} {tokenInfo?.symbol || 'tokens'} 
+                      (${checkinStatus.nextReward.cashValue.toFixed(4)})
+                    </p>
+                  )}
                 </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Coins className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">No rewards yet. Start by checking in daily!</p>
-                </div>
-              )}
+                <Button 
+                  onClick={() => checkinMutation.mutate()}
+                  disabled={!canCheckin || checkinMutation.isPending}
+                  data-testid="checkin-button"
+                >
+                  {checkinMutation.isPending ? 'Checking in...' : canCheckin ? 'Check In' : 'Already checked in'}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Referrals */}
+        {/* Referrals Tab */}
         <TabsContent value="referrals" className="space-y-4">
           <div className="grid gap-6">
-            {/* My Referral Code */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -435,7 +642,6 @@ export default function RewardsDashboard() {
               </CardContent>
             </Card>
 
-            {/* Apply Referral Code */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -466,7 +672,6 @@ export default function RewardsDashboard() {
               </CardContent>
             </Card>
 
-            {/* Referral Stats */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -526,6 +731,51 @@ export default function RewardsDashboard() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* Rewards History Tab */}
+        <TabsContent value="history" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Rewards</CardTitle>
+              <CardDescription>Your earning history and reward activities</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {rewardsHistory && rewardsHistory.length > 0 ? (
+                <div className="space-y-4">
+                  {rewardsHistory.slice(0, 10).map((reward) => (
+                    <div key={reward.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        {getRewardTypeIcon(reward.rewardType)}
+                        <div>
+                          <p className="font-medium">{getRewardTypeLabel(reward.rewardType)}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {new Date(reward.earnedDate).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold">
+                          +{parseFloat(reward.tokenAmount).toFixed(8)} {tokenInfo?.symbol || 'tokens'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          ${parseFloat(reward.cashValue).toFixed(4)}
+                        </p>
+                        <Badge className={getStatusColor(reward.status)}>
+                          {reward.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <Coins className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">No rewards yet. Start by checking in daily!</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
