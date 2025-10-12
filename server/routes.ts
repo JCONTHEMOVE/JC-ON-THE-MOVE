@@ -3087,12 +3087,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[MINING] Start mining request received");
       console.log("[MINING] User object:", req.user ? "present" : "missing");
       
-      if (!req.user || !req.user.id) {
+      if (!req.user || !req.user.claims?.sub) {
         console.error("[MINING] No user ID found in request");
         return res.status(401).json({ error: "Authentication required" });
       }
       
-      const userId = req.user.id;
+      const userId = req.user.claims.sub;
       console.log("[MINING] Starting mining for user:", userId);
       
       const { miningService } = await import('./services/mining');
@@ -3110,7 +3110,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get mining status and stats
   app.get("/api/mining/status", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
+      const userId = req.user.claims.sub;
       const { miningService } = await import('./services/mining');
       
       const stats = await miningService.getMiningStats(userId);
@@ -3124,7 +3124,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Manually claim accumulated tokens
   app.post("/api/mining/claim", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
+      const userId = req.user.claims.sub;
       const { miningService } = await import('./services/mining');
       
       const result = await miningService.claimTokens(userId, 'manual');
