@@ -212,9 +212,43 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Status</Label>
-                  <Badge variant={getStatusBadgeVariant(lead.status)} data-testid="badge-status">
-                    {lead.status.charAt(0).toUpperCase() + lead.status.slice(1)}
-                  </Badge>
+                  <Select
+                    value={selectedStatus}
+                    onValueChange={(value) => {
+                      setSelectedStatus(value);
+                      quoteForm.setValue("status", value);
+                    }}
+                  >
+                    <SelectTrigger className="w-[180px]" data-testid="select-status-badge">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="new" data-testid="option-status-new">
+                        New
+                      </SelectItem>
+                      <SelectItem value="contacted" data-testid="option-status-contacted">
+                        Contacted
+                      </SelectItem>
+                      <SelectItem value="quoted" data-testid="option-status-quoted">
+                        Quoted
+                      </SelectItem>
+                      <SelectItem value="confirmed" data-testid="option-status-confirmed">
+                        Confirmed
+                      </SelectItem>
+                      <SelectItem value="available" data-testid="option-status-available">
+                        Available
+                      </SelectItem>
+                      <SelectItem value="accepted" data-testid="option-status-accepted">
+                        Accepted
+                      </SelectItem>
+                      <SelectItem value="in_progress" data-testid="option-status-in-progress">
+                        In Progress
+                      </SelectItem>
+                      <SelectItem value="completed" data-testid="option-status-completed">
+                        Completed
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 {lead.createdByUserId && (
                   <div>
@@ -237,38 +271,7 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
 
             {/* Edit Quote Section */}
             <form onSubmit={onQuoteSubmit} className="space-y-6">
-              <h3 className="text-lg font-semibold" data-testid="text-edit-quote-title">Edit Quote</h3>
-
-              {/* Status Dropdown */}
-              <div>
-                <Label htmlFor="status">Status *</Label>
-                <Select
-                  value={selectedStatus}
-                  onValueChange={(value) => {
-                    setSelectedStatus(value);
-                    quoteForm.setValue("status", value);
-                  }}
-                >
-                  <SelectTrigger className="w-full" data-testid="select-status">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="new">New</SelectItem>
-                    <SelectItem value="contacted">Contacted</SelectItem>
-                    <SelectItem value="quoted">Quoted</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
-                    <SelectItem value="available">Available</SelectItem>
-                    <SelectItem value="accepted">Accepted</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
-                {quoteForm.formState.errors.status && (
-                  <p className="text-destructive text-sm mt-1" data-testid="error-status">
-                    {quoteForm.formState.errors.status.message}
-                  </p>
-                )}
-              </div>
+              <h3 className="text-lg font-semibold" data-testid="text-edit-quote-title">Quote & Scheduling</h3>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
