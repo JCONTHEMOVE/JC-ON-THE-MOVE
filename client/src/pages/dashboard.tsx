@@ -18,7 +18,7 @@ function BusinessOwnerDashboard() {
   });
 
   const stats = {
-    newLeads: leads.filter(lead => lead.status === "new").length,
+    allLeads: leads.length,
     pendingQuotes: leads.filter(lead => lead.status === "quoted").length,
     confirmedJobs: leads.filter(lead => lead.status === "confirmed").length,
     totalEmployees: employees.length,
@@ -44,7 +44,7 @@ function BusinessOwnerDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Link href="/leads">
             <Card 
-              data-testid="stat-new-leads" 
+              data-testid="stat-all-leads" 
               className="cursor-pointer hover:shadow-lg transition-all hover:scale-105"
             >
               <CardContent className="p-6">
@@ -53,8 +53,8 @@ function BusinessOwnerDashboard() {
                     <Users className="h-6 w-6" />
                   </div>
                   <div className="ml-4">
-                    <p className="text-2xl font-bold text-foreground">{stats.newLeads}</p>
-                    <p className="text-muted-foreground">New Leads</p>
+                    <p className="text-2xl font-bold text-foreground">{stats.allLeads}</p>
+                    <p className="text-muted-foreground">All Leads</p>
                   </div>
                 </div>
               </CardContent>
@@ -147,8 +147,8 @@ function BusinessOwnerDashboard() {
             <h3 className="text-lg font-semibold mb-4">Quick Overview</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
               <div>
-                <p className="text-3xl font-bold text-primary">{stats.newLeads}</p>
-                <p className="text-sm text-muted-foreground">New</p>
+                <p className="text-3xl font-bold text-primary">{stats.allLeads}</p>
+                <p className="text-sm text-muted-foreground">Total Leads</p>
               </div>
               <div>
                 <p className="text-3xl font-bold text-orange-500">{stats.pendingQuotes}</p>
