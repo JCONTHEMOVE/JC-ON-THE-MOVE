@@ -390,27 +390,24 @@ function BusinessOwnerDashboard() {
 
         {/* Business Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card 
-            data-testid="stat-new-leads" 
-            className="cursor-pointer hover:shadow-lg transition-shadow"
-            onClick={() => {
-              setActiveTab("leads");
-              setStatusFilter("new");
-              setServiceFilter("all");
-            }}
-          >
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <div className="bg-primary text-primary-foreground p-3 rounded-lg">
-                  <Users className="h-6 w-6" />
+          <Link href="/leads">
+            <Card 
+              data-testid="stat-new-leads" 
+              className="cursor-pointer hover:shadow-lg transition-shadow"
+            >
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <div className="bg-primary text-primary-foreground p-3 rounded-lg">
+                    <Users className="h-6 w-6" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-2xl font-bold text-foreground">{stats.newLeads}</p>
+                    <p className="text-muted-foreground">New Leads</p>
+                  </div>
                 </div>
-                <div className="ml-4">
-                  <p className="text-2xl font-bold text-foreground">{stats.newLeads}</p>
-                  <p className="text-muted-foreground">New Leads</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </Link>
           
           <Card 
             data-testid="stat-pending-quotes"
