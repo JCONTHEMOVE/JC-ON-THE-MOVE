@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Calendar as CalendarIcon, BookOpen, Store, Star, Camera, MapPin, Phone, Mail } from "lucide-react";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
@@ -63,6 +64,8 @@ function getDailyScripture() {
 
 export default function EmployeeHomePage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const scripture = getDailyScripture();
 
   const { data: allJobs = [] } = useQuery<Lead[]>({
@@ -96,6 +99,17 @@ export default function EmployeeHomePage() {
   ).length;
 
   const completedCount = allJobs.filter(j => j.status === 'completed').length;
+
+  // Handle date click
+  const handleDateClick = (date: Date) => {
+    setSelectedDate(date);
+    setIsDialogOpen(true);
+  };
+
+  // Get jobs for selected date
+  const selectedDateJobs = selectedDate 
+    ? jobsByDate[selectedDate.toDateString()] || []
+    : [];
 
   // Mini shop - get 3 most recent items
   const recentShopItems = shopItems
@@ -155,8 +169,9 @@ export default function EmployeeHomePage() {
       days.push(
         <div
           key={day}
-          className="h-20 border border-border p-1 bg-background hover:bg-accent/50 transition-colors"
+          className="h-20 border border-border p-1 bg-background hover:bg-accent/50 transition-colors cursor-pointer"
           data-testid={`calendar-day-${day}`}
+          onClick={() => handleDateClick(date)}
         >
           <div className="text-sm font-semibold">{day}</div>
           <div className="space-y-0.5 mt-1">
@@ -404,6 +419,114 @@ export default function EmployeeHomePage() {
             </Button>
           </Link>
         </div>
+
+        {/* Jobs Dialog */}
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                Jobs on {selectedDate?.toLocaleDateString('en-US', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}
+              </DialogTitle>
+              <DialogDescription>
+                {selectedDateJobs.length === 0 
+                  ? "No jobs scheduled for this day"
+                  : `${selectedDateJobs.length} job${selectedDateJobs.length > 1 ? 's' : ''} scheduled`
+                }
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 mt-4">
+              {selectedDateJobs.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No jobs scheduled for this date
+                </div>
+              ) : (
+                selectedDateJobs.map(job => (
+                  <Card key={job.id} className="border" data-testid={`job-dialog-${job.id}`}>
+                    <CardContent className="p-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-semibold text-lg">
+                            {job.firstName} {job.lastName}
+                          </h3>
+                          <Badge
+                            variant={job.status === 'completed' ? 'default' : 'secondary'}
+                            className={job.status === 'completed' ? 'bg-green-600' : ''}
+                          >
+                            {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+                          </Badge>
+                        </div>
+                        <div className="space-y-1 text-sm text-muted-foreground">
+                          <div className="flex items-center gap-2">
+                            <Badge className={
+                              job.serviceType === 'residential' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                              job.serviceType === 'commercial' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                              'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
+                            }>
+                              {job.serviceType === 'residential' ? 'Residential' : 
+                               job.serviceType === 'commercial' ? 'Commercial' : 
+                               'Junk Removal'}
+                            </Badge>
+                          </div>
+                          <p className="flex items-center gap-2">
+                            <Phone className="h-4 w-4" />
+                            <a href={`tel:${job.phone}`} className="hover:underline">
+                              {job.phone}
+                            </a>
+                          </p>
+                          <p className="flex items-center gap-2">
+                            <Mail className="h-4 w-4" />
+                            <a href={`mailto:${job.email}`} className="hover:underline">
+                              {job.email}
+                            </a>
+                          </p>
+                          <p className="flex items-center gap-2">
+                            <MapPin className="h-4 w-4" />
+                            {job.fromAddress}
+                          </p>
+                          {job.toAddress && (
+                            <p className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4" />
+                              To: {job.toAddress}
+                            </p>
+                          )}
+                        </div>
+                        {job.details && (
+                          <p className="text-sm mt-2 p-2 bg-muted rounded">
+                            {job.details}
+                          </p>
+                        )}
+                        <div className="flex gap-2 mt-3">
+                          <Link href={`/dashboard`}>
+                            <Button size="sm" data-testid={`button-view-job-${job.id}`}>
+                              View Details
+                            </Button>
+                          </Link>
+                          <Button variant="outline" size="sm" asChild data-testid={`button-call-${job.id}`}>
+                            <a href={`tel:${job.phone}`}>
+                              <Phone className="h-4 w-4 mr-1" />
+                              Call
+                            </a>
+                          </Button>
+                          <Button variant="outline" size="sm" asChild data-testid={`button-email-${job.id}`}>
+                            <a href={`mailto:${job.email}`}>
+                              <Mail className="h-4 w-4 mr-1" />
+                              Email
+                            </a>
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
