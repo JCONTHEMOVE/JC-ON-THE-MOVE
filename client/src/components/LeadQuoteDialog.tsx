@@ -168,50 +168,50 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
 
         {lead && (
           <div className="space-y-6">
-            {/* Customer Details Section */}
+            {/* Customer Information Section */}
             <div>
-              <h3 className="text-lg font-semibold mb-4" data-testid="text-customer-details-title">Customer Details</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/50 dark:bg-muted/30 p-4 rounded-lg">
+              <h3 className="text-xl font-semibold mb-4" data-testid="text-customer-details-title">Customer Information</h3>
+              <div className="space-y-4">
                 <div>
-                  <Label className="text-muted-foreground">Name</Label>
-                  <p className="font-medium" data-testid="text-customer-name">
+                  <Label className="text-sm text-muted-foreground">Name</Label>
+                  <p className="text-base font-normal" data-testid="text-customer-name">
                     {lead.firstName} {lead.lastName}
                   </p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Email</Label>
-                  <p className="font-medium" data-testid="text-customer-email">{lead.email}</p>
+                  <Label className="text-sm text-muted-foreground">Email</Label>
+                  <p className="text-base font-normal" data-testid="text-customer-email">{lead.email}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Phone</Label>
-                  <p className="font-medium" data-testid="text-customer-phone">{lead.phone}</p>
+                  <Label className="text-sm text-muted-foreground">Phone</Label>
+                  <p className="text-base font-normal" data-testid="text-customer-phone">{lead.phone}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Service Type</Label>
-                  <Badge className={getServiceBadgeColor(lead.serviceType)} data-testid="badge-service-type">
+                  <Label className="text-sm text-muted-foreground">Service Type</Label>
+                  <p className="text-base font-normal" data-testid="badge-service-type">
                     {lead.serviceType === "residential" && "Residential"}
                     {lead.serviceType === "commercial" && "Commercial"}
                     {lead.serviceType === "junk" && "Junk Removal"}
-                  </Badge>
+                  </p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">From Address</Label>
-                  <p className="font-medium" data-testid="text-from-address">{lead.fromAddress}</p>
+                  <Label className="text-sm text-muted-foreground">From Address</Label>
+                  <p className="text-base font-normal" data-testid="text-from-address">{lead.fromAddress}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">To Address</Label>
-                  <p className="font-medium" data-testid="text-to-address">{lead.toAddress || "Not specified"}</p>
+                  <Label className="text-sm text-muted-foreground">To Address</Label>
+                  <p className="text-base font-normal" data-testid="text-to-address">{lead.toAddress || "Not specified"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Move Date</Label>
-                  <p className="font-medium" data-testid="text-move-date">{lead.moveDate || "Not specified"}</p>
+                  <Label className="text-sm text-muted-foreground">Requested Move Date</Label>
+                  <p className="text-base font-normal" data-testid="text-move-date">{lead.moveDate || "Not specified"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Property Size</Label>
-                  <p className="font-medium" data-testid="text-property-size">{lead.propertySize || "Not specified"}</p>
+                  <Label className="text-sm text-muted-foreground">Property Size</Label>
+                  <p className="text-base font-normal" data-testid="text-property-size">{lead.propertySize || "Not specified"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Status</Label>
+                  <Label className="text-sm text-muted-foreground">Status</Label>
                   <Select
                     value={selectedStatus}
                     onValueChange={(value) => {
@@ -252,35 +252,63 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
                 </div>
                 {lead.createdByUserId && (
                   <div>
-                    <Label className="text-muted-foreground">Created By</Label>
-                    <p className="font-medium" data-testid="text-created-by">
+                    <Label className="text-sm text-muted-foreground">Created By</Label>
+                    <p className="text-base font-normal" data-testid="text-created-by">
                       {createdByUser ? `${createdByUser.firstName} ${createdByUser.lastName}` : "Loading..."}
                     </p>
                   </div>
                 )}
                 {lead.details && (
-                  <div className="md:col-span-2">
-                    <Label className="text-muted-foreground">Additional Details</Label>
-                    <p className="font-medium" data-testid="text-additional-details">{lead.details}</p>
+                  <div>
+                    <Label className="text-sm text-muted-foreground">Additional Details</Label>
+                    <p className="text-base font-normal" data-testid="text-additional-details">{lead.details}</p>
                   </div>
                 )}
               </div>
             </div>
 
-            <Separator />
-
             {/* Edit Quote Section */}
             <form onSubmit={onQuoteSubmit} className="space-y-6">
-              <h3 className="text-lg font-semibold" data-testid="text-edit-quote-title">Quote & Scheduling</h3>
+              <h3 className="text-xl font-semibold mb-4" data-testid="text-edit-quote-title">Quote & Scheduling</h3>
+              <p className="text-sm text-muted-foreground -mt-2 mb-4">Configure pricing, crew, and schedule details</p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-4">
                 <div>
-                  <Label htmlFor="confirmedDate">Confirmed Date *</Label>
+                  <Label htmlFor="basePrice" className="text-sm text-muted-foreground">Base Price</Label>
+                  <Input
+                    id="basePrice"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    {...quoteForm.register("basePrice")}
+                    data-testid="input-base-price"
+                    className="mt-1"
+                  />
+                  {quoteForm.formState.errors.basePrice && (
+                    <p className="text-destructive text-sm mt-1" data-testid="error-base-price">
+                      {quoteForm.formState.errors.basePrice.message}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label className="text-sm text-muted-foreground flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Crew Size
+                  </Label>
+                  <p className="text-base font-normal mt-1" data-testid="text-crew-size">
+                    {selectedCrewMembers.length}
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="confirmedDate" className="text-sm text-muted-foreground">Confirmed Move Date</Label>
                   <Input
                     id="confirmedDate"
                     type="date"
                     {...quoteForm.register("confirmedDate")}
                     data-testid="input-confirmed-date"
+                    className="mt-1"
                   />
                   {quoteForm.formState.errors.confirmedDate && (
                     <p className="text-destructive text-sm mt-1" data-testid="error-confirmed-date">
@@ -290,31 +318,13 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
                 </div>
 
                 <div>
-                  <Label htmlFor="basePrice">Base Price ($) *</Label>
-                  <Input
-                    id="basePrice"
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    {...quoteForm.register("basePrice")}
-                    data-testid="input-base-price"
-                  />
-                  {quoteForm.formState.errors.basePrice && (
-                    <p className="text-destructive text-sm mt-1" data-testid="error-base-price">
-                      {quoteForm.formState.errors.basePrice.message}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="confirmedFromAddress">Confirmed From Address *</Label>
+                  <Label htmlFor="confirmedFromAddress" className="text-sm text-muted-foreground">Confirmed Pickup Address</Label>
                   <Input
                     id="confirmedFromAddress"
                     placeholder="Pickup address"
                     {...quoteForm.register("confirmedFromAddress")}
                     data-testid="input-confirmed-from-address"
+                    className="mt-1"
                   />
                   {quoteForm.formState.errors.confirmedFromAddress && (
                     <p className="text-destructive text-sm mt-1" data-testid="error-confirmed-from-address">
@@ -324,12 +334,13 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
                 </div>
 
                 <div>
-                  <Label htmlFor="confirmedToAddress">Confirmed To Address *</Label>
+                  <Label htmlFor="confirmedToAddress" className="text-sm text-muted-foreground">Confirmed Delivery Address</Label>
                   <Input
                     id="confirmedToAddress"
                     placeholder="Delivery address"
                     {...quoteForm.register("confirmedToAddress")}
                     data-testid="input-confirmed-to-address"
+                    className="mt-1"
                   />
                   {quoteForm.formState.errors.confirmedToAddress && (
                     <p className="text-destructive text-sm mt-1" data-testid="error-confirmed-to-address">
@@ -535,19 +546,17 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
                 </div>
               </div>
 
-              {/* Project Notes */}
+              {/* Quote Notes */}
               <div>
-                <Label htmlFor="quoteNotes">Project Notes</Label>
+                <Label htmlFor="quoteNotes" className="text-sm text-muted-foreground">Quote Notes</Label>
                 <Textarea
                   id="quoteNotes"
                   placeholder="Add any project-specific notes, updates, or special instructions..."
                   rows={4}
                   {...quoteForm.register("quoteNotes")}
                   data-testid="textarea-quote-notes"
+                  className="mt-1"
                 />
-                <p className="text-sm text-muted-foreground mt-1">
-                  These notes will be visible to the team and can be updated anytime.
-                </p>
               </div>
 
               <div className="flex gap-4 justify-end">
