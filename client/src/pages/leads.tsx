@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
-import { ArrowLeft, Home, Building, Trash2, Eye, Mail, Phone } from "lucide-react";
+import { ArrowLeft, Home, Building, Trash2, Eye, Mail, Phone, CircleDot, MessageCircle, FileText, CheckCircle, Clock, Play, Activity, CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -134,18 +134,24 @@ export default function LeadsPage() {
     }
   };
 
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "new": return <CircleDot className="h-4 w-4 text-blue-500" />;
+      case "contacted": return <MessageCircle className="h-4 w-4 text-purple-500" />;
+      case "quoted": return <FileText className="h-4 w-4 text-amber-500" />;
+      case "confirmed": return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case "available": return <Clock className="h-4 w-4 text-orange-500" />;
+      case "accepted": return <Play className="h-4 w-4 text-teal-500" />;
+      case "in_progress": return <Activity className="h-4 w-4 text-indigo-500" />;
+      case "completed": return <CheckCheck className="h-4 w-4 text-emerald-500" />;
+      default: return <CircleDot className="h-4 w-4 text-gray-500" />;
+    }
+  };
+
   const handleViewLead = (lead: Lead) => {
     setSelectedLead(lead);
     setIsDialogOpen(true);
   };
-
-  // Organize leads by status
-  const newLeads = leads.filter(lead => lead.status === "new");
-  const contactedLeads = leads.filter(lead => lead.status === "contacted");
-  const quotedLeads = leads.filter(lead => lead.status === "quoted");
-  const confirmedLeads = leads.filter(lead => lead.status === "confirmed");
-  const activeLeads = leads.filter(lead => ["available", "accepted", "in_progress"].includes(lead.status));
-  const completedLeads = leads.filter(lead => lead.status === "completed");
 
   const renderLeadCard = (lead: Lead) => (
     <Card key={lead.id} className="border" data-testid={`lead-card-${lead.id}`}>
@@ -153,6 +159,7 @@ export default function LeadsPage() {
         <div className="flex justify-between items-start">
           <div className="space-y-2 flex-1">
             <div className="flex items-center gap-3">
+              {getStatusIcon(lead.status)}
               <h3 className="font-semibold text-lg">
                 {lead.firstName} {lead.lastName}
               </h3>
@@ -162,7 +169,7 @@ export default function LeadsPage() {
                 {lead.serviceType === "junk" && "Junk Removal"}
               </Badge>
               <Badge variant={getStatusBadgeVariant(lead.status)}>
-                {lead.status.charAt(0).toUpperCase() + lead.status.slice(1)}
+                {lead.status.charAt(0).toUpperCase() + lead.status.slice(1).replace("_", " ")}
               </Badge>
             </div>
             <div className="text-sm text-muted-foreground">
@@ -247,97 +254,27 @@ export default function LeadsPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="space-y-6">
-                {/* New Leads */}
-                {newLeads.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>New Leads ({newLeads.length})</CardTitle>
-                      <CardDescription>Recent customer inquiries awaiting contact</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        {newLeads.map(renderLeadCard)}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Contacted Leads */}
-                {contactedLeads.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Contacted Leads ({contactedLeads.length})</CardTitle>
-                      <CardDescription>Leads that have been contacted</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        {contactedLeads.map(renderLeadCard)}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Quoted Leads */}
-                {quotedLeads.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Quoted Leads ({quotedLeads.length})</CardTitle>
-                      <CardDescription>Leads with active quotes</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        {quotedLeads.map(renderLeadCard)}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Confirmed Jobs */}
-                {confirmedLeads.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Confirmed Jobs ({confirmedLeads.length})</CardTitle>
-                      <CardDescription>Jobs confirmed and ready to be assigned</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        {confirmedLeads.map(renderLeadCard)}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Active Jobs */}
-                {activeLeads.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Active Jobs ({activeLeads.length})</CardTitle>
-                      <CardDescription>Jobs currently in progress or assigned</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        {activeLeads.map(renderLeadCard)}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Completed Jobs */}
-                {completedLeads.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Completed Jobs ({completedLeads.length})</CardTitle>
-                      <CardDescription>Successfully completed jobs</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        {completedLeads.map(renderLeadCard)}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>All Leads ({leads.length})</CardTitle>
+                  <CardDescription>All customer leads organized by status</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {[...leads]
+                      .sort((a, b) => {
+                        // Sort by status priority (new → contacted → quoted → confirmed → available → accepted → in_progress → completed)
+                        // Then by newest date first
+                        const statusOrder = ["new", "contacted", "quoted", "confirmed", "available", "accepted", "in_progress", "completed"];
+                        const aIndex = statusOrder.indexOf(a.status);
+                        const bIndex = statusOrder.indexOf(b.status);
+                        if (aIndex !== bIndex) return aIndex - bIndex;
+                        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                      })
+                      .map(renderLeadCard)}
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
