@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,10 @@ import {
   FileImage,
   MessageSquare,
   Save,
-  ArrowLeft
+  ArrowLeft,
+  Settings,
+  Check,
+  X
 } from 'lucide-react';
 
 export default function ProfilePage() {
@@ -32,6 +35,17 @@ export default function ProfilePage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [helpMessage, setHelpMessage] = useState('');
   const [helpImages, setHelpImages] = useState<File[]>([]);
+  const [username, setUsername] = useState('');
+  const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
+  const [checkingUsername, setCheckingUsername] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Sync username state when user data loads
+  useEffect(() => {
+    if (user?.username) {
+      setUsername(user.username);
+    }
+  }, [user?.username]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -115,6 +129,82 @@ export default function ProfilePage() {
       });
     }
   });
+
+  const updateUsernameMutation = useMutation({
+    mutationFn: async (newUsername: string) => {
+      const response = await apiRequest('POST', '/api/auth/user/username', { username: newUsername });
+      return await response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Username updated",
+        description: "Your username has been updated successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update failed",
+        description: error.message || "Failed to update username",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const checkUsernameAvailability = async (newUsername: string) => {
+    // Abort any in-flight request before validation
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    // Validate length
+    if (newUsername.length < 3 || newUsername.length > 20) {
+      setUsernameAvailable(null);
+      setCheckingUsername(false);
+      return;
+    }
+
+    // Validate characters (alphanumeric + underscores only)
+    if (!/^[a-zA-Z0-9_]+$/.test(newUsername)) {
+      setUsernameAvailable(null);
+      setCheckingUsername(false);
+      return;
+    }
+
+    // No need to check if unchanged
+    if (newUsername === user?.username) {
+      setUsernameAvailable(true);
+      setCheckingUsername(false);
+      return;
+    }
+
+    // Create new abort controller for this request
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    setCheckingUsername(true);
+    try {
+      const response = await fetch(`/api/auth/username/check/${newUsername}`, {
+        signal: controller.signal
+      });
+      const data = await response.json();
+      
+      // Only update state if this is still the latest request
+      if (!controller.signal.aborted) {
+        setUsernameAvailable(data.available);
+      }
+    } catch (error: any) {
+      // Ignore abort errors
+      if (error.name !== 'AbortError') {
+        setUsernameAvailable(null);
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setCheckingUsername(false);
+      }
+    }
+  };
 
   if (isLoading) {
     return (
@@ -200,6 +290,10 @@ export default function ProfilePage() {
                   </p>
                 </div>
                 <div>
+                  <p className="text-sm text-muted-foreground">Username</p>
+                  <p className="font-medium" data-testid="text-username">{user?.username || 'Not set'}</p>
+                </div>
+                <div>
                   <p className="text-sm text-muted-foreground">Email</p>
                   <p className="font-medium" data-testid="text-user-email">{user?.email}</p>
                 </div>
@@ -214,8 +308,12 @@ export default function ProfilePage() {
           {/* Main Content Tabs */}
           <Card className="lg:col-span-2">
             <CardContent className="p-6">
-              <Tabs defaultValue="wallet" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+              <Tabs defaultValue="settings" className="w-full">
+                <TabsList className="grid w-full grid-cols-4">
+                  <TabsTrigger value="settings" data-testid="tab-settings">
+                    <Settings className="h-4 w-4 mr-2" />
+                    Settings
+                  </TabsTrigger>
                   <TabsTrigger value="wallet" data-testid="tab-wallet">
                     <Wallet className="h-4 w-4 mr-2" />
                     Wallet
@@ -229,6 +327,81 @@ export default function ProfilePage() {
                     Get Help
                   </TabsTrigger>
                 </TabsList>
+
+                {/* Settings Tab */}
+                <TabsContent value="settings" className="space-y-4">
+                  <div>
+                    <h3 className="text-lg font-semibold mb-2">Account Settings</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Manage your account preferences and display settings
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="username">Username (Display Name)</Label>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Your username will be displayed instead of your email address throughout the website
+                      </p>
+                      <div className="flex gap-2">
+                        <div className="flex-1 relative">
+                          <Input
+                            id="username"
+                            value={username}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setUsername(value);
+                              // Always call to ensure in-flight requests are aborted
+                              checkUsernameAvailability(value);
+                            }}
+                            placeholder="Choose a username"
+                            className={`pr-8 ${usernameAvailable === false ? 'border-destructive' : usernameAvailable === true ? 'border-green-500' : ''}`}
+                            data-testid="input-username"
+                          />
+                          {checkingUsername && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                            </div>
+                          )}
+                          {!checkingUsername && usernameAvailable === true && (
+                            <Check className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" />
+                          )}
+                          {!checkingUsername && usernameAvailable === false && (
+                            <X className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-destructive" />
+                          )}
+                        </div>
+                        <Button
+                          onClick={() => updateUsernameMutation.mutate(username)}
+                          disabled={!username || username.length < 3 || username.length > 20 || !/^[a-zA-Z0-9_]+$/.test(username) || usernameAvailable === false || updateUsernameMutation.isPending || username === user?.username}
+                          data-testid="button-save-username"
+                        >
+                          <Save className="h-4 w-4 mr-2" />
+                          {updateUsernameMutation.isPending ? 'Saving...' : 'Save'}
+                        </Button>
+                      </div>
+                      {username.length > 0 && username.length < 3 && (
+                        <p className="text-sm text-destructive mt-1">Username must be at least 3 characters</p>
+                      )}
+                      {username.length > 20 && (
+                        <p className="text-sm text-destructive mt-1">Username must be 20 characters or less</p>
+                      )}
+                      {username.length >= 3 && username.length <= 20 && !/^[a-zA-Z0-9_]+$/.test(username) && (
+                        <p className="text-sm text-destructive mt-1">Username can only contain letters, numbers, and underscores</p>
+                      )}
+                      {usernameAvailable === false && (
+                        <p className="text-sm text-destructive mt-1">This username is already taken</p>
+                      )}
+                      {usernameAvailable === true && username !== user?.username && (
+                        <p className="text-sm text-green-600 mt-1">This username is available</p>
+                      )}
+                      {username.length >= 3 && username.length <= 20 && /^[a-zA-Z0-9_]+$/.test(username) && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Username can only contain letters, numbers, and underscores
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
 
                 {/* Wallet Tab */}
                 <TabsContent value="wallet" className="space-y-4">
