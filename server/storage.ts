@@ -45,6 +45,7 @@ export interface IStorage {
   
   // Job assignment operations
   assignLeadToEmployee(leadId: string, employeeId: string): Promise<Lead | undefined>;
+  addEmployeeAcceptance(leadId: string, employeeId: string, isCrewFull: boolean): Promise<Lead | undefined>;
   getAvailableLeads(): Promise<Lead[]>; // Leads not assigned to any employee
   getAssignedLeads(employeeId: string): Promise<Lead[]>; // Leads assigned to specific employee
   
@@ -686,6 +687,34 @@ export class DatabaseStorage implements IStorage {
         isNull(leads.assignedToUserId)
       ))
       .returning();
+    return lead || undefined;
+  }
+
+  async addEmployeeAcceptance(leadId: string, employeeId: string, isCrewFull: boolean): Promise<Lead | undefined> {
+    // Get current lead to append to acceptedByEmployees
+    const currentLead = await this.getLead(leadId);
+    if (!currentLead) return undefined;
+
+    const acceptedByEmployees = currentLead.acceptedByEmployees || [];
+    const updatedAcceptedBy = [...acceptedByEmployees, employeeId];
+
+    // If crew is full, set status to 'accepted' and populate crewMembers
+    const updates: any = {
+      acceptedByEmployees: updatedAcceptedBy,
+    };
+
+    if (isCrewFull) {
+      updates.status = 'accepted';
+      updates.crewMembers = updatedAcceptedBy;
+      updates.assignedToUserId = updatedAcceptedBy[0]; // First employee who accepted
+    }
+
+    const [lead] = await db
+      .update(leads)
+      .set(updates)
+      .where(eq(leads.id, leadId))
+      .returning();
+    
     return lead || undefined;
   }
 

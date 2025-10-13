@@ -1144,29 +1144,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const employeeId = req.currentUser.id;
       
-      // Atomic assignment attempt - will fail if already assigned
-      const updatedLead = await storage.assignLeadToEmployee(id, employeeId);
-      if (!updatedLead) {
-        // Check if lead exists at all
-        const existingLead = await storage.getLead(id);
-        if (!existingLead) {
-          return res.status(404).json({ error: "Job not found" });
-        }
-        // Lead exists but wasn't updated, meaning it was already assigned
-        return res.status(409).json({ error: "Job already assigned to another employee" });
+      // Get the current lead
+      const lead = await storage.getLead(id);
+      if (!lead) {
+        return res.status(404).json({ error: "Job not found" });
       }
 
-      // Send notification to employee confirming job assignment
+      // Check if job is available for acceptance
+      if (lead.status !== "available") {
+        return res.status(400).json({ error: "Job is not available for acceptance" });
+      }
+
+      // Check if employee has already accepted this job
+      const acceptedByEmployees = lead.acceptedByEmployees || [];
+      if (acceptedByEmployees.includes(employeeId)) {
+        return res.status(409).json({ error: "You have already accepted this job" });
+      }
+
+      // Check if crew is already full
+      const crewSize = lead.crewSize || 2;
+      if (acceptedByEmployees.length >= crewSize) {
+        return res.status(409).json({ error: "This job's crew is already full" });
+      }
+
+      // Add employee to accepted list
+      const updatedAcceptedBy = [...acceptedByEmployees, employeeId];
+      const isCrewFull = updatedAcceptedBy.length >= crewSize;
+
+      // Update the lead
+      const updatedLead = await storage.addEmployeeAcceptance(
+        id, 
+        employeeId, 
+        isCrewFull
+      );
+      
+      if (!updatedLead) {
+        return res.status(500).json({ error: "Failed to accept job" });
+      }
+
+      // Send notification to employee
       try {
         const { notificationService } = await import("./services/notification");
+        const message = isCrewFull 
+          ? `Job accepted! Crew is full (${crewSize}/${crewSize})`
+          : `Job accepted! Waiting for ${crewSize - updatedAcceptedBy.length} more crew member(s)`;
         await notificationService.notifyJobAssigned(
           employeeId,
           updatedLead.id,
-          `${updatedLead.firstName} ${updatedLead.lastName}`
+          message
         );
       } catch (notificationError) {
         console.error("Error sending job assignment notification:", notificationError);
-        // Don't fail the request if notification fails
       }
 
       res.json(updatedLead);

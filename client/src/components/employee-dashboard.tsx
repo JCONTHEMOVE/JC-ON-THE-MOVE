@@ -15,6 +15,10 @@ export default function EmployeeDashboard() {
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
 
+  const { data: currentUser } = useQuery<any>({
+    queryKey: ["/api/auth/user"],
+  });
+
   const { data: availableJobs = [], isLoading: availableLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/available"],
   });
@@ -137,24 +141,54 @@ export default function EmployeeDashboard() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {availableJobs.slice(0, 3).map((job) => (
-                    <div key={job.id} className="p-3 border rounded-lg">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-medium">{job.firstName} {job.lastName}</p>
-                          <p className="text-sm text-muted-foreground">{job.serviceType}</p>
-                          <p className="text-sm text-muted-foreground">{job.moveDate ? new Date(job.moveDate).toLocaleDateString() : 'No date set'}</p>
+                  {availableJobs.slice(0, 3).map((job) => {
+                    const crewSize = job.crewSize || 2;
+                    const acceptedCount = job.acceptedByEmployees?.length || 0;
+                    const spotsRemaining = crewSize - acceptedCount;
+                    const hasAccepted = currentUser && job.acceptedByEmployees?.includes(currentUser.id);
+                    
+                    return (
+                      <div key={job.id} className="p-3 border rounded-lg">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <p className="font-medium">{job.firstName} {job.lastName}</p>
+                            <p className="text-sm text-muted-foreground">{job.serviceType}</p>
+                            <p className="text-sm text-muted-foreground">{job.moveDate ? new Date(job.moveDate).toLocaleDateString() : 'No date set'}</p>
+                            
+                            {/* Crew spots indicator */}
+                            <div className="flex items-center gap-2 mt-2">
+                              <div className="flex gap-1" data-testid={`crew-spots-${job.id}`}>
+                                {Array.from({ length: crewSize }).map((_, index) => (
+                                  <div
+                                    key={index}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                                      index < acceptedCount
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'bg-muted border-2 border-muted-foreground/20 text-muted-foreground'
+                                    }`}
+                                    data-testid={`crew-bubble-${index < acceptedCount ? 'filled' : 'empty'}-${index}`}
+                                  >
+                                    {index + 1}
+                                  </div>
+                                ))}
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {acceptedCount}/{crewSize} filled
+                              </span>
+                            </div>
+                          </div>
+                          <Button 
+                            size="sm" 
+                            onClick={() => acceptJobMutation.mutate(job.id)}
+                            disabled={acceptJobMutation.isPending || hasAccepted}
+                            data-testid={`button-accept-job-${job.id}`}
+                          >
+                            {hasAccepted ? 'Accepted' : 'Accept'}
+                          </Button>
                         </div>
-                        <Button 
-                          size="sm" 
-                          onClick={() => acceptJobMutation.mutate(job.id)}
-                          disabled={acceptJobMutation.isPending}
-                        >
-                          Accept
-                        </Button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {availableJobs.length > 3 && (
                     <Link href="/jobs">
                       <Button variant="outline" className="w-full">View All Jobs</Button>
