@@ -238,9 +238,6 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
                       <SelectItem value="available" data-testid="option-status-available">
                         Available
                       </SelectItem>
-                      <SelectItem value="accepted" data-testid="option-status-accepted">
-                        Accepted
-                      </SelectItem>
                       <SelectItem value="in_progress" data-testid="option-status-in-progress">
                         In Progress
                       </SelectItem>
