@@ -447,6 +447,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Check username availability
+  app.get('/api/auth/username/check/:username', async (req: any, res) => {
+    try {
+      const { username } = req.params;
+      
+      if (!username || username.length < 3) {
+        return res.status(400).json({ available: false, message: "Username must be at least 3 characters" });
+      }
+
+      if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+        return res.status(400).json({ available: false, message: "Username can only contain letters, numbers, and underscores" });
+      }
+
+      const isAvailable = await storage.checkUsernameAvailability(username);
+      res.json({ available: isAvailable });
+    } catch (error) {
+      console.error("Error checking username availability:", error);
+      res.status(500).json({ message: "Failed to check username availability" });
+    }
+  });
+
+  // Update username
+  app.post('/api/auth/user/username', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { username } = req.body;
+
+      if (!username || username.length < 3) {
+        return res.status(400).json({ message: "Username must be at least 3 characters" });
+      }
+
+      if (username.length > 20) {
+        return res.status(400).json({ message: "Username must be 20 characters or less" });
+      }
+
+      if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+        return res.status(400).json({ message: "Username can only contain letters, numbers, and underscores" });
+      }
+
+      // Check if username is already taken
+      const isAvailable = await storage.checkUsernameAvailability(username);
+      if (!isAvailable) {
+        return res.status(409).json({ message: "Username is already taken" });
+      }
+
+      const updatedUser = await storage.updateUsername(userId, username);
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.json(updatedUser);
+    } catch (error: any) {
+      // Handle unique constraint violation from race conditions
+      if (error.message === 'USERNAME_TAKEN') {
+        return res.status(409).json({ message: "Username is already taken" });
+      }
+      console.error("Error updating username:", error);
+      res.status(500).json({ message: "Failed to update username" });
+    }
+  });
+
   // Get user by ID (for employee access)
   app.get('/api/users/:id', isAuthenticated, requireEmployee, async (req: any, res) => {
     try {

@@ -26,6 +26,10 @@ export interface IStorage {
   // Profile image upload
   updateUserProfileImage(userId: string, profileImageUrl: string): Promise<User | undefined>;
   
+  // Username management
+  updateUsername(userId: string, username: string): Promise<User | undefined>;
+  checkUsernameAvailability(username: string): Promise<boolean>;
+  
   // Help request operations
   createHelpRequest(request: { userId: string; message: string; imageUrls: string[] | null }): Promise<any>;
   
@@ -316,6 +320,35 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, userId))
       .returning();
     return user || undefined;
+  }
+
+  async updateUsername(userId: string, username: string): Promise<User | undefined> {
+    try {
+      const [user] = await db
+        .update(users)
+        .set({ 
+          username,
+          updatedAt: new Date() 
+        })
+        .where(eq(users.id, userId))
+        .returning();
+      return user || undefined;
+    } catch (error: any) {
+      // Handle unique constraint violation (error code 23505 in PostgreSQL)
+      if (error.code === '23505' && error.constraint === 'users_username_unique') {
+        throw new Error('USERNAME_TAKEN');
+      }
+      throw error;
+    }
+  }
+
+  async checkUsernameAvailability(username: string): Promise<boolean> {
+    const existingUser = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
+    return existingUser.length === 0;
   }
 
   async createHelpRequest(request: { userId: string; message: string; imageUrls: string[] | null }): Promise<any> {
