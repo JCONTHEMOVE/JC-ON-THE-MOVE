@@ -181,7 +181,7 @@ export default function Header() {
                         <User className="h-5 w-5 text-muted-foreground" />
                       )}
                       <span className="text-muted-foreground">
-                        {user?.firstName || user?.email || 'User'}
+                        {user?.username || user?.firstName || user?.email || 'User'}
                       </span>
                     </Link>
                     <a 
@@ -386,7 +386,7 @@ export default function Header() {
                       <User className="h-5 w-5 text-muted-foreground" />
                     )}
                     <span className="text-muted-foreground">
-                      {user?.firstName || user?.email || 'User'}
+                      {user?.username || user?.firstName || user?.email || 'User'}
                     </span>
                   </Link>
                   <a 

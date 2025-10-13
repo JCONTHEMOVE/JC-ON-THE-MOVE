@@ -29,7 +29,7 @@ export default function PendingApprovalPage() {
           <div className="bg-muted rounded-lg p-4 space-y-2" data-testid="container-account-details">
             <p className="text-sm text-muted-foreground" data-testid="text-account-info">Account Details:</p>
             <p className="font-medium" data-testid="text-user-name">{user?.firstName} {user?.lastName}</p>
-            <p className="text-sm text-muted-foreground" data-testid="text-user-email">{user?.email}</p>
+            <p className="text-sm text-muted-foreground" data-testid="text-user-email">{user?.username || user?.email}</p>
           </div>
 
           <div className="border-t pt-4 space-y-2" data-testid="container-next-steps">
