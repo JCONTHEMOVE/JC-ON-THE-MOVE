@@ -47,6 +47,29 @@ export default function EmployeeDashboard() {
     },
   });
 
+  const completeJobMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const response = await apiRequest("POST", `/api/leads/${jobId}/complete`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
+      toast({
+        title: "Job completed",
+        description: "You have successfully marked this job as completed.",
+      });
+    },
+    onError: (error: Error) => {
+      if (error.message.includes('401')) return;
+      
+      toast({
+        title: "Error",
+        description: "Failed to complete job. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
       case "accepted":
@@ -159,11 +182,22 @@ export default function EmployeeDashboard() {
                   {myJobs.slice(0, 3).map((job) => (
                     <div key={job.id} className="p-3 border rounded-lg">
                       <div className="flex justify-between items-start">
-                        <div>
+                        <div className="flex-1">
                           <p className="font-medium">{job.firstName} {job.lastName}</p>
                           <p className="text-sm text-muted-foreground">{job.serviceType}</p>
                           <Badge variant={getStatusBadgeVariant(job.status)}>{job.status}</Badge>
                         </div>
+                        {(job.status === "accepted" || job.status === "in_progress") && (
+                          <Button 
+                            size="sm" 
+                            variant="default"
+                            onClick={() => completeJobMutation.mutate(job.id)}
+                            disabled={completeJobMutation.isPending}
+                            data-testid={`button-complete-job-${job.id}`}
+                          >
+                            Complete
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}

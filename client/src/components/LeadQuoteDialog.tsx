@@ -89,9 +89,9 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
   const totalSpecialItemsFee = hotTubFee + heavySafeFee + poolTableFee + pianoFee;
   const totalPrice = basePrice + totalSpecialItemsFee;
 
-  // Update form when lead is selected
+  // Update form when lead is selected or dialog opens
   useEffect(() => {
-    if (lead) {
+    if (lead && open) {
       quoteForm.reset({
         status: lead.status || "",
         confirmedDate: lead.confirmedDate || "",
@@ -112,7 +112,7 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
       setSelectedCrewMembers(lead.crewMembers || []);
       setSelectedStatus(lead.status || "");
     }
-  }, [lead]);
+  }, [lead, open, quoteForm]);
 
   const toggleCrewMember = (employeeId: string) => {
     setSelectedCrewMembers(prev => {

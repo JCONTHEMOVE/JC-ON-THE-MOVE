@@ -1176,6 +1176,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Complete job endpoint
+  app.post("/api/leads/:id/complete", isAuthenticated, requireEmployee, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const employeeId = req.currentUser.id;
+      
+      // Verify the employee is assigned to this job
+      const lead = await storage.getLead(id);
+      if (!lead) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      
+      // Check if employee is assigned (either as the assigned employee or part of the crew)
+      const isAssigned = lead.assignedToUserId === employeeId || lead.crewMembers?.includes(employeeId);
+      if (!isAssigned) {
+        return res.status(403).json({ error: "You can only complete jobs you're assigned to" });
+      }
+      
+      // Update job status to completed
+      const updatedLead = await storage.updateLeadStatus(id, "completed");
+      if (!updatedLead) {
+        return res.status(404).json({ error: "Failed to update job status" });
+      }
+
+      res.json(updatedLead);
+    } catch (error) {
+      console.error("Error completing job:", error);
+      res.status(500).json({ error: "Failed to complete job" });
+    }
+  });
+
   // Photo management for jobs
   app.post("/api/leads/:id/photos", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
