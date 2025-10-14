@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Wallet, ArrowRightLeft, DollarSign } from "lucide-react";
+import { Loader2, Wallet, ArrowRightLeft, DollarSign, TrendingUp, TrendingDown, Activity } from "lucide-react";
 
 interface MoonshotTransfer {
   accountId: string;
@@ -15,6 +15,19 @@ interface MoonshotTransfer {
   tokenAmount: string;
   treasuryAccountId: string;
   notes?: string;
+}
+
+interface LivePrice {
+  price: number;
+  priceFormatted: string;
+  change24h: number | null;
+  changePercent24h: string | null;
+  volume24h: number | null;
+  volumeFormatted: string | null;
+  symbol: string;
+  tokenName: string;
+  lastUpdated: string;
+  status: 'live' | 'fallback';
 }
 
 export default function AdminMoonshotPage() {
@@ -25,6 +38,12 @@ export default function AdminMoonshotPage() {
     tokenAmount: "",
     treasuryAccountId: "",
     notes: ""
+  });
+
+  // Get live token price with real-time updates (every 5 seconds)
+  const { data: livePrice, isLoading: loadingPrice } = useQuery<LivePrice>({
+    queryKey: ["/api/crypto/live-price"],
+    refetchInterval: 5000, // Refresh every 5 seconds for live updates
   });
 
   // Get treasury status
@@ -95,7 +114,7 @@ export default function AdminMoonshotPage() {
     moonshotDepositMutation.mutate(transferData);
   };
 
-  const moonshotDeposits = depositsData?.deposits?.filter((d: any) => d.depositMethod === 'moonshot') || [];
+  const moonshotDeposits = (depositsData as any)?.deposits?.filter((d: any) => d.depositMethod === 'moonshot') || [];
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -193,63 +212,86 @@ export default function AdminMoonshotPage() {
           </CardContent>
         </Card>
 
-        {/* Treasury Status */}
+        {/* Live Price & Treasury Status */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5" />
-              Treasury Status
+              <Activity className="h-5 w-5" />
+              Live Market Price
             </CardTitle>
-            <CardDescription>Current treasury funding and reserves</CardDescription>
+            <CardDescription>Real-time JCMOVES token pricing</CardDescription>
           </CardHeader>
           <CardContent>
-            {loadingTreasury ? (
+            {loadingPrice ? (
               <div className="flex items-center justify-center h-32">
                 <Loader2 className="h-8 w-8 animate-spin" />
               </div>
-            ) : treasuryStatus ? (
+            ) : livePrice ? (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div data-testid="text-current-market-value">
-                    <p className="text-sm text-muted-foreground">Current Market Value</p>
-                    <p className="text-2xl font-bold text-green-600">
-                      ${parseFloat(treasuryStatus.stats?.currentMarketValueUsd || '0').toFixed(2)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      @ ${parseFloat(treasuryStatus.stats?.currentTokenPrice || '0').toFixed(8)}
-                    </p>
+                {/* Live Price Display */}
+                <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-muted-foreground">{livePrice.symbol}</p>
+                    <div className="flex items-center gap-1">
+                      {livePrice.change24h !== null && livePrice.change24h > 0 ? (
+                        <TrendingUp className="h-4 w-4 text-green-600" data-testid="icon-trending-up" />
+                      ) : livePrice.change24h !== null && livePrice.change24h < 0 ? (
+                        <TrendingDown className="h-4 w-4 text-red-600" data-testid="icon-trending-down" />
+                      ) : null}
+                      <span className={`text-sm font-medium ${livePrice.change24h !== null && livePrice.change24h >= 0 ? 'text-green-600' : 'text-red-600'}`} data-testid="text-price-change">
+                        {livePrice.changePercent24h || 'N/A'}
+                      </span>
+                    </div>
                   </div>
-                  <div data-testid="text-token-reserve">
-                    <p className="text-sm text-muted-foreground">Token Reserve</p>
-                    <p className="text-2xl font-bold">
-                      {parseFloat(treasuryStatus.stats?.tokenReserve || '0').toFixed(0)}
-                    </p>
-                  </div>
+                  <p className="text-3xl font-bold text-primary mb-1" data-testid="text-live-price">
+                    {livePrice.priceFormatted}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    24h Volume: {livePrice.volumeFormatted || 'N/A'} • Updated: {new Date(livePrice.lastUpdated).toLocaleTimeString()}
+                  </p>
                 </div>
+
+                {/* Treasury Reserve Info */}
+                {treasuryStatus && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div data-testid="text-current-market-value">
+                      <p className="text-sm text-muted-foreground">Treasury Value</p>
+                      <p className="text-xl font-bold text-green-600">
+                        ${parseFloat((treasuryStatus as any).stats?.currentMarketValueUsd || '0').toFixed(2)}
+                      </p>
+                    </div>
+                    <div data-testid="text-token-reserve">
+                      <p className="text-sm text-muted-foreground">Token Reserve</p>
+                      <p className="text-xl font-bold">
+                        {parseFloat((treasuryStatus as any).stats?.tokenReserve || '0').toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                )}
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div data-testid="text-total-funding">
                     <p className="text-sm text-muted-foreground">Total Funding</p>
                     <p className="text-lg font-semibold">
-                      ${parseFloat(treasuryStatus.stats?.totalFunding || '0').toFixed(2)}
+                      ${parseFloat((treasuryStatus as any).stats?.totalFunding || '0').toFixed(2)}
                     </p>
                   </div>
                   <div data-testid="text-total-distributed">
                     <p className="text-sm text-muted-foreground">Total Distributed</p>
                     <p className="text-lg font-semibold">
-                      ${parseFloat(treasuryStatus.stats?.totalDistributed || '0').toFixed(2)}
+                      ${parseFloat((treasuryStatus as any).stats?.totalDistributed || '0').toFixed(2)}
                     </p>
                   </div>
                 </div>
 
-                {treasuryStatus.health && (
+                {(treasuryStatus as any)?.health && (
                   <div className="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20">
                     <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                      Health Status: {treasuryStatus.health.status}
+                      Health Status: {(treasuryStatus as any).health.status}
                     </p>
-                    {treasuryStatus.estimatedFundingDays && (
+                    {(treasuryStatus as any).estimatedFundingDays && (
                       <p className="text-sm text-blue-600 dark:text-blue-300">
-                        Estimated funding days: {treasuryStatus.estimatedFundingDays.estimatedDays || 'N/A'}
+                        Estimated funding days: {(treasuryStatus as any).estimatedFundingDays.estimatedDays || 'N/A'}
                       </p>
                     )}
                   </div>
