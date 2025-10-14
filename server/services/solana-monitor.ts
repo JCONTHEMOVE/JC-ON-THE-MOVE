@@ -27,7 +27,7 @@ export class SolanaMonitor {
   async initializeTreasuryAddress(): Promise<void> {
     try {
       const treasuryWallets = await storage.getTreasuryWallets('admin');
-      const mainTreasury = treasuryWallets.find(w => w.walletType === 'custodial');
+      const mainTreasury = treasuryWallets.find(w => w.purpose === 'treasury');
       
       if (mainTreasury) {
         this.treasuryWalletAddress = mainTreasury.walletAddress;
