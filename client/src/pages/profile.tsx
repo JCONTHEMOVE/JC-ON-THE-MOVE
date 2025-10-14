@@ -27,13 +27,15 @@ import {
   X,
   Copy,
   CheckCircle2,
-  ExternalLink
+  ExternalLink,
+  Building2
 } from 'lucide-react';
 
 interface UserWallet {
   id: string;
   walletAddress: string;
   balance: string;
+  walletType?: string; // Optional for treasury wallets
   currency: {
     symbol: string;
     name: string;
@@ -71,7 +73,14 @@ export default function ProfilePage() {
     enabled: !!user && user?.role === 'admin',
   });
 
+  // Fetch treasury wallets (admin only)
+  const { data: treasuryResponse, isLoading: treasuryLoading } = useQuery<{ wallets: UserWallet[] }>({
+    queryKey: ['/api/treasury/wallets'],
+    enabled: !!user && user?.role === 'admin',
+  });
+
   const wallets = walletsResponse?.wallets || [];
+  const treasuryWallets = treasuryResponse?.wallets || [];
   const isSolanaConnected = wallets.some(w => w.currency.network === 'solana');
 
   // Sync username state when user data loads
@@ -448,11 +457,12 @@ export default function ProfilePage() {
                 </TabsContent>
 
                 {/* Wallet Tab */}
-                <TabsContent value="wallet" className="space-y-4">
+                <TabsContent value="wallet" className="space-y-6">
+                  {/* Personal Wallets Section */}
                   <div>
                     <div className="flex items-center gap-2 mb-4">
                       <Wallet className="h-5 w-5 text-primary" />
-                      <h3 className="text-lg font-semibold">My Crypto Wallets</h3>
+                      <h3 className="text-lg font-semibold">Personal Wallets</h3>
                     </div>
                     {isSolanaConnected && (
                       <div className="flex items-center gap-2 mb-4 p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
@@ -525,30 +535,86 @@ export default function ProfilePage() {
                         </div>
                       ))}
                       
-                      {user?.role === 'admin' && (
-                        <>
-                          <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg">
-                            <div className="flex items-start gap-2">
-                              <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-                              <div>
-                                <p className="font-medium text-blue-900 dark:text-blue-100">Treasury Wallet Verified</p>
-                                <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                                  Your JCMOVES wallet address matches the treasury wallet. You have full administrative access to treasury funds.
-                                </p>
+                    </div>
+                  )}
+
+                  {/* Treasury Management Section (Admin Only) */}
+                  {user?.role === 'admin' && (
+                    <div className="border-t pt-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Building2 className="h-5 w-5 text-primary" />
+                        <h3 className="text-lg font-semibold">Treasury Management</h3>
+                      </div>
+
+                      {treasuryLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {treasuryWallets.map((wallet) => (
+                            <div key={wallet.id} className="p-4 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg">
+                              <div className="flex items-start justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold">
+                                    {wallet.currency.symbol.charAt(0)}
+                                  </div>
+                                  <div>
+                                    <p className="font-semibold text-amber-900 dark:text-amber-100">{wallet.currency.name}</p>
+                                    <p className="text-xs text-amber-600 dark:text-amber-400">Business Treasury</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">
+                                    {parseFloat(wallet.balance).toLocaleString(undefined, { 
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 8
+                                    })}
+                                  </p>
+                                  <p className="text-sm text-amber-600 dark:text-amber-400">{wallet.currency.symbol}</p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center justify-between mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
+                                <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+                                  <span className="px-2 py-1 bg-amber-100 dark:bg-amber-900 rounded">{wallet.currency.network}</span>
+                                  <span className="px-2 py-1 bg-amber-100 dark:bg-amber-900 rounded capitalize">{wallet.walletType}</span>
+                                </div>
+                                <button
+                                  onClick={() => copyToClipboard(wallet.walletAddress)}
+                                  className="flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300"
+                                  data-testid={`button-copy-treasury-${wallet.currency.symbol.toLowerCase()}`}
+                                >
+                                  {copiedAddress === wallet.walletAddress ? (
+                                    <>
+                                      <Check className="h-4 w-4" />
+                                      <span className="text-xs">Copied!</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="h-4 w-4" />
+                                      <span className="text-xs">Copy Address</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                              
+                              <div className="mt-2 p-2 bg-amber-100 dark:bg-amber-900 rounded text-xs font-mono break-all text-amber-700 dark:text-amber-300">
+                                {wallet.walletAddress}
                               </div>
                             </div>
-                          </div>
-                          
+                          ))}
+
                           {transferLoading ? (
-                            <div className="mt-4 p-4 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg flex items-center justify-center">
+                            <div className="p-4 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg flex items-center justify-center">
                               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
                             </div>
                           ) : transferSummary && parseInt(transferSummary.transactionCount.toString()) > 0 ? (
-                            <div className="mt-4 p-4 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg">
+                            <div className="p-4 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg">
                               <div className="flex items-start gap-2">
                                 <ExternalLink className="h-5 w-5 text-purple-600 dark:text-purple-400 mt-0.5" />
                                 <div className="flex-1">
-                                  <p className="font-medium text-purple-900 dark:text-purple-100 mb-2">Outgoing Treasury Transfers</p>
+                                  <p className="font-medium text-purple-900 dark:text-purple-100 mb-2">Historical Transfers</p>
                                   <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
                                       <p className="text-purple-700 dark:text-purple-300">Total Transferred</p>
@@ -564,13 +630,13 @@ export default function ProfilePage() {
                                     </div>
                                   </div>
                                   <p className="text-xs text-purple-600 dark:text-purple-400 mt-3">
-                                    Historical transfers to treasury reserve for business operations and employee rewards
+                                    Historical transfers from personal wallet (recovered and moved to treasury)
                                   </p>
                                 </div>
                               </div>
                             </div>
                           ) : null}
-                        </>
+                        </div>
                       )}
                     </div>
                   )}

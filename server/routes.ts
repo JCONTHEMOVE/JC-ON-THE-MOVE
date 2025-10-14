@@ -3063,6 +3063,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Treasury Wallet Endpoints (Admin only)
+  app.get("/api/treasury/wallets", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const treasuryWallets = await storage.getTreasuryWallets('admin');
+      res.json({ wallets: treasuryWallets });
+    } catch (error) {
+      console.error("Error fetching treasury wallets:", error);
+      res.status(500).json({ error: "Failed to fetch treasury wallets" });
+    }
+  });
+
   // Get wallet transactions
   app.get("/api/wallets/:walletId/transactions", isAuthenticated, async (req: any, res) => {
     try {

@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type WalletTransaction, type InsertWalletTransaction, type ShopItem, type InsertShopItem, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, priceHistory, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, walletTransactions, shopItems } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type TreasuryWallet, type InsertTreasuryWallet, type WalletTransaction, type InsertWalletTransaction, type ShopItem, type InsertShopItem, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, priceHistory, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, treasuryWallets, walletTransactions, shopItems } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, isNull, and, isNotNull, sql, gt, gte } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
@@ -1671,6 +1671,61 @@ export class DatabaseStorage implements IStorage {
       .where(eq(walletTransactions.userWalletId, walletId))
       .orderBy(desc(walletTransactions.createdAt))
       .limit(limit);
+  }
+
+  // Treasury wallet operations
+  async getTreasuryWallets(roleScope?: string): Promise<(TreasuryWallet & { currency: SupportedCurrency })[]> {
+    const conditions = [eq(treasuryWallets.isActive, true)];
+    if (roleScope) {
+      conditions.push(eq(treasuryWallets.roleScope, roleScope));
+    }
+
+    const results = await db.select({
+      id: treasuryWallets.id,
+      currencyId: treasuryWallets.currencyId,
+      walletAddress: treasuryWallets.walletAddress,
+      privateKeyHash: treasuryWallets.privateKeyHash,
+      publicKey: treasuryWallets.publicKey,
+      balance: treasuryWallets.balance,
+      lastSyncedAt: treasuryWallets.lastSyncedAt,
+      isActive: treasuryWallets.isActive,
+      walletType: treasuryWallets.walletType,
+      purpose: treasuryWallets.purpose,
+      managedByUserId: treasuryWallets.managedByUserId,
+      roleScope: treasuryWallets.roleScope,
+      metadata: treasuryWallets.metadata,
+      createdAt: treasuryWallets.createdAt,
+      updatedAt: treasuryWallets.updatedAt,
+      currency: supportedCurrencies
+    })
+    .from(treasuryWallets)
+    .innerJoin(supportedCurrencies, eq(treasuryWallets.currencyId, supportedCurrencies.id))
+    .where(and(...conditions));
+    
+    return results.map(result => ({
+      ...result,
+      currency: result.currency
+    })) as (TreasuryWallet & { currency: SupportedCurrency })[];
+  }
+
+  async getTreasuryWallet(currencyId: string, purpose: string = 'treasury'): Promise<TreasuryWallet | undefined> {
+    const [wallet] = await db.select().from(treasuryWallets)
+      .where(and(
+        eq(treasuryWallets.currencyId, currencyId),
+        eq(treasuryWallets.purpose, purpose),
+        eq(treasuryWallets.isActive, true)
+      ));
+    return wallet || undefined;
+  }
+
+  async updateTreasuryWalletBalance(walletId: string, newBalance: string): Promise<void> {
+    await db.update(treasuryWallets)
+      .set({ 
+        balance: newBalance,
+        lastSyncedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(treasuryWallets.id, walletId));
   }
 
   // Price history operations
