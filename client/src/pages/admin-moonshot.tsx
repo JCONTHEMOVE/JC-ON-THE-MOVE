@@ -10,10 +10,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Wallet, ArrowRightLeft, DollarSign, TrendingUp, TrendingDown, Activity } from "lucide-react";
 
 interface MoonshotTransfer {
-  accountId: string;
-  tokenSymbol: string;
-  tokenAmount: string;
-  treasuryAccountId: string;
+  tokenAmount: number;
+  transactionHash: string;
+  moonshotAccountId?: string;
   notes?: string;
 }
 
@@ -33,10 +32,9 @@ interface LivePrice {
 export default function AdminMoonshotPage() {
   const { toast } = useToast();
   const [transferData, setTransferData] = useState<MoonshotTransfer>({
-    accountId: "",
-    tokenSymbol: "SOL",
-    tokenAmount: "",
-    treasuryAccountId: "",
+    tokenAmount: 0,
+    transactionHash: "",
+    moonshotAccountId: "",
     notes: ""
   });
 
@@ -58,23 +56,22 @@ export default function AdminMoonshotPage() {
     refetchInterval: 30000,
   });
 
-  // Moonshot deposit mutation
+  // Moonshot deposit mutation - auto-accepts completed transfers
   const moonshotDepositMutation = useMutation({
     mutationFn: async (data: MoonshotTransfer) => {
-      const response = await apiRequest("POST", "/api/treasury/moonshot-deposit", data);
+      const response = await apiRequest("POST", "/api/treasury/record-token-deposit", data);
       return response.json();
     },
     onSuccess: (data) => {
       toast({
-        title: "Moonshot Transfer Successful",
-        description: data.message || "Tokens successfully transferred from Moonshot account",
+        title: "✅ Deposit Automatically Accepted",
+        description: data.message || "Tokens successfully recorded in treasury",
       });
       // Reset form
       setTransferData({
-        accountId: "",
-        tokenSymbol: "SOL", 
-        tokenAmount: "",
-        treasuryAccountId: "",
+        tokenAmount: 0,
+        transactionHash: "",
+        moonshotAccountId: "",
         notes: ""
       });
       // Refresh treasury data
@@ -83,8 +80,8 @@ export default function AdminMoonshotPage() {
     },
     onError: (error: any) => {
       toast({
-        title: "Transfer Failed",
-        description: error.message || "Failed to process Moonshot transfer",
+        title: "Deposit Failed",
+        description: error.message || "Failed to record deposit",
         variant: "destructive",
       });
     },
@@ -93,16 +90,16 @@ export default function AdminMoonshotPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!transferData.accountId.trim()) {
+    if (!transferData.transactionHash.trim()) {
       toast({
-        title: "Account ID Required",
-        description: "Please enter your Moonshot account ID",
+        title: "Transaction Hash Required",
+        description: "Please enter the Moonshot transaction hash",
         variant: "destructive",
       });
       return;
     }
 
-    if (!transferData.tokenAmount.trim() || parseFloat(transferData.tokenAmount) <= 0) {
+    if (!transferData.tokenAmount || transferData.tokenAmount <= 0) {
       toast({
         title: "Invalid Amount",
         description: "Please enter a valid token amount",
@@ -140,46 +137,48 @@ export default function AdminMoonshotPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div data-testid="input-account-id">
-                <Label htmlFor="accountId">Moonshot Account ID *</Label>
+              <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800 mb-4">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  <strong>Step 1:</strong> Complete your transfer in Moonshot app first<br/>
+                  <strong>Step 2:</strong> Enter the transaction details below to automatically record it
+                </p>
+              </div>
+
+              <div data-testid="input-token-amount">
+                <Label htmlFor="tokenAmount">JCMOVES Token Amount *</Label>
                 <Input
-                  id="accountId"
-                  placeholder="Enter your Moonshot account ID"
-                  value={transferData.accountId}
-                  onChange={(e) => setTransferData({ ...transferData, accountId: e.target.value })}
+                  id="tokenAmount"
+                  type="number"
+                  step="0.01"
+                  placeholder="80640"
+                  value={transferData.tokenAmount || ""}
+                  onChange={(e) => setTransferData({ ...transferData, tokenAmount: parseFloat(e.target.value) || 0 })}
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Enter the exact number of JCMOVES tokens you transferred
+                </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div data-testid="input-token-symbol">
-                  <Label htmlFor="tokenSymbol">Token</Label>
-                  <Input
-                    id="tokenSymbol"
-                    value={transferData.tokenSymbol}
-                    onChange={(e) => setTransferData({ ...transferData, tokenSymbol: e.target.value })}
-                  />
-                </div>
-                
-                <div data-testid="input-token-amount">
-                  <Label htmlFor="tokenAmount">Amount *</Label>
-                  <Input
-                    id="tokenAmount"
-                    type="number"
-                    step="0.000001"
-                    placeholder="100.0"
-                    value={transferData.tokenAmount}
-                    onChange={(e) => setTransferData({ ...transferData, tokenAmount: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div data-testid="input-treasury-id">
-                <Label htmlFor="treasuryAccountId">Treasury Account ID</Label>
+              <div data-testid="input-transaction-hash">
+                <Label htmlFor="transactionHash">Transaction Hash/ID *</Label>
                 <Input
-                  id="treasuryAccountId"
-                  placeholder="Leave empty to use main treasury"
-                  value={transferData.treasuryAccountId}
-                  onChange={(e) => setTransferData({ ...transferData, treasuryAccountId: e.target.value })}
+                  id="transactionHash"
+                  placeholder="Enter Moonshot transaction hash"
+                  value={transferData.transactionHash}
+                  onChange={(e) => setTransferData({ ...transferData, transactionHash: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Copy this from your Moonshot transfer confirmation
+                </p>
+              </div>
+
+              <div data-testid="input-moonshot-account-id">
+                <Label htmlFor="moonshotAccountId">Moonshot Account ID (Optional)</Label>
+                <Input
+                  id="moonshotAccountId"
+                  placeholder="Your Moonshot account ID"
+                  value={transferData.moonshotAccountId}
+                  onChange={(e) => setTransferData({ ...transferData, moonshotAccountId: e.target.value })}
                 />
               </div>
 
@@ -197,15 +196,15 @@ export default function AdminMoonshotPage() {
                 type="submit" 
                 className="w-full" 
                 disabled={moonshotDepositMutation.isPending}
-                data-testid="button-transfer"
+                data-testid="button-record-deposit"
               >
                 {moonshotDepositMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing Transfer...
+                    Recording Deposit...
                   </>
                 ) : (
-                  "Transfer from Moonshot"
+                  "✅ Record & Auto-Accept Deposit"
                 )}
               </Button>
             </form>
