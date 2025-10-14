@@ -138,6 +138,11 @@ export interface IStorage {
   createWalletTransaction(transaction: InsertWalletTransaction): Promise<WalletTransaction>;
   getWalletTransactions(walletId: string, limit?: number): Promise<WalletTransaction[]>;
   
+  // Treasury wallet operations
+  getTreasuryWallets(roleScope?: string): Promise<(TreasuryWallet & { currency: SupportedCurrency })[]>;
+  getTreasuryWallet(currencyId: string, purpose?: string): Promise<TreasuryWallet | undefined>;
+  updateTreasuryWalletBalance(walletId: string, newBalance: string): Promise<void>;
+  
   // Price history operations
   addPricePoint(priceUsd: string, source: string, marketData?: any): Promise<void>;
   getPriceHistory(hours?: number): Promise<Array<{ timestamp: Date; price: number; source: string }>>;

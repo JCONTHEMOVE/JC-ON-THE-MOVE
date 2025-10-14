@@ -210,9 +210,34 @@ export const userWallets = pgTable("user_wallets", {
   index("idx_user_wallets").on(table.userId),
 ]);
 
+// Treasury Wallets - System-level wallets for business operations
+export const treasuryWallets = pgTable("treasury_wallets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  currencyId: varchar("currency_id").notNull().references(() => supportedCurrencies.id),
+  walletAddress: text("wallet_address").notNull().unique(), // The actual crypto address (must be unique)
+  privateKeyHash: text("private_key_hash"), // Encrypted private key (optional for cold wallets)
+  publicKey: text("public_key"),
+  balance: decimal("balance", { precision: 18, scale: 8 }).notNull().default("0.00000000"),
+  lastSyncedAt: timestamp("last_synced_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  walletType: text("wallet_type").notNull().default("custodial"), // 'custodial', 'cold_storage', 'hot_wallet'
+  purpose: text("purpose").notNull().default("treasury"), // 'treasury', 'rewards_pool', 'operations'
+  managedByUserId: varchar("managed_by_user_id").references(() => users.id), // Optional: which admin manages this wallet
+  roleScope: text("role_scope").notNull().default("admin"), // 'admin' or 'business_owner' - who can access
+  metadata: jsonb("metadata"), // Additional treasury-specific data
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  // One treasury wallet per currency per purpose
+  uniqueIndex("uq_treasury_currency_purpose").on(table.currencyId, table.purpose),
+  index("idx_treasury_wallet_address").on(table.walletAddress),
+  index("idx_treasury_currency").on(table.currencyId),
+]);
+
 export const walletTransactions = pgTable("wallet_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userWalletId: varchar("user_wallet_id").notNull().references(() => userWallets.id),
+  userWalletId: varchar("user_wallet_id").references(() => userWallets.id), // Nullable - one of userWalletId or treasuryWalletId must be present
+  treasuryWalletId: varchar("treasury_wallet_id").references(() => treasuryWallets.id), // Nullable - for treasury transactions
   transactionHash: text("transaction_hash"), // Blockchain transaction hash
   transactionType: text("transaction_type").notNull(), // 'deposit', 'withdrawal', 'reward', 'transfer'
   amount: decimal("amount", { precision: 18, scale: 8 }).notNull(),
@@ -903,6 +928,12 @@ export const insertUserWalletSchema = createInsertSchema(userWallets).omit({
   updatedAt: true,
 });
 
+export const insertTreasuryWalletSchema = createInsertSchema(treasuryWallets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertWalletTransactionSchema = createInsertSchema(walletTransactions).omit({
   id: true,
   createdAt: true,
@@ -913,6 +944,8 @@ export type SupportedCurrency = typeof supportedCurrencies.$inferSelect;
 export type InsertSupportedCurrency = z.infer<typeof insertSupportedCurrencySchema>;
 export type UserWallet = typeof userWallets.$inferSelect;
 export type InsertUserWallet = z.infer<typeof insertUserWalletSchema>;
+export type TreasuryWallet = typeof treasuryWallets.$inferSelect;
+export type InsertTreasuryWallet = z.infer<typeof insertTreasuryWalletSchema>;
 export type WalletTransaction = typeof walletTransactions.$inferSelect;
 export type InsertWalletTransaction = z.infer<typeof insertWalletTransactionSchema>;
 
