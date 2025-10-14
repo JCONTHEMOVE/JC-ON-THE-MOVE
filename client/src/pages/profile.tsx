@@ -24,8 +24,22 @@ import {
   ArrowLeft,
   Settings,
   Check,
-  X
+  X,
+  Copy,
+  CheckCircle2,
+  ExternalLink
 } from 'lucide-react';
+
+interface UserWallet {
+  id: string;
+  walletAddress: string;
+  balance: string;
+  currency: {
+    symbol: string;
+    name: string;
+    network: string;
+  };
+}
 
 export default function ProfilePage() {
   const { user, isLoading } = useAuth();
@@ -39,6 +53,26 @@ export default function ProfilePage() {
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
   const [checkingUsername, setCheckingUsername] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+
+  // Fetch user wallets
+  const { data: walletsResponse, isLoading: walletsLoading, error: walletsError } = useQuery<{ wallets: UserWallet[] }>({
+    queryKey: ['/api/wallets'],
+    enabled: !!user,
+  });
+
+  // Fetch transfer summary
+  const { data: transferSummary, isLoading: transferLoading } = useQuery<{
+    totalWithdrawn: string;
+    transactionCount: number;
+    walletCount: number;
+  }>({
+    queryKey: ['/api/wallets/transfer-summary'],
+    enabled: !!user && user?.role === 'admin',
+  });
+
+  const wallets = walletsResponse?.wallets || [];
+  const isSolanaConnected = wallets.some(w => w.currency.network === 'solana');
 
   // Sync username state when user data loads
   useEffect(() => {
@@ -150,6 +184,16 @@ export default function ProfilePage() {
       });
     }
   });
+
+  const copyToClipboard = (address: string) => {
+    navigator.clipboard.writeText(address);
+    setCopiedAddress(address);
+    toast({
+      title: "Copied!",
+      description: "Wallet address copied to clipboard",
+    });
+    setTimeout(() => setCopiedAddress(null), 2000);
+  };
 
   const checkUsernameAvailability = async (newUsername: string) => {
     // Abort any in-flight request before validation
@@ -405,18 +449,131 @@ export default function ProfilePage() {
 
                 {/* Wallet Tab */}
                 <TabsContent value="wallet" className="space-y-4">
-                  <div className="text-center py-12">
-                    <Wallet className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">Wallet Coming Soon</h3>
-                    <p className="text-muted-foreground mb-4">
-                      Your cryptocurrency wallet will be available here when Solana blockchain integration is completed.
-                    </p>
-                    <div className="bg-muted p-4 rounded-lg max-w-md mx-auto">
-                      <p className="text-sm">
-                        You'll be able to manage your JCMOVES tokens and view your wallet balance here.
-                      </p>
+                  <div>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Wallet className="h-5 w-5 text-primary" />
+                      <h3 className="text-lg font-semibold">My Crypto Wallets</h3>
                     </div>
+                    {isSolanaConnected && (
+                      <div className="flex items-center gap-2 mb-4 p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
+                        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                        <p className="text-sm text-green-700 dark:text-green-300">
+                          Connected to Solana Mainnet
+                        </p>
+                      </div>
+                    )}
+                    {walletsError && (
+                      <div className="flex items-center gap-2 mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
+                        <X className="h-4 w-4 text-red-600 dark:text-red-400" />
+                        <p className="text-sm text-red-700 dark:text-red-300">
+                          Failed to load wallet information
+                        </p>
+                      </div>
+                    )}
                   </div>
+
+                  {walletsLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {wallets.map((wallet) => (
+                        <div
+                          key={wallet.id}
+                          className="p-4 border rounded-lg bg-card hover:bg-accent/50 transition-colors"
+                          data-testid={`wallet-${wallet.currency.symbol.toLowerCase()}`}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-semibold">{wallet.currency.symbol}</span>
+                                <span className="text-sm text-muted-foreground">({wallet.currency.name})</span>
+                              </div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <code className="text-xs bg-muted px-2 py-1 rounded break-all">
+                                  {wallet.walletAddress}
+                                </code>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => copyToClipboard(wallet.walletAddress)}
+                                  className="shrink-0"
+                                  data-testid={`button-copy-${wallet.currency.symbol.toLowerCase()}`}
+                                >
+                                  {copiedAddress === wallet.walletAddress ? (
+                                    <Check className="h-4 w-4 text-green-500" />
+                                  ) : (
+                                    <Copy className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Balance</p>
+                                  <p className="font-medium" data-testid={`balance-${wallet.currency.symbol.toLowerCase()}`}>
+                                    {parseFloat(wallet.balance).toLocaleString()} {wallet.currency.symbol}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Network</p>
+                                  <p className="text-sm capitalize">{wallet.currency.network}</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {user?.role === 'admin' && (
+                        <>
+                          <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg">
+                            <div className="flex items-start gap-2">
+                              <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                              <div>
+                                <p className="font-medium text-blue-900 dark:text-blue-100">Treasury Wallet Verified</p>
+                                <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                                  Your JCMOVES wallet address matches the treasury wallet. You have full administrative access to treasury funds.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {transferLoading ? (
+                            <div className="mt-4 p-4 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg flex items-center justify-center">
+                              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
+                            </div>
+                          ) : transferSummary && parseInt(transferSummary.transactionCount.toString()) > 0 ? (
+                            <div className="mt-4 p-4 bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <ExternalLink className="h-5 w-5 text-purple-600 dark:text-purple-400 mt-0.5" />
+                                <div className="flex-1">
+                                  <p className="font-medium text-purple-900 dark:text-purple-100 mb-2">Outgoing Treasury Transfers</p>
+                                  <div className="grid grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                      <p className="text-purple-700 dark:text-purple-300">Total Transferred</p>
+                                      <p className="font-semibold text-purple-900 dark:text-purple-100" data-testid="text-total-transferred">
+                                        {parseFloat(transferSummary.totalWithdrawn).toLocaleString()} JCMOVES
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-purple-700 dark:text-purple-300">Transaction Count</p>
+                                      <p className="font-semibold text-purple-900 dark:text-purple-100" data-testid="text-transaction-count">
+                                        {transferSummary.transactionCount} transfers
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <p className="text-xs text-purple-600 dark:text-purple-400 mt-3">
+                                    Historical transfers to treasury reserve for business operations and employee rewards
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </TabsContent>
 
                 {/* My Jobs Tab */}

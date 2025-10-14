@@ -3024,6 +3024,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get wallet transfer summary (Admin only)
+  app.get("/api/wallets/transfer-summary", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      // Get all user wallets
+      const wallets = await storage.getUserWalletsWithCurrency(userId);
+      
+      // Calculate transfer summary for JCMOVES only
+      let totalWithdrawn = 0;
+      let totalTransactionCount = 0;
+      
+      for (const wallet of wallets) {
+        // Only count JCMOVES transfers
+        if (wallet.currency.symbol === 'JCMOVES') {
+          const transactions = await storage.getWalletTransactions(wallet.id, 1000);
+          const withdrawals = transactions.filter(tx => 
+            tx.transactionType === 'withdrawal' || tx.transactionType === 'transfer'
+          );
+          
+          totalTransactionCount += withdrawals.length;
+          
+          for (const tx of withdrawals) {
+            totalWithdrawn += parseFloat(tx.amount);
+          }
+        }
+      }
+      
+      res.json({
+        totalWithdrawn: totalWithdrawn.toFixed(8),
+        transactionCount: totalTransactionCount,
+        walletCount: wallets.length
+      });
+    } catch (error) {
+      console.error("Error fetching transfer summary:", error);
+      res.status(500).json({ error: "Failed to fetch transfer summary" });
+    }
+  });
+
   // Get wallet transactions
   app.get("/api/wallets/:walletId/transactions", isAuthenticated, async (req: any, res) => {
     try {

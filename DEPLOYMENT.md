@@ -35,6 +35,17 @@ To successfully deploy this application, you need to configure the following env
 
 ### 4. Treasury & Blockchain Configuration
 
+#### `VITE_SOLANA_RPC_URL` (Required for Solana Integration)
+- **Value**: Solana RPC endpoint URL
+- **Purpose**: Connects the frontend to the Solana blockchain network
+- **Recommended Values**:
+  - **Free Public Endpoint**: `https://api.mainnet-beta.solana.com` (good for testing, has rate limits)
+  - **Alchemy** (Recommended): `https://solana-mainnet.g.alchemy.com/v2/YOUR_API_KEY`
+  - **QuickNode**: `https://YOUR_ENDPOINT.quiknode.pro/YOUR_API_KEY/`
+  - **Helius**: `https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY`
+- **Note**: For production, use a premium RPC service for better performance and reliability
+- **Status**: ✅ Required and configured
+
 #### `TREASURY_WALLET_PRIVATE_KEY`
 - **Status**: ✅ Already configured in .env
 - **Purpose**: Solana wallet for treasury operations
