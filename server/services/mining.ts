@@ -109,7 +109,7 @@ export class MiningService {
 
   /**
    * Calculate streak bonus for consecutive daily claims
-   * Uses same logic as daily check-in: 10% bonus per day, capped at 3x (30 days)
+   * Linear scaling: 1% bonus per day, no cap (Day 1=1.0x, Day 2=1.01x, Day 3=1.02x, etc.)
    */
   async calculateStreakBonus(session: any, baseTokens: number): Promise<{
     streakCount: number;
@@ -139,16 +139,11 @@ export class MiningService {
       streakCount = 1; // First claim ever
     }
     
-    // Calculate bonus: 10% per day, capped at 3x (200% bonus at 30 days)
-    const STREAK_MULTIPLIER = 1.1; // 10% per day
-    const MAX_BONUS_MULTIPLIER = 3.0; // Cap at 3x total (200% bonus)
+    // Calculate bonus: Linear 1% per day, no cap
+    // Day 1: 1.00x, Day 2: 1.01x, Day 3: 1.02x, Day N: 1.0 + (N-1)*0.01
+    const bonusMultiplier = 1.0 + (streakCount - 1) * 0.01;
     
-    const bonusMultiplier = Math.min(
-      Math.pow(STREAK_MULTIPLIER, streakCount - 1),
-      MAX_BONUS_MULTIPLIER
-    );
-    
-    // Bonus is the additional tokens beyond base (e.g., 1.21x = 0.21x bonus)
+    // Bonus is the additional tokens beyond base (e.g., 1.02x = 0.02x bonus)
     const streakBonus = baseTokens * (bonusMultiplier - 1.0);
     
     return { streakCount, streakBonus };
