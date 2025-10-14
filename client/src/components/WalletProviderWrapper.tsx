@@ -10,7 +10,7 @@ import type { WalletError } from '@solana/wallet-adapter-base';
 const SOLANA_RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL;
 
 if (!SOLANA_RPC_URL) {
-  console.error('VITE_SOLANA_RPC_URL environment variable is required');
+  throw new Error('VITE_SOLANA_RPC_URL environment variable is required for Solana blockchain integration');
 }
 
 export function WalletProviderWrapper({ children }: { children: ReactNode }) {
@@ -29,7 +29,7 @@ export function WalletProviderWrapper({ children }: { children: ReactNode }) {
 
   return (
     <ConnectionProvider 
-      endpoint={SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'}
+      endpoint={SOLANA_RPC_URL}
       config={{
         commitment: 'confirmed',
       }}
