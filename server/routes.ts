@@ -22,6 +22,7 @@ import { getFaucetPayService } from "./services/faucetpay";
 import { getAdvertisingService } from "./services/advertising";
 import { FAUCET_CONFIG } from "./constants";
 import { walletService } from "./services/wallet";
+import { solanaMonitor } from "./services/solana-monitor";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware with graceful error handling
@@ -1865,6 +1866,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting funding history:", error);
       res.status(500).json({ error: "Failed to get funding history" });
+    }
+  });
+
+  // ===== Solana Blockchain Monitoring Endpoints =====
+
+  // Start blockchain monitoring for auto-detecting deposits
+  app.post("/api/solana/monitor/start", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { intervalMs = 30000 } = req.body; // Default 30 seconds
+      await solanaMonitor.startMonitoring(intervalMs);
+      res.json({ 
+        success: true, 
+        message: "Solana transaction monitoring started",
+        status: solanaMonitor.getStatus()
+      });
+    } catch (error) {
+      console.error("Error starting Solana monitor:", error);
+      res.status(500).json({ 
+        success: false, 
+        error: error instanceof Error ? error.message : "Failed to start monitoring" 
+      });
+    }
+  });
+
+  // Stop blockchain monitoring
+  app.post("/api/solana/monitor/stop", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      solanaMonitor.stopMonitoring();
+      res.json({ 
+        success: true, 
+        message: "Solana transaction monitoring stopped" 
+      });
+    } catch (error) {
+      console.error("Error stopping Solana monitor:", error);
+      res.status(500).json({ error: "Failed to stop monitoring" });
+    }
+  });
+
+  // Get blockchain monitoring status
+  app.get("/api/solana/monitor/status", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const status = solanaMonitor.getStatus();
+      res.json(status);
+    } catch (error) {
+      console.error("Error getting monitor status:", error);
+      res.status(500).json({ error: "Failed to get monitoring status" });
     }
   });
 
