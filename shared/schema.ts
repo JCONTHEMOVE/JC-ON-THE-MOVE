@@ -352,12 +352,15 @@ export const helpRequests = pgTable("help_requests", {
   index("idx_help_requests_status").on(table.status),
 ]);
 
-// Token mining sessions - passive JCMOVES generation (864 tokens/24hrs per user)
+// Token mining sessions - passive JCMOVES generation (1728 tokens/24hrs per user)
+// Now includes streak tracking for daily claim bonuses
 export const miningSessions = pgTable("mining_sessions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id).unique(), // One active session per user
   startTime: timestamp("start_time").notNull().default(sql`now()`),
   lastClaimTime: timestamp("last_claim_time").notNull().default(sql`now()`),
+  lastClaimDate: date("last_claim_date"), // Track the date of last claim for streak calculation
+  streakCount: integer("streak_count").default(0), // Consecutive days of claims (for streak bonuses)
   accumulatedTokens: decimal("accumulated_tokens", { precision: 18, scale: 8 }).notNull().default("0.00000000"),
   miningSpeed: decimal("mining_speed", { precision: 5, scale: 2 }).notNull().default("1.00"), // Speed multiplier (1X, 2X, etc.)
   status: text("status").notNull().default("active"), // 'active', 'paused', 'completed'
