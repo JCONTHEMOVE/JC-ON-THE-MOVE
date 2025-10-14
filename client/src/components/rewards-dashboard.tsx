@@ -76,6 +76,8 @@ interface MiningStatus {
   timeRemaining: number;
   totalClaimedToday: string;
   miningSpeed: string;
+  streakCount: number;
+  nextStreakBonus: string;
 }
 
 export default function RewardsDashboard() {
@@ -88,11 +90,6 @@ export default function RewardsDashboard() {
   // Fetch wallet data
   const { data: wallet, isLoading: walletLoading } = useQuery<WalletAccount>({
     queryKey: ['/api/rewards/wallet'],
-  });
-
-  // Fetch check-in status (for streak display only)
-  const { data: checkinStatus } = useQuery<CheckinStatus>({
-    queryKey: ['/api/rewards/checkin/status'],
   });
 
   // Fetch rewards history
@@ -150,9 +147,14 @@ export default function RewardsDashboard() {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/mining/status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/wallet"] });
+      
+      const streakInfo = data.streakCount > 0 
+        ? ` (${data.streakCount}-day streak bonus: +${parseFloat(data.streakBonus || 0).toFixed(2)})` 
+        : '';
+      
       toast({
         title: "Tokens Claimed!",
-        description: `You've earned ${parseFloat(data.tokensClaimed).toFixed(2)} JCMOVES! New balance: ${parseFloat(data.newBalance).toFixed(2)}`,
+        description: `You've earned ${parseFloat(data.tokensClaimed).toFixed(2)} JCMOVES${streakInfo}! New balance: ${parseFloat(data.newBalance).toFixed(2)}`,
       });
     },
     onError: (error: any) => {
@@ -367,10 +369,10 @@ export default function RewardsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-xl md:text-2xl font-bold" data-testid="streak-count">
-              {checkinStatus?.streakCount || 0} days
+              {miningStatus?.streakCount || 0} days
             </div>
             <p className="text-xs text-muted-foreground">
-              Current streak
+              Claim daily for bonus rewards
             </p>
           </CardContent>
         </Card>
@@ -447,10 +449,10 @@ export default function RewardsDashboard() {
                       </p>
                     </div>
 
-                    <div className="bg-white/20 rounded-lg p-4 backdrop-blur-sm">
+                    <div className="bg-white/20 rounded-lg p-4 backdrop-blur-sm space-y-3">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-xs opacity-90">Accumulating</p>
+                          <p className="text-xs opacity-90">Base Tokens</p>
                           <p className="text-2xl font-bold" data-testid="text-accumulated-tokens">
                             {parseFloat(accumulatedTokens).toFixed(4)}
                           </p>
@@ -462,6 +464,27 @@ export default function RewardsDashboard() {
                           </p>
                         </div>
                       </div>
+                      
+                      {miningStatus?.streakCount > 0 && (
+                        <div className="border-t border-white/30 pt-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Award className="h-4 w-4" />
+                              <span className="text-xs opacity-90">
+                                {miningStatus.streakCount} Day Streak Bonus
+                              </span>
+                            </div>
+                            <span className="text-lg font-bold" data-testid="text-streak-bonus">
+                              +{parseFloat(miningStatus.nextStreakBonus || "0").toFixed(4)}
+                            </span>
+                          </div>
+                          <div className="mt-2 text-center">
+                            <p className="text-sm font-semibold">
+                              Total: {(parseFloat(accumulatedTokens) + parseFloat(miningStatus.nextStreakBonus || "0")).toFixed(4)} JCMOVES
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <Button

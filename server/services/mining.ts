@@ -108,12 +108,62 @@ export class MiningService {
   }
 
   /**
+   * Calculate streak bonus for consecutive daily claims
+   * Uses same logic as daily check-in: 10% bonus per day, capped at 3x (30 days)
+   */
+  async calculateStreakBonus(session: any, baseTokens: number): Promise<{
+    streakCount: number;
+    streakBonus: number;
+  }> {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const lastClaimDate = session.lastClaimDate;
+    
+    let streakCount = session.streakCount || 0;
+    
+    if (lastClaimDate) {
+      // Calculate yesterday's date
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      
+      // Check if last claim was yesterday (streak continues)
+      if (lastClaimDate === yesterdayStr) {
+        streakCount += 1; // Continue streak
+      } else if (lastClaimDate !== today) {
+        streakCount = 1; // Reset streak (missed days)
+      } else {
+        // Already claimed today - shouldn't happen, but handle it
+        return { streakCount, streakBonus: 0 };
+      }
+    } else {
+      streakCount = 1; // First claim ever
+    }
+    
+    // Calculate bonus: 10% per day, capped at 3x (200% bonus at 30 days)
+    const STREAK_MULTIPLIER = 1.1; // 10% per day
+    const MAX_BONUS_MULTIPLIER = 3.0; // Cap at 3x total (200% bonus)
+    
+    const bonusMultiplier = Math.min(
+      Math.pow(STREAK_MULTIPLIER, streakCount - 1),
+      MAX_BONUS_MULTIPLIER
+    );
+    
+    // Bonus is the additional tokens beyond base (e.g., 1.21x = 0.21x bonus)
+    const streakBonus = baseTokens * (bonusMultiplier - 1.0);
+    
+    return { streakCount, streakBonus };
+  }
+
+  /**
    * Claim accumulated tokens (manual or automatic)
+   * Now includes streak bonuses for consecutive daily claims
    */
   async claimTokens(userId: string, claimType: 'auto' | 'manual' = 'manual'): Promise<{
     success: boolean;
     tokensClaimed: string;
     newBalance: string;
+    streakCount?: number;
+    streakBonus?: string;
     error?: string;
   }> {
     try {
@@ -123,13 +173,18 @@ export class MiningService {
         return { success: false, tokensClaimed: "0", newBalance: "0", error: "No active mining session" };
       }
 
-      // Calculate tokens to claim
-      const tokensToClaimStr = await this.calculateAccumulatedTokens(session);
-      const tokensToClaim = parseFloat(tokensToClaimStr);
+      // Calculate base tokens to claim
+      const baseTokensStr = await this.calculateAccumulatedTokens(session);
+      const baseTokens = parseFloat(baseTokensStr);
 
-      if (tokensToClaim <= 0) {
+      if (baseTokens <= 0) {
         return { success: false, tokensClaimed: "0", newBalance: "0", error: "No tokens to claim yet" };
       }
+
+      // Calculate streak and bonus
+      const { streakCount, streakBonus } = await this.calculateStreakBonus(session, baseTokens);
+      const totalTokens = baseTokens + streakBonus;
+      const tokensToClaim = totalTokens;
 
       // Get current token price for treasury deduction
       const tokenPrice = await this.getCurrentTokenPrice();
@@ -195,16 +250,20 @@ export class MiningService {
       await db.insert(miningClaims).values({
         userId,
         sessionId: session.id,
-        tokenAmount: tokensToClaimStr,
+        tokenAmount: tokensToClaim.toFixed(8),
         claimType,
       });
 
-      // Reset session for next 24-hour cycle
+      // Update session for next 24-hour cycle with streak tracking
       const nextClaimAt = new Date(Date.now() + MINING_CONFIG.CYCLE_DURATION_MS);
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      
       await db
         .update(miningSessions)
         .set({
           lastClaimTime: new Date(),
+          lastClaimDate: today,
+          streakCount: streakCount,
           accumulatedTokens: "0.00000000",
           nextClaimAt,
           updatedAt: new Date(),
@@ -213,8 +272,10 @@ export class MiningService {
 
       return {
         success: true,
-        tokensClaimed: tokensToClaimStr,
+        tokensClaimed: tokensToClaim.toFixed(8),
         newBalance: newBalance.toFixed(8),
+        streakCount,
+        streakBonus: streakBonus.toFixed(8),
       };
     } catch (error) {
       console.error("Error claiming mining tokens:", error);
@@ -282,6 +343,8 @@ export class MiningService {
     timeRemaining: number;
     totalClaimedToday: string;
     miningSpeed: string;
+    streakCount: number;
+    nextStreakBonus: string;
   }> {
     const session = await this.getActiveSession(userId);
     
@@ -292,6 +355,8 @@ export class MiningService {
         timeRemaining: 0,
         totalClaimedToday: "0.00000000",
         miningSpeed: "1.00",
+        streakCount: 0,
+        nextStreakBonus: "0.00000000",
       };
     }
 
@@ -314,12 +379,18 @@ export class MiningService {
       .reduce((sum, claim) => sum + parseFloat(claim.tokenAmount), 0)
       .toFixed(8);
 
+    // Calculate what the next streak bonus would be
+    const baseTokens = parseFloat(accumulatedTokens);
+    const { streakCount, streakBonus } = await this.calculateStreakBonus(session, baseTokens);
+
     return {
       currentSession: session,
       accumulatedTokens,
       timeRemaining,
       totalClaimedToday,
       miningSpeed: session.miningSpeed || "1.00",
+      streakCount,
+      nextStreakBonus: streakBonus.toFixed(8),
     };
   }
 }

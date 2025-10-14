@@ -1403,7 +1403,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Rewards system routes
   
-  // Daily check-in
+  // REMOVED: Daily check-in system has been replaced with unified mining system with streak bonuses
+  // Mining now includes streak tracking - claiming daily gives bonus rewards
+  // See server/services/mining.ts for the unified system
+  
+  /*
+  // Daily check-in (DEPRECATED - replaced by mining with streaks)
   app.post("/api/rewards/checkin", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -1453,6 +1458,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to get check-in history" });
     }
   });
+  */
 
   // Get wallet balance
   app.get("/api/rewards/wallet", isAuthenticated, async (req: any, res) => {
