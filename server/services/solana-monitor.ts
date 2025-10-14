@@ -26,17 +26,25 @@ export class SolanaMonitor {
    */
   async initializeTreasuryAddress(): Promise<void> {
     try {
+      console.log('🔍 Initializing treasury address...');
       const treasuryWallets = await storage.getTreasuryWallets('admin');
+      console.log(`📊 Found ${treasuryWallets.length} treasury wallet(s)`);
+      
+      if (treasuryWallets.length > 0) {
+        console.log('📋 Treasury wallets:', treasuryWallets.map(w => ({ address: w.walletAddress, purpose: w.purpose })));
+      }
+      
       const mainTreasury = treasuryWallets.find(w => w.purpose === 'treasury');
       
       if (mainTreasury) {
         this.treasuryWalletAddress = mainTreasury.walletAddress;
-        console.log(`🔍 Treasury wallet initialized: ${this.treasuryWalletAddress}`);
+        console.log(`✅ Treasury wallet initialized: ${this.treasuryWalletAddress}`);
       } else {
-        console.warn('⚠️ No treasury wallet found in database');
+        console.warn('⚠️ No treasury wallet found with purpose="treasury"');
+        console.warn('⚠️ Available wallets:', treasuryWallets.map(w => w.purpose));
       }
     } catch (error) {
-      console.error('Error initializing treasury address:', error);
+      console.error('❌ Error initializing treasury address:', error);
     }
   }
 
