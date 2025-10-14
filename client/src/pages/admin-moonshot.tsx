@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Wallet, ArrowRightLeft, DollarSign, TrendingUp, TrendingDown, Activity } from "lucide-react";
+import { Loader2, Wallet, ArrowRightLeft, DollarSign, TrendingUp, TrendingDown, Activity, Play, Square, Radio } from "lucide-react";
 
 interface MoonshotTransfer {
   tokenAmount: number;
@@ -27,6 +27,13 @@ interface LivePrice {
   tokenName: string;
   lastUpdated: string;
   status: 'live' | 'fallback';
+}
+
+interface MonitoringStatus {
+  isMonitoring: boolean;
+  treasuryWallet: string | null;
+  lastCheckedSignature: string | null;
+  jcmovesTokenAddress: string;
 }
 
 export default function AdminMoonshotPage() {
@@ -54,6 +61,56 @@ export default function AdminMoonshotPage() {
   const { data: depositsData, isLoading: loadingDeposits } = useQuery({
     queryKey: ["/api/treasury/deposits"],
     refetchInterval: 30000,
+  });
+
+  // Get blockchain monitoring status
+  const { data: monitorStatus, isLoading: loadingMonitor } = useQuery<MonitoringStatus>({
+    queryKey: ["/api/solana/monitor/status"],
+    refetchInterval: 5000, // Check status every 5 seconds
+  });
+
+  // Start monitoring mutation
+  const startMonitoringMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/solana/monitor/start", {});
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "✅ Blockchain Monitoring Started",
+        description: "Now automatically detecting incoming JCMOVES deposits",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/solana/monitor/status"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Start Monitoring",
+        description: error.message || "Could not start blockchain monitoring",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Stop monitoring mutation
+  const stopMonitoringMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/solana/monitor/stop", {});
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Monitoring Stopped",
+        description: "Blockchain monitoring has been disabled",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/solana/monitor/status"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Stop Monitoring",
+        description: error.message || "Could not stop blockchain monitoring",
+        variant: "destructive",
+      });
+    },
   });
 
   // Moonshot deposit mutation - auto-accepts completed transfers
@@ -122,6 +179,75 @@ export default function AdminMoonshotPage() {
           <p className="text-muted-foreground">Transfer tokens from your Moonshot account to fund JC MOVES rewards</p>
         </div>
       </div>
+
+      {/* Blockchain Monitoring Status */}
+      <Card className="border-2">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Radio className={`h-5 w-5 ${monitorStatus?.isMonitoring ? 'text-green-600 animate-pulse' : 'text-gray-400'}`} />
+            Automatic Blockchain Detection
+          </CardTitle>
+          <CardDescription>
+            Monitors Solana blockchain for incoming JCMOVES tokens and auto-records deposits
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className={`h-3 w-3 rounded-full ${monitorStatus?.isMonitoring ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                <div>
+                  <p className="font-medium">
+                    {loadingMonitor ? 'Loading...' : monitorStatus?.isMonitoring ? 'Monitoring Active' : 'Monitoring Inactive'}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {monitorStatus?.isMonitoring 
+                      ? 'Auto-detecting deposits every 30 seconds' 
+                      : 'Start monitoring to automatically record incoming tokens'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {monitorStatus?.isMonitoring ? (
+                  <Button
+                    onClick={() => stopMonitoringMutation.mutate()}
+                    disabled={stopMonitoringMutation.isPending}
+                    variant="outline"
+                    data-testid="button-stop-monitoring"
+                  >
+                    {stopMonitoringMutation.isPending ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Stopping...</>
+                    ) : (
+                      <><Square className="mr-2 h-4 w-4" />Stop</>
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => startMonitoringMutation.mutate()}
+                    disabled={startMonitoringMutation.isPending}
+                    data-testid="button-start-monitoring"
+                  >
+                    {startMonitoringMutation.isPending ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Starting...</>
+                    ) : (
+                      <><Play className="mr-2 h-4 w-4" />Start Monitoring</>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </div>
+            
+            {monitorStatus?.treasuryWallet && (
+              <div className="text-sm">
+                <p className="text-muted-foreground mb-1">Watching Treasury Wallet:</p>
+                <code className="px-2 py-1 bg-muted rounded text-xs font-mono">
+                  {monitorStatus.treasuryWallet}
+                </code>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Transfer Form */}
