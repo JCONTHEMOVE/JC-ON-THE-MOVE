@@ -32,16 +32,6 @@ interface WalletAccount {
   totalCashedOut: string;
 }
 
-interface CheckinStatus {
-  checkedInToday: boolean;
-  streakCount: number;
-  nextReward?: {
-    tokenAmount: number;
-    cashValue: number;
-  };
-  nextCheckinAt?: string;
-}
-
 interface RewardHistory {
   id: string;
   rewardType: string;

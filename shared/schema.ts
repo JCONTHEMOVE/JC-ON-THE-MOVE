@@ -147,6 +147,9 @@ export const rewards = pgTable("rewards", {
   uniqueIndex("uq_signup_bonus_per_user").on(table.userId, table.rewardType).where(sql`${table.rewardType} = 'signup_bonus'`),
 ]);
 
+// DEPRECATED: Daily check-ins replaced by unified mining system with streak tracking
+// This table is kept for historical data only. New streak tracking is in mining_sessions.
+// See mining_sessions.lastClaimDate and mining_sessions.streakCount for current implementation.
 export const dailyCheckins = pgTable("daily_checkins", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),

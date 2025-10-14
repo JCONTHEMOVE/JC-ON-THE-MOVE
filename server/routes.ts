@@ -4,7 +4,8 @@ import { storage } from "./storage";
 import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema } from "@shared/schema";
 import { sendEmail, generateLeadNotificationEmail, generateContactNotificationEmail } from "./services/email";
 import { setupAuth, isAuthenticated } from "./replitAuth";
-import { dailyCheckinService } from "./services/daily-checkin";
+// REMOVED: Daily check-in service replaced by unified mining system with streaks
+// import { dailyCheckinService } from "./services/daily-checkin";
 import { rewardsService } from "./services/rewards";
 import { cryptoCashoutService } from "./services/crypto-cashout";
 import { moonshotService, moonshotAccountTransferSchema } from "./services/moonshot";
@@ -16,7 +17,7 @@ import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
 import { eq, desc, sql, and, gte } from 'drizzle-orm';
 import { db } from './db';
-import { rewards, walletAccounts, dailyCheckins, cashoutRequests, fundingDeposits, reserveTransactions, users } from '@shared/schema';
+import { rewards, walletAccounts, cashoutRequests, fundingDeposits, reserveTransactions, users } from '@shared/schema';
 import { getFaucetPayService } from "./services/faucetpay";
 import { getAdvertisingService } from "./services/advertising";
 import { FAUCET_CONFIG } from "./constants";
@@ -32,16 +33,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
   
   // Validation schemas for rewards endpoints
-  const checkinSchema = z.object({
-    deviceFingerprint: z.object({
-      userAgent: z.string(),
-      screenResolution: z.string(),
-      timezone: z.string(),
-      language: z.string(),
-      platform: z.string()
-    })
-  });
-
+  // NOTE: checkinSchema removed - daily check-ins replaced by unified mining system
+  
   const cashoutSchema = z.object({
     tokenAmount: z.number().positive().min(0.01),
     bankDetails: z.object({
@@ -1402,63 +1395,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Rewards system routes
-  
-  // REMOVED: Daily check-in system has been replaced with unified mining system with streak bonuses
-  // Mining now includes streak tracking - claiming daily gives bonus rewards
+  // NOTE: Daily check-in system has been replaced with unified mining system
+  // Mining now includes streak tracking - claiming daily gives bonus rewards (1% per day, linear)
   // See server/services/mining.ts for the unified system
-  
-  /*
-  // Daily check-in (DEPRECATED - replaced by mining with streaks)
-  app.post("/api/rewards/checkin", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      
-      // Validate request body
-      const validatedData = checkinSchema.parse(req.body);
-      const { deviceFingerprint } = validatedData;
-      
-      const ipAddress = req.ip || req.connection.remoteAddress || 'unknown';
-      const userAgent = req.get('User-Agent') || 'unknown';
-
-      const result = await dailyCheckinService.processCheckin({
-        userId,
-        ipAddress,
-        userAgent,
-        deviceFingerprint
-      });
-
-      res.json(result);
-    } catch (error) {
-      console.error("Daily check-in error:", error);
-      res.status(500).json({ error: "Check-in failed" });
-    }
-  });
-
-  // Get check-in status
-  app.get("/api/rewards/checkin/status", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const status = await dailyCheckinService.getCheckinStatus(userId);
-      res.json(status);
-    } catch (error) {
-      console.error("Error getting check-in status:", error);
-      res.status(500).json({ error: "Failed to get check-in status" });
-    }
-  });
-
-  // Get check-in history
-  app.get("/api/rewards/checkin/history", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const limit = parseInt(req.query.limit as string) || 30;
-      const history = await dailyCheckinService.getCheckinHistory(userId, limit);
-      res.json(history);
-    } catch (error) {
-      console.error("Error getting check-in history:", error);
-      res.status(500).json({ error: "Failed to get check-in history" });
-    }
-  });
-  */
 
   // Get wallet balance
   app.get("/api/rewards/wallet", isAuthenticated, async (req: any, res) => {
@@ -1677,17 +1616,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(walletAccounts)
         .then(rows => rows.filter(w => parseFloat(w.tokenBalance || '0') > 0).length);
 
-      const recentCheckins = await db
+      // Count today's mining claims (replaces daily check-ins)
+      const { miningClaims } = await import('@shared/schema');
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const recentClaims = await db
         .select()
-        .from(dailyCheckins)
-        .where(eq(dailyCheckins.checkinDate, new Date().toISOString().split('T')[0]))
+        .from(miningClaims)
+        .where(sql`${miningClaims.claimTime} >= ${today}`)
         .then(rows => rows.length);
 
       res.json({
         totalRewardsIssued,
         totalCashouts,
         activeUsers,
-        recentCheckins
+        recentClaims // Changed from recentCheckins to recentClaims
       });
     } catch (error) {
       console.error("Error getting reward stats:", error);

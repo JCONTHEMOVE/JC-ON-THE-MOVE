@@ -4,6 +4,21 @@ This is a full-stack moving and junk removal service website built with React, T
 
 # Recent Changes
 
+## Unified Mining System with Streak Bonuses (October 14, 2025)
+- **System Consolidation**: Merged separate daily check-in and passive mining systems into one unified mining reward system
+- **Linear Streak Bonuses**: Implemented 1% bonus per consecutive day of claims with no cap (Day 1=1.0x, Day 2=1.01x, Day 3=1.02x, etc.)
+- **Database Schema**: Added `lastClaimDate` and `streakCount` fields to `mining_sessions` table for streak tracking
+- **Unlimited Growth**: Removed 3x multiplier cap - users can build unlimited streaks (e.g., Day 2,150 = 22.49x multiplier)
+- **Backend Changes**:
+  - Updated `MiningService.calculateStreakBonus()` with linear scaling formula
+  - Removed daily check-in API routes (`/api/rewards/checkin/*`)
+  - Updated admin stats endpoint to query `miningClaims` instead of `dailyCheckins`
+- **Frontend Changes**:
+  - Mining dashboard displays current streak count and bonus preview
+  - Claim success toast shows streak bonus breakdown
+  - Removed CheckinStatus interface and check-in UI components
+- **Legacy Data**: `daily_checkins` table preserved for historical data but marked as deprecated
+
 ## Employee Job Creation Feature (October 7, 2025)
 - **Employee Job Submission**: Added "Add a Job" button to Employee Dashboard Jobs tab for employees to submit job requests on behalf of customers
 - **Job Tracking**: Added `createdByUserId` field to leads table to track which employee created each job
