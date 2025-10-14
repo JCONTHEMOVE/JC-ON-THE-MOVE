@@ -2005,6 +2005,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get real-time JCMOVES token price with live updates (for public display)
+  app.get("/api/crypto/live-price", async (req, res) => {
+    try {
+      const { moonshotService } = await import('./services/moonshot');
+      const tokenData = await moonshotService.getTokenData();
+      
+      if (!tokenData) {
+        // Fallback to basic price if full data unavailable
+        const price = await moonshotService.getTokenPrice();
+        return res.json({
+          price: price,
+          priceFormatted: `$${price.toFixed(10)}`,
+          change24h: null,
+          changePercent24h: null,
+          volume24h: null,
+          lastUpdated: new Date().toISOString(),
+          status: 'fallback'
+        });
+      }
+
+      const price = parseFloat(tokenData.priceUsd);
+      const change24h = tokenData.priceChange?.h24 || 0;
+      const volume24h = tokenData.volume?.h24?.total || 0;
+
+      res.json({
+        price: price,
+        priceFormatted: `$${price.toFixed(10)}`,
+        change24h: change24h,
+        changePercent24h: `${change24h > 0 ? '+' : ''}${change24h.toFixed(2)}%`,
+        volume24h: volume24h,
+        volumeFormatted: `$${volume24h.toLocaleString()}`,
+        symbol: tokenData.baseToken?.symbol || 'JCMOVES',
+        tokenName: tokenData.baseToken?.name || 'JC ON THE MOVE',
+        lastUpdated: new Date().toISOString(),
+        status: 'live'
+      });
+    } catch (error) {
+      console.error("Error getting live token price:", error);
+      res.status(500).json({ error: "Failed to get live price data" });
+    }
+  });
+
   // Convert USD to JCMOVES tokens at current price
   app.post("/api/treasury/crypto/convert-usd", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
