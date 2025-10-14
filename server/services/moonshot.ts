@@ -86,16 +86,50 @@ export class MoonshotService {
   async getTokenData(): Promise<TokenData | null> {
     try {
       if (!this.tokenAddress) {
-        throw new Error('Moonshot token address not configured');
+        throw new Error('Token address not configured');
       }
 
-      const response = await axios.get<TokenData>(
-        `${MOONSHOT_API_BASE}/token/v1/solana/${this.tokenAddress}`
+      // Use DexScreener API for real-time Solana token data
+      const response = await axios.get(
+        `https://api.dexscreener.com/latest/dex/tokens/${this.tokenAddress}`
       );
 
-      return response.data;
+      if (!response.data || !response.data.pairs || response.data.pairs.length === 0) {
+        console.warn('No trading pairs found for token on DexScreener');
+        return null;
+      }
+
+      // Get the most liquid SOL pair (Solana wrapped SOL address)
+      const solPairs = response.data.pairs.filter((pair: any) => 
+        pair.quoteToken?.address === 'So11111111111111111111111111111111111111112'
+      );
+
+      const mainPair = solPairs.length > 0 ? solPairs[0] : response.data.pairs[0];
+
+      // Convert DexScreener format to our TokenData format
+      const tokenData: TokenData = {
+        url: `https://dexscreener.com/solana/${mainPair.pairAddress}`,
+        chainId: 'solana',
+        dexId: mainPair.dexId || 'unknown',
+        pairAddress: mainPair.pairAddress,
+        baseToken: {
+          address: mainPair.baseToken.address,
+          name: mainPair.baseToken.name,
+          symbol: mainPair.baseToken.symbol
+        },
+        priceUsd: mainPair.priceUsd || '0',
+        priceNative: mainPair.priceNative || '0',
+        volume: {
+          h24: { total: mainPair.volume?.h24 || 0 }
+        },
+        priceChange: {
+          h24: mainPair.priceChange?.h24 || 0
+        }
+      };
+
+      return tokenData;
     } catch (error) {
-      console.error('Error fetching Moonshot token data:', error);
+      console.error('Error fetching DexScreener token data:', error);
       return null;
     }
   }

@@ -4,6 +4,15 @@ This is a full-stack moving and junk removal service website built with React, T
 
 # Recent Changes
 
+## Live Token Pricing Integration (October 14, 2025)
+- **Real-Time Price API**: Created `/api/crypto/live-price` endpoint for live JCMOVES pricing data
+- **Auto-Refresh System**: Frontend polls price every 5 seconds for real-time updates
+- **DexScreener Integration**: Switched from Moonshot API to DexScreener API for broader DEX coverage
+- **Price Display**: Shows current price, 24h change %, volume, and trend indicators (↑/↓)
+- **Fallback Mechanism**: Uses hardcoded price ($0.00000508432) when APIs unavailable
+- **UI Enhancement**: Live price card with gradient background, trend icons, and timestamp
+- **Token Status**: JCMOVES currently uses fallback price (token may be Moonshot-exclusive, not yet on public DEXes)
+
 ## Unified Mining System with Streak Bonuses (October 14, 2025)
 - **System Consolidation**: Merged separate daily check-in and passive mining systems into one unified mining reward system
 - **Linear Streak Bonuses**: Implemented 1% bonus per consecutive day of claims with no cap (Day 1=1.0x, Day 2=1.01x, Day 3=1.02x, etc.)
