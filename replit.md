@@ -4,6 +4,15 @@ This is a full-stack moving and junk removal service website built with React, T
 
 # Recent Changes
 
+## Job Creator Assignment UI (October 15, 2025)
+- **Creator Selection**: Added job creator assignment field to LeadEditDialog for assigning which employee created the job
+- **Bonus Tracking UI**: Job creator displays on lead detail page with clear indication of 50% creator bonus eligibility
+- **Form Integration**: React Hook Form with shouldDirty flag ensures proper state tracking and data persistence
+- **Employee Selection**: Dropdown populated with all employees, allows selecting creator or "None"
+- **Data Flow**: Complete end-to-end persistence - Select → Form → API → Database → Display
+- **Visual Indicators**: Creator badge with primary color, explanatory text about bonus rewards
+- **Architect Verified**: Full data flow tested and approved with no data loss
+
 ## Comprehensive Lead Editing & Workflow System (October 15, 2025)
 - **Full Lead Editing**: Implemented comprehensive lead editing system allowing modification of all lead fields (customer info, service details, pricing, special items, status)
 - **Workflow Enhancement**: Added 'edited' status to lead progression (New → Edited → Contacted → Quoted → Confirmed → Available → Accepted → In Progress → Completed)
@@ -17,9 +26,10 @@ This is a full-stack moving and junk removal service website built with React, T
   - Job start endpoint validates full crew acceptance before allowing status change to 'in_progress'
 - **Job Completion Workflow**: Implemented automatic rewards distribution on job completion
   - Base rewards: 100 points + 500 JCMOVES tokens per crew member
-  - On-time bonus: +20% additional rewards
+  - On-time bonus: +20% additional rewards (120 points, 600 tokens)
   - Customer rating bonus (4.0+): +30% additional rewards
   - Creator bonus: 50% of each completing employee's rewards (stacks for multiple crew members)
+  - Idempotence via completedAt timestamp prevents duplicate reward distributions
 - **UI Enhancements**: Added edit buttons, status badges, and workflow controls to leads management interface
 - **Production Ready**: Architect-approved implementation with all critical issues resolved (duplicate imports, numeric validation, stale form values)
 
