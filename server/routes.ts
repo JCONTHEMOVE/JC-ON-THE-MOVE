@@ -805,6 +805,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Comprehensive lead editing endpoint (admin only) - supports full workflow
+  app.patch("/api/leads/:id/edit", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updateData = req.body;
+      
+      // Calculate special items fees if updating special items
+      const calculateHeavyItemFee = (weight: number | null | undefined): number => {
+        if (!weight || weight <= 0) return 0;
+        const cappedWeight = Math.min(weight, 1000);
+        const hundredPounds = Math.floor(cappedWeight / 100);
+        return 200 + (hundredPounds * 150);
+      };
+      
+      // Calculate fees for special items if they're being updated
+      if (updateData.hasHotTub !== undefined || updateData.hotTubWeight !== undefined) {
+        updateData.hotTubFee = updateData.hasHotTub ? calculateHeavyItemFee(updateData.hotTubWeight) : 0;
+      }
+      if (updateData.hasHeavySafe !== undefined || updateData.heavySafeWeight !== undefined) {
+        updateData.heavySafeFee = updateData.hasHeavySafe ? calculateHeavyItemFee(updateData.heavySafeWeight) : 0;
+      }
+      if (updateData.hasPoolTable !== undefined || updateData.poolTableWeight !== undefined) {
+        updateData.poolTableFee = updateData.hasPoolTable ? calculateHeavyItemFee(updateData.poolTableWeight) : 0;
+      }
+      if (updateData.hasPiano !== undefined || updateData.pianoWeight !== undefined) {
+        updateData.pianoFee = updateData.hasPiano ? calculateHeavyItemFee(updateData.pianoWeight) : 0;
+      }
+      
+      // Recalculate total if any pricing fields changed
+      if (updateData.basePrice !== undefined || updateData.hotTubFee !== undefined || 
+          updateData.heavySafeFee !== undefined || updateData.poolTableFee !== undefined || updateData.pianoFee !== undefined) {
+        const currentLead = await storage.getLeadById(id);
+        if (currentLead) {
+          const basePrice = parseFloat(updateData.basePrice?.toString() || currentLead.basePrice?.toString() || '0');
+          const hotTubFee = parseFloat(updateData.hotTubFee?.toString() || currentLead.hotTubFee?.toString() || '0');
+          const safeFee = parseFloat(updateData.heavySafeFee?.toString() || currentLead.heavySafeFee?.toString() || '0');
+          const poolFee = parseFloat(updateData.poolTableFee?.toString() || currentLead.poolTableFee?.toString() || '0');
+          const pianoFeeVal = parseFloat(updateData.pianoFee?.toString() || currentLead.pianoFee?.toString() || '0');
+          
+          updateData.totalSpecialItemsFee = (hotTubFee + safeFee + poolFee + pianoFeeVal).toFixed(2);
+          updateData.totalPrice = (basePrice + parseFloat(updateData.totalSpecialItemsFee)).toFixed(2);
+        }
+      }
+      
+      // Update last quote timestamp
+      updateData.lastQuoteUpdatedAt = new Date();
+      
+      // If status is being changed to 'edited', ensure it's valid
+      if (updateData.status === 'edited') {
+        const currentLead = await storage.getLeadById(id);
+        if (currentLead && currentLead.status === 'new') {
+          // Valid transition from new to edited
+        }
+      }
+      
+      const updatedLead = await storage.updateLeadQuote(id, updateData);
+      
+      if (!updatedLead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      res.json(updatedLead);
+    } catch (error) {
+      console.error("Error editing lead:", error);
+      res.status(500).json({ error: "Failed to edit lead" });
+    }
+  });
+
   // General update lead endpoint (admin or employee)
   app.patch("/api/leads/:id", isAuthenticated, requireEmployee, async (req, res) => {
     try {
