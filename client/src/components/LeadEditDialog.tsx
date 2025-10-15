@@ -346,8 +346,8 @@ export function LeadEditDialog({ lead, open, onOpenChange, onSave, isPending }: 
             <div>
               <Label htmlFor="createdByUserId">Job Creator (for bonus rewards)</Label>
               <Select 
-                onValueChange={(value) => form.setValue("createdByUserId", value)}
-                value={form.watch("createdByUserId") || undefined}
+                onValueChange={(value) => form.setValue("createdByUserId", value, { shouldDirty: true })}
+                value={form.watch("createdByUserId") || ""}
               >
                 <SelectTrigger data-testid="select-edit-job-creator">
                   <SelectValue placeholder="Select employee who created this job" />

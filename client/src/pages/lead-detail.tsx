@@ -469,6 +469,31 @@ export default function LeadDetailPage() {
               </Card>
             )}
 
+            {/* Job Creator */}
+            {lead?.createdByUserId && (() => {
+              const creator = employees.find(emp => emp.id === lead.createdByUserId);
+              return creator ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Award className="h-5 w-5" />
+                      Job Creator
+                    </CardTitle>
+                    <CardDescription>Earns 50% bonus when completed</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-3 p-3 bg-primary/5 border border-primary/20 rounded" data-testid="job-creator">
+                      <div className="flex-1">
+                        <p className="font-medium text-sm">{creator.username || creator.email}</p>
+                        <p className="text-xs text-muted-foreground">{creator.email}</p>
+                      </div>
+                      <Badge className="bg-primary">Creator</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null;
+            })()}
+
             {/* Crew Members */}
             {crewMembers.length > 0 && (
               <Card>
