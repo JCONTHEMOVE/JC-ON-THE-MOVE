@@ -414,15 +414,19 @@ export default function MobileLeadManager() {
     maximumAge: 300000, // 5 minutes
   });
 
+  // Check if user is admin to determine which endpoints to query
+  const isAdmin = user?.role === 'admin' || user?.role === 'business_owner';
+
+  // Admin queries all leads, employees query available/assigned jobs
   const { data: availableJobs = [], isLoading: availableLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/leads/available"],
+    queryKey: isAdmin ? ["/api/leads"] : ["/api/leads/available"],
     enabled: isOnline,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
   const { data: myJobs = [], isLoading: myJobsLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/my-jobs"],
-    enabled: isOnline,
+    enabled: isOnline && !isAdmin, // Only fetch my jobs if not admin
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
