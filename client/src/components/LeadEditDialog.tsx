@@ -2,6 +2,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { Lead } from "@shared/schema";
+import type { Lead, User } from "@shared/schema";
 import { Home, Building, Trash2 } from "lucide-react";
 
 const leadEditSchema = z.object({
@@ -31,6 +32,7 @@ const leadEditSchema = z.object({
   crewSize: z.coerce.number().optional(),
   truckConfig: z.string().optional(),
   quoteNotes: z.string().optional(),
+  createdByUserId: z.string().optional(),
   hasHotTub: z.boolean().optional(),
   hotTubWeight: z.coerce.number().optional(),
   hasHeavySafe: z.boolean().optional(),
@@ -52,6 +54,12 @@ interface LeadEditDialogProps {
 }
 
 export function LeadEditDialog({ lead, open, onOpenChange, onSave, isPending }: LeadEditDialogProps) {
+  // Fetch employees for job creator selection
+  const { data: employees = [] } = useQuery<User[]>({
+    queryKey: ["/api/employees"],
+    enabled: open,
+  });
+
   const form = useForm<LeadEditData>({
     resolver: zodResolver(leadEditSchema),
     defaultValues: lead ? {
@@ -73,6 +81,7 @@ export function LeadEditDialog({ lead, open, onOpenChange, onSave, isPending }: 
       crewSize: lead.crewSize || 2,
       truckConfig: lead.truckConfig || "",
       quoteNotes: lead.quoteNotes || "",
+      createdByUserId: lead.createdByUserId || "",
       hasHotTub: lead.hasHotTub || false,
       hotTubWeight: lead.hotTubWeight || undefined,
       hasHeavySafe: lead.hasHeavySafe || false,
@@ -106,6 +115,7 @@ export function LeadEditDialog({ lead, open, onOpenChange, onSave, isPending }: 
         crewSize: lead.crewSize || 2,
         truckConfig: lead.truckConfig || "",
         quoteNotes: lead.quoteNotes || "",
+        createdByUserId: lead.createdByUserId || "",
         hasHotTub: lead.hasHotTub || false,
         hotTubWeight: lead.hotTubWeight || undefined,
         hasHeavySafe: lead.hasHeavySafe || false,
@@ -331,6 +341,29 @@ export function LeadEditDialog({ lead, open, onOpenChange, onSave, isPending }: 
                   data-testid="input-edit-crew-size"
                 />
               </div>
+            </div>
+
+            <div>
+              <Label htmlFor="createdByUserId">Job Creator (for bonus rewards)</Label>
+              <Select 
+                onValueChange={(value) => form.setValue("createdByUserId", value)}
+                value={form.watch("createdByUserId") || undefined}
+              >
+                <SelectTrigger data-testid="select-edit-job-creator">
+                  <SelectValue placeholder="Select employee who created this job" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {employees.map((employee) => (
+                    <SelectItem key={employee.id} value={employee.id}>
+                      {employee.username || employee.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground mt-1">
+                Creator earns 50% bonus when other employees complete this job
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
