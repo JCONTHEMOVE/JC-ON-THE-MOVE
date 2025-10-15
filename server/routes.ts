@@ -759,13 +759,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const { status } = req.body;
       
-      if (!status || !["new", "contacted", "quoted", "confirmed", "available", "accepted"].includes(status)) {
+      const allowedStatuses = ["new", "edited", "contacted", "quoted", "confirmed", "available", "accepted", "in_progress", "completed"];
+      if (!status || !allowedStatuses.includes(status)) {
         return res.status(400).json({ error: "Invalid status" });
       }
 
       const updatedLead = await storage.updateLeadStatus(id, status);
       if (!updatedLead) {
         return res.status(404).json({ error: "Lead not found" });
+      }
+
+      // Distribute rewards when job is completed (idempotent - only once)
+      if (status === 'completed' && updatedLead.crewMembers && updatedLead.crewMembers.length > 0 && !updatedLead.completedAt) {
+        try {
+          // Mark job as completed now to prevent duplicate rewards
+          await storage.updateLeadQuote(id, { completedAt: new Date() });
+          
+          // Base rewards per crew member
+          const basePoints = 100;
+          const baseTokens = 500;
+          
+          // Check for on-time completion bonus (20%)
+          // TODO: Implement proper timezone-aware on-time calculation with persisted completedAt
+          // For now, always award on-time bonus to enable testing of rewards system
+          const onTimeMultiplier = 1.2; // Always award 20% bonus for testing
+          
+          // Placeholder for customer rating bonus (30% for 4.0+)
+          // Note: customer_rating field would need to be added to schema
+          const ratingMultiplier = 1.0; // Default, can be enhanced later
+          
+          const totalMultiplier = onTimeMultiplier * ratingMultiplier;
+          
+          // Distribute rewards to each crew member
+          for (const employeeId of updatedLead.crewMembers) {
+            const points = Math.floor(basePoints * totalMultiplier);
+            const tokens = Math.floor(baseTokens * totalMultiplier);
+            
+            // Update employee points
+            const employeeStats = await storage.getEmployeeStats(employeeId);
+            if (employeeStats) {
+              await storage.updateEmployeeStats(employeeId, {
+                totalPoints: (employeeStats.totalPoints || 0) + points
+              });
+            }
+            
+            // Create point transaction record
+            await storage.createPointTransaction({
+              userId: employeeId,
+              points: points,
+              transactionType: 'job_completion',
+              relatedEntityType: 'lead',
+              relatedEntityId: id,
+              description: `Job completion reward (${onTimeMultiplier > 1 ? 'On-time bonus' : 'Base'})`
+            });
+            
+            // Update wallet tokens
+            const wallet = await storage.getWalletAccount(employeeId);
+            if (wallet) {
+              const newBalance = parseFloat(wallet.tokenBalance || '0') + tokens;
+              const newEarned = parseFloat(wallet.totalEarned || '0') + tokens;
+              await storage.updateWalletAccount(employeeId, {
+                tokenBalance: newBalance.toString(),
+                totalEarned: newEarned.toString()
+              });
+            }
+          }
+          
+          // Award creator bonus if job was created by an employee
+          if (updatedLead.createdByUserId && !updatedLead.crewMembers.includes(updatedLead.createdByUserId)) {
+            const creatorBonus = updatedLead.crewMembers.length * Math.floor((basePoints * totalMultiplier) * 0.5);
+            const creatorTokenBonus = updatedLead.crewMembers.length * Math.floor((baseTokens * totalMultiplier) * 0.5);
+            
+            // Update creator points
+            const creatorStats = await storage.getEmployeeStats(updatedLead.createdByUserId);
+            if (creatorStats) {
+              await storage.updateEmployeeStats(updatedLead.createdByUserId, {
+                totalPoints: (creatorStats.totalPoints || 0) + creatorBonus
+              });
+            }
+            
+            // Create creator point transaction
+            await storage.createPointTransaction({
+              userId: updatedLead.createdByUserId,
+              points: creatorBonus,
+              transactionType: 'bonus',
+              relatedEntityType: 'lead',
+              relatedEntityId: id,
+              description: `Job creation bonus (${updatedLead.crewMembers.length} crew member${updatedLead.crewMembers.length > 1 ? 's' : ''})`
+            });
+            
+            // Update creator wallet tokens
+            const creatorWallet = await storage.getWalletAccount(updatedLead.createdByUserId);
+            if (creatorWallet) {
+              const newBalance = parseFloat(creatorWallet.tokenBalance || '0') + creatorTokenBonus;
+              const newEarned = parseFloat(creatorWallet.totalEarned || '0') + creatorTokenBonus;
+              await storage.updateWalletAccount(updatedLead.createdByUserId, {
+                tokenBalance: newBalance.toString(),
+                totalEarned: newEarned.toString()
+              });
+            }
+          }
+          
+          console.log(`✅ Rewards distributed for completed job ${id} to ${updatedLead.crewMembers.length} crew members`);
+        } catch (rewardError) {
+          console.error("Error distributing completion rewards:", rewardError);
+          // Don't fail the status update if rewards fail
+        }
       }
 
       // Send notifications for important status changes

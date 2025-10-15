@@ -69,6 +69,9 @@ export const leads = pgTable("leads", {
   quoteNotes: text("quote_notes"), // Project-specific notes and updates
   lastQuoteUpdatedAt: timestamp("last_quote_updated_at"), // Track when quote was last modified
   
+  // Job completion tracking
+  completedAt: timestamp("completed_at"), // When the job was first marked complete (for idempotent rewards)
+  
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
 
