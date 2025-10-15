@@ -4,6 +4,25 @@ This is a full-stack moving and junk removal service website built with React, T
 
 # Recent Changes
 
+## Comprehensive Lead Editing & Workflow System (October 15, 2025)
+- **Full Lead Editing**: Implemented comprehensive lead editing system allowing modification of all lead fields (customer info, service details, pricing, special items, status)
+- **Workflow Enhancement**: Added 'edited' status to lead progression (New → Edited → Contacted → Quoted → Confirmed → Available → Accepted → In Progress → Completed)
+- **Lead Edit Dialog**: Built LeadEditDialog component with complete form validation for all 40+ lead fields
+  - Form uses z.coerce.number() for numeric fields to handle string-to-number conversion
+  - Component remounts via key={lead?.id} to prevent stale values in Select components
+  - useEffect hook resets form when lead changes to ensure clean state
+- **API Endpoints**: Created PATCH `/api/leads/:id/edit` endpoint with comprehensive field updates and price calculations
+- **Crew Acceptance System**: Enhanced crew acceptance tracking to require all crew members to accept before job can start
+  - Added `crewAcceptances` field to track which employees have accepted
+  - Job start endpoint validates full crew acceptance before allowing status change to 'in_progress'
+- **Job Completion Workflow**: Implemented automatic rewards distribution on job completion
+  - Base rewards: 100 points + 500 JCMOVES tokens per crew member
+  - On-time bonus: +20% additional rewards
+  - Customer rating bonus (4.0+): +30% additional rewards
+  - Creator bonus: 50% of each completing employee's rewards (stacks for multiple crew members)
+- **UI Enhancements**: Added edit buttons, status badges, and workflow controls to leads management interface
+- **Production Ready**: Architect-approved implementation with all critical issues resolved (duplicate imports, numeric validation, stale form values)
+
 ## Live Token Pricing Integration (October 14, 2025)
 - **Real-Time Price API**: Created `/api/crypto/live-price` endpoint for live JCMOVES pricing data
 - **Auto-Refresh System**: Frontend polls price every 5 seconds for real-time updates
