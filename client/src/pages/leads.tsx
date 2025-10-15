@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
-import { ArrowLeft, Home, Building, Trash2, Eye, Mail, Phone, CircleDot, MessageCircle, FileText, CheckCircle, Clock, Play, Activity, CheckCheck } from "lucide-react";
+import { ArrowLeft, Home, Building, Trash2, Eye, Mail, Phone, CircleDot, MessageCircle, FileText, CheckCircle, Clock, Play, Activity, CheckCheck, Edit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { insertLeadSchema, type InsertLead, type Lead, type User } from "@shared/schema";
 import { LeadQuoteDialog } from "@/components/LeadQuoteDialog";
+import { LeadEditDialog } from "@/components/LeadEditDialog";
 
 export default function LeadsPage() {
   const [, setLocation] = useLocation();
@@ -23,6 +24,7 @@ export default function LeadsPage() {
   const [selectedService, setSelectedService] = useState("");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
   const serviceOptions = [
     { value: "residential", label: "Residential Moving", icon: Home },
@@ -107,12 +109,43 @@ export default function LeadsPage() {
     },
   });
 
+  const editLead = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("PATCH", `/api/leads/${selectedLead?.id}/edit`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Lead updated successfully!",
+        description: "All changes have been saved.",
+      });
+      setIsEditDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update lead. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const onSubmit = form.handleSubmit((data) => {
     submitLead.mutate(data);
   });
 
   const handleSaveQuote = (data: any) => {
     saveQuote.mutate(data);
+  };
+
+  const handleEditLead = (lead: Lead) => {
+    setSelectedLead(lead);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = (data: any) => {
+    editLead.mutate(data);
   };
 
   const getServiceBadgeColor = (serviceType: string) => {
@@ -137,6 +170,7 @@ export default function LeadsPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "new": return <CircleDot className="h-4 w-4 text-blue-500" />;
+      case "edited": return <Edit className="h-4 w-4 text-cyan-500" />;
       case "contacted": return <MessageCircle className="h-4 w-4 text-purple-500" />;
       case "quoted": return <FileText className="h-4 w-4 text-amber-500" />;
       case "confirmed": return <CheckCircle className="h-4 w-4 text-green-500" />;
@@ -184,6 +218,14 @@ export default function LeadsPage() {
             </p>
           </div>
           <div className="flex gap-2 ml-4">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => handleEditLead(lead)}
+              data-testid={`edit-button-${lead.id}`}
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
             <Button 
               variant="ghost" 
               size="sm" 
@@ -263,9 +305,9 @@ export default function LeadsPage() {
                   <div className="space-y-4">
                     {[...leads]
                       .sort((a, b) => {
-                        // Sort by status priority (new → contacted → quoted → confirmed → available → accepted → in_progress → completed)
+                        // Sort by status priority (new → edited → contacted → quoted → confirmed → available → accepted → in_progress → completed)
                         // Then by newest date first
-                        const statusOrder = ["new", "contacted", "quoted", "confirmed", "available", "accepted", "in_progress", "completed"];
+                        const statusOrder = ["new", "edited", "contacted", "quoted", "confirmed", "available", "accepted", "in_progress", "completed"];
                         const aIndex = statusOrder.indexOf(a.status);
                         const bIndex = statusOrder.indexOf(b.status);
                         if (aIndex !== bIndex) return aIndex - bIndex;
@@ -459,6 +501,15 @@ export default function LeadsPage() {
         lead={selectedLead}
         employees={employees}
         onSave={handleSaveQuote}
+      />
+
+      {/* Lead Edit Modal */}
+      <LeadEditDialog
+        open={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        lead={selectedLead}
+        onSave={handleSaveEdit}
+        isPending={editLead.isPending}
       />
     </div>
   );

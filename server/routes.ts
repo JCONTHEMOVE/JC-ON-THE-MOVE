@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema } from "@shared/schema";
+import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema, userWallets } from "@shared/schema";
 import { sendEmail, generateLeadNotificationEmail, generateContactNotificationEmail } from "./services/email";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 // REMOVED: Daily check-in service replaced by unified mining system with streaks
@@ -836,7 +836,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Recalculate total if any pricing fields changed
       if (updateData.basePrice !== undefined || updateData.hotTubFee !== undefined || 
           updateData.heavySafeFee !== undefined || updateData.poolTableFee !== undefined || updateData.pianoFee !== undefined) {
-        const currentLead = await storage.getLeadById(id);
+        const currentLead = await storage.getLead(id);
         if (currentLead) {
           const basePrice = parseFloat(updateData.basePrice?.toString() || currentLead.basePrice?.toString() || '0');
           const hotTubFee = parseFloat(updateData.hotTubFee?.toString() || currentLead.hotTubFee?.toString() || '0');
@@ -854,7 +854,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // If status is being changed to 'edited', ensure it's valid
       if (updateData.status === 'edited') {
-        const currentLead = await storage.getLeadById(id);
+        const currentLead = await storage.getLead(id);
         if (currentLead && currentLead.status === 'new') {
           // Valid transition from new to edited
         }
@@ -1327,16 +1327,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Complete job endpoint
+  // Start job endpoint - transition from accepted to in_progress
+  app.post("/api/leads/:id/start", isAuthenticated, requireEmployee, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const employeeId = req.currentUser.id;
+      
+      // Get the current lead
+      const lead = await storage.getLead(id);
+      if (!lead) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      // Check if job is accepted (crew is full)
+      if (lead.status !== "accepted") {
+        return res.status(400).json({ error: "Job must be accepted by full crew before starting" });
+      }
+
+      // Check if employee is part of the crew
+      const crewMembers = lead.crewMembers || [];
+      if (!crewMembers.includes(employeeId)) {
+        return res.status(403).json({ error: "You are not part of this job's crew" });
+      }
+
+      // Update status to in_progress
+      const updatedLead = await storage.updateLeadStatus(id, "in_progress");
+      
+      if (!updatedLead) {
+        return res.status(500).json({ error: "Failed to start job" });
+      }
+
+      // Notify all crew members that job has started
+      try {
+        const { notificationService } = await import("./services/notification");
+        for (const crewMemberId of crewMembers) {
+          await notificationService.notifyJobStatusChange(
+            crewMemberId,
+            updatedLead.id,
+            "in_progress",
+            `${updatedLead.firstName} ${updatedLead.lastName}`
+          );
+        }
+      } catch (notificationError) {
+        console.error("Error sending job start notifications:", notificationError);
+      }
+
+      res.json(updatedLead);
+    } catch (error) {
+      console.error("Error starting job:", error);
+      res.status(500).json({ error: "Failed to start job" });
+    }
+  });
+
+  // Complete job endpoint with rewards distribution
   app.post("/api/leads/:id/complete", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
       const { id } = req.params;
       const employeeId = req.currentUser.id;
+      const { customerRating, onTime } = req.body; // Optional: customer rating (1-5) and on-time boolean
       
       // Verify the employee is assigned to this job
       const lead = await storage.getLead(id);
       if (!lead) {
         return res.status(404).json({ error: "Job not found" });
+      }
+      
+      // Check if job is in progress
+      if (lead.status !== "in_progress") {
+        return res.status(400).json({ error: "Job must be in progress to complete it" });
       }
       
       // Check if employee is assigned (either as the assigned employee or part of the crew)
@@ -1351,7 +1409,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Failed to update job status" });
       }
 
-      res.json(updatedLead);
+      // Calculate and distribute rewards to crew members
+      const crewMembers = lead.crewMembers || [];
+      const creatorId = lead.createdByUserId; // Employee who created the job
+      
+      const basePoints = 100;
+      const baseTokens = 500;
+      let totalCreatorPoints = 0;
+      let totalCreatorTokens = 0;
+      
+      // Distribute rewards to each crew member
+      for (const crewMemberId of crewMembers) {
+        let crewPoints = basePoints;
+        let crewTokens = baseTokens;
+        
+        // On-time bonus: +20%
+        if (onTime === true) {
+          crewPoints = Math.floor(crewPoints * 1.2);
+          crewTokens = Math.floor(crewTokens * 1.2);
+        }
+        
+        // Customer rating bonus: +30% if rating >= 4.0
+        if (customerRating && parseFloat(customerRating) >= 4.0) {
+          crewPoints = Math.floor(crewPoints * 1.3);
+          crewTokens = Math.floor(crewTokens * 1.3);
+        }
+        
+        // If both bonuses apply, use the higher multiplier (1.5x total)
+        if (onTime === true && customerRating && parseFloat(customerRating) >= 4.0) {
+          crewPoints = Math.floor(basePoints * 1.5);
+          crewTokens = Math.floor(baseTokens * 1.5);
+        }
+        
+        // Award points and tokens to crew member
+        try {
+          // Create reward record for points
+          await db.insert(rewards).values({
+            userId: crewMemberId,
+            rewardType: 'job_completion',
+            tokenAmount: crewTokens.toString(),
+            cashValue: crewPoints.toString(),
+            status: 'confirmed',
+            referenceId: lead.id,
+            metadata: { onTime, customerRating }
+          });
+          
+          // Add tokens to user's wallet
+          const [userWallet] = await db.select().from(userWallets)
+            .where(and(
+              eq(userWallets.userId, crewMemberId),
+              eq(userWallets.currencyId, '1c5758ef-c5fe-4b91-95ac-9278201fc7b4') // JCMOVES currency ID
+            ))
+            .limit(1);
+          
+          if (userWallet) {
+            const currentBalance = parseFloat(userWallet.balance || '0');
+            const newBalance = (currentBalance + crewTokens).toFixed(2);
+            await storage.updateUserWalletBalance(userWallet.id, newBalance);
+          }
+          
+          // Track creator bonuses (50% of crew rewards)
+          if (creatorId && creatorId !== crewMemberId) {
+            totalCreatorPoints += Math.floor(crewPoints * 0.5);
+            totalCreatorTokens += Math.floor(crewTokens * 0.5);
+          }
+        } catch (rewardError) {
+          console.error(`Error awarding rewards to crew member ${crewMemberId}:`, rewardError);
+        }
+      }
+      
+      // Award creator bonuses if there was a creator
+      if (creatorId && totalCreatorPoints > 0) {
+        try {
+          // Create reward record for creator bonus
+          await db.insert(rewards).values({
+            userId: creatorId,
+            rewardType: 'job_completion',
+            tokenAmount: totalCreatorTokens.toString(),
+            cashValue: totalCreatorPoints.toString(),
+            status: 'confirmed',
+            referenceId: lead.id,
+            metadata: { creatorBonus: true, jobId: lead.id }
+          });
+          
+          // Add creator tokens to wallet
+          const [creatorWallet] = await db.select().from(userWallets)
+            .where(and(
+              eq(userWallets.userId, creatorId),
+              eq(userWallets.currencyId, '1c5758ef-c5fe-4b91-95ac-9278201fc7b4')
+            ))
+            .limit(1);
+          
+          if (creatorWallet) {
+            const currentBalance = parseFloat(creatorWallet.balance || '0');
+            const newBalance = (currentBalance + totalCreatorTokens).toFixed(2);
+            await storage.updateUserWalletBalance(creatorWallet.id, newBalance);
+          }
+          
+          // Notify creator about bonus rewards
+          try {
+            const { notificationService } = await import("./services/notification");
+            await notificationService.notifyJobAssigned(
+              creatorId,
+              updatedLead.id,
+              `Creator bonus: ${totalCreatorPoints} points + ${totalCreatorTokens} JCMOVES for job completion!`
+            );
+          } catch (notifError) {
+            console.error("Error notifying creator:", notifError);
+          }
+        } catch (creatorRewardError) {
+          console.error(`Error awarding creator bonuses to ${creatorId}:`, creatorRewardError);
+        }
+      }
+
+      res.json({
+        ...updatedLead,
+        rewardsDistributed: {
+          crewRewards: crewMembers.length > 0,
+          creatorBonus: creatorId && totalCreatorPoints > 0,
+          totalCreatorPoints,
+          totalCreatorTokens
+        }
+      });
     } catch (error) {
       console.error("Error completing job:", error);
       res.status(500).json({ error: "Failed to complete job" });
