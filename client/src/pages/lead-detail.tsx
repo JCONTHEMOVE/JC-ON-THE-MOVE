@@ -167,10 +167,12 @@ export default function LeadDetailPage() {
     lead?.crewMembers && lead.crewMembers.includes(emp.id)
   );
 
-  // Get the next status in the workflow
+  // Get the next status in the workflow (matches documented flow in replit.md)
   const getNextStatus = () => {
-    const statusFlow = ["new", "confirmed", "available", "accepted", "in_progress", "completed"];
-    const currentIndex = statusFlow.indexOf(lead?.status || "new");
+    const statusFlow = ["new", "edited", "contacted", "quoted", "confirmed", "available", "accepted", "in_progress", "completed"];
+    // Normalize current status to lowercase for comparison
+    const currentStatus = (lead?.status || "new").toLowerCase();
+    const currentIndex = statusFlow.indexOf(currentStatus);
     return currentIndex < statusFlow.length - 1 ? statusFlow[currentIndex + 1] : null;
   };
 
