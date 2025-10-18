@@ -374,7 +374,7 @@ const generateSMSTemplate = (lead: Lead): string => {
 export default function MobileLeadManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { canAccessTreasury, user, isAuthenticated } = useAuth();
+  const { canAccessTreasury, user, isAuthenticated, isLoading: userLoading } = useAuth();
   
   
   // Initialize tab based on user permissions
@@ -676,12 +676,14 @@ export default function MobileLeadManager() {
     });
   };
 
-  if (availableLoading || myJobsLoading) {
+  if (userLoading || availableLoading || myJobsLoading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-sm text-muted-foreground">Loading jobs...</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {userLoading ? 'Loading user data...' : 'Loading jobs...'}
+          </p>
         </div>
       </div>
     );
