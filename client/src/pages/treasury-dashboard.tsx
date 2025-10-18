@@ -56,7 +56,7 @@ interface TreasurySummary extends TreasuryStatus {
 
 interface FundingDeposit {
   id: string;
-  usdAmount: string;
+  depositAmount: string;
   depositMethod: string;
   notes?: string;
   createdAt: string;
@@ -911,7 +911,7 @@ export default function TreasuryDashboard() {
                     {depositsData.deposits.map((deposit) => (
                       <div key={deposit.id} className="flex items-center justify-between p-4 border rounded-lg">
                         <div>
-                          <div className="font-medium">${parseFloat(deposit.usdAmount).toFixed(2)}</div>
+                          <div className="font-medium">${parseFloat(deposit.depositAmount || '0').toFixed(2)}</div>
                           <div className="text-sm text-muted-foreground">
                             {new Date(deposit.createdAt).toLocaleDateString()} • {deposit.depositMethod}
                           </div>
