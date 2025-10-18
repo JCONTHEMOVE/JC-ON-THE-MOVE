@@ -11,9 +11,24 @@ interface Lead {
   id: string;
   firstName: string;
   lastName: string;
+  email: string;
+  phone: string;
   serviceType: string;
+  fromAddress: string;
+  toAddress?: string | null;
+  moveDate?: string | null;
+  propertySize?: string | null;
+  details?: string | null;
   status: string;
-  moveDate?: string;
+  assignedToUserId?: string | null;
+  createdByUserId?: string | null;
+  truckConfig?: string | null;
+  crewSize?: number | null;
+  confirmedDate?: string | null;
+  confirmedFromAddress?: string | null;
+  confirmedToAddress?: string | null;
+  basePrice?: string | null;
+  totalPrice?: string | null;
   createdAt: string;
 }
 
