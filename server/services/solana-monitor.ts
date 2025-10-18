@@ -28,7 +28,7 @@ export class SolanaMonitor {
     try {
       console.log('🔍 Initializing treasury address...');
       const treasuryWallets = await storage.getTreasuryWallets('admin');
-      console.log(`📊 Found ${treasuryWallets.length} treasury wallet(s)`);
+      console.log(`📊 Found ${treasuryWallets.length} treasury wallet(s) with admin scope`);
       
       if (treasuryWallets.length > 0) {
         console.log('📋 Treasury wallets:', treasuryWallets.map(w => ({ address: w.walletAddress, purpose: w.purpose })));
@@ -42,9 +42,21 @@ export class SolanaMonitor {
       } else {
         console.warn('⚠️ No treasury wallet found with purpose="treasury"');
         console.warn('⚠️ Available wallets:', treasuryWallets.map(w => w.purpose));
+        
+        // Try without role scope as fallback
+        console.log('🔍 Trying to find treasury wallet without role scope filter...');
+        const allTreasuryWallets = await storage.getTreasuryWallets();
+        console.log(`📊 Found ${allTreasuryWallets.length} total treasury wallet(s)`);
+        
+        const fallbackTreasury = allTreasuryWallets.find(w => w.purpose === 'treasury');
+        if (fallbackTreasury) {
+          this.treasuryWalletAddress = fallbackTreasury.walletAddress;
+          console.log(`✅ Treasury wallet initialized (fallback): ${this.treasuryWalletAddress}`);
+        }
       }
     } catch (error) {
       console.error('❌ Error initializing treasury address:', error);
+      throw error;
     }
   }
 
