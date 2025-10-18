@@ -464,9 +464,14 @@ export default function RewardsDashboard() {
                                 {miningStatus.streakCount} Day Streak Bonus
                               </span>
                             </div>
-                            <span className="text-lg font-bold" data-testid="text-streak-bonus">
-                              +{parseFloat(miningStatus.nextStreakBonus || "0").toFixed(4)}
-                            </span>
+                            <div className="text-right">
+                              <p className="text-lg font-bold" data-testid="text-streak-multiplier">
+                                {(1 + miningStatus.streakCount * 0.01).toFixed(2)}x
+                              </p>
+                              <p className="text-xs opacity-75" data-testid="text-streak-bonus">
+                                +{parseFloat(miningStatus.nextStreakBonus || "0").toFixed(2)}
+                              </p>
+                            </div>
                           </div>
                           <div className="mt-2 text-center">
                             <p className="text-sm font-semibold">
