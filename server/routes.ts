@@ -3799,6 +3799,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Withdraw JCMOVES tokens to external Solana wallet
+  app.post("/api/wallets/withdraw", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.currentUser.id;
+      const { toAddress, amount, note } = req.body;
+
+      if (!toAddress || !amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ error: "Missing required fields or invalid amount" });
+      }
+
+      const withdrawAmount = parseFloat(amount);
+
+      // Validate Solana address
+      const { solanaTransferService } = await import('./services/solana-transfer.js');
+      if (!solanaTransferService.isValidAddress(toAddress)) {
+        return res.status(400).json({ error: "Invalid Solana wallet address" });
+      }
+
+      // Get user's JCMOVES wallet
+      const userWallets = await walletService.getUserWallets(userId);
+      const jcmovesWallet = userWallets.find(w => w.currency.symbol === 'JCMOVES');
+      
+      if (!jcmovesWallet) {
+        return res.status(404).json({ error: "JCMOVES wallet not found" });
+      }
+
+      const currentBalance = parseFloat(jcmovesWallet.balance);
+
+      // Check minimum withdrawal (prevent dust transactions)
+      if (withdrawAmount < 100) {
+        return res.status(400).json({ error: "Minimum withdrawal is 100 JCMOVES" });
+      }
+
+      if (withdrawAmount > currentBalance) {
+        return res.status(400).json({ 
+          error: "Insufficient balance",
+          currentBalance,
+          requestedAmount: withdrawAmount
+        });
+      }
+
+      // 1. Deduct from user's wallet
+      const newBalance = currentBalance - withdrawAmount;
+      await storage.updateUserWalletBalance(jcmovesWallet.id, newBalance.toString());
+
+      // 2. Send tokens to external address
+      let transactionHash: string;
+      try {
+        transactionHash = await solanaTransferService.sendTokens(toAddress, withdrawAmount);
+      } catch (error: any) {
+        // Revert balance if blockchain transfer fails
+        await storage.updateUserWalletBalance(jcmovesWallet.id, currentBalance.toString());
+        throw new Error(`Blockchain transfer failed: ${error.message}`);
+      }
+
+      // 3. Record withdrawal transaction
+      await storage.createWalletTransaction({
+        userWalletId: jcmovesWallet.id,
+        transactionType: 'withdrawal',
+        amount: withdrawAmount.toString(),
+        balanceAfter: newBalance.toString(),
+        transactionHash: transactionHash,
+        status: 'confirmed',
+        confirmations: 1,
+        metadata: {
+          externalWithdrawal: true,
+          recipientAddress: toAddress,
+          note: note || 'External withdrawal',
+          withdrawnAt: new Date().toISOString(),
+          explorerUrl: `https://solscan.io/tx/${transactionHash}`
+        }
+      });
+
+      res.json({ 
+        success: true, 
+        message: `Successfully sent ${withdrawAmount.toLocaleString()} JCMOVES to ${toAddress.slice(0, 8)}...`,
+        transactionHash,
+        explorerUrl: `https://solscan.io/tx/${transactionHash}`,
+        withdrawnAmount: withdrawAmount,
+        newBalance,
+        recipientAddress: toAddress
+      });
+
+    } catch (error: any) {
+      console.error("Error processing withdrawal:", error);
+      res.status(500).json({ 
+        error: error.message || "Failed to process withdrawal",
+        details: error.toString()
+      });
+    }
+  });
+
   // Get supported currencies
   app.get("/api/wallets/currencies", isAuthenticated, async (req, res) => {
     try {
