@@ -737,23 +737,28 @@ export class DatabaseStorage implements IStorage {
     const updatedAcceptedBy = [...acceptedByEmployees, employeeId];
 
     // If crew is full, set status to 'accepted' and populate crewMembers
-    const updates: any = {
-      acceptedByEmployees: updatedAcceptedBy,
-    };
-
     if (isCrewFull) {
-      updates.status = 'accepted';
-      updates.crewMembers = updatedAcceptedBy;
-      updates.assignedToUserId = updatedAcceptedBy[0]; // First employee who accepted
+      const [lead] = await db
+        .update(leads)
+        .set({
+          acceptedByEmployees: sql`array_append(COALESCE(accepted_by_employees, ARRAY[]::text[]), ${employeeId})`,
+          status: 'accepted',
+          crewMembers: updatedAcceptedBy,
+          assignedToUserId: updatedAcceptedBy[0],
+        })
+        .where(eq(leads.id, leadId))
+        .returning();
+      return lead || undefined;
+    } else {
+      const [lead] = await db
+        .update(leads)
+        .set({
+          acceptedByEmployees: sql`array_append(COALESCE(accepted_by_employees, ARRAY[]::text[]), ${employeeId})`,
+        })
+        .where(eq(leads.id, leadId))
+        .returning();
+      return lead || undefined;
     }
-
-    const [lead] = await db
-      .update(leads)
-      .set(updates)
-      .where(eq(leads.id, leadId))
-      .returning();
-    
-    return lead || undefined;
   }
 
   async getAvailableLeads(): Promise<Lead[]> {
