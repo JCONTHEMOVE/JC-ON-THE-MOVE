@@ -2264,6 +2264,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get live blockchain balance
+  app.get("/api/solana/balance", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const result = await solanaMonitor.getLiveTokenBalance();
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching live blockchain balance:", error);
+      res.status(500).json({ 
+        success: false,
+        balance: 0,
+        walletAddress: '',
+        error: error instanceof Error ? error.message : "Failed to fetch balance" 
+      });
+    }
+  });
+
   // Get reserve transaction history
   app.get("/api/treasury/transactions", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
     try {

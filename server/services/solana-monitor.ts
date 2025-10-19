@@ -338,6 +338,65 @@ export class SolanaMonitor {
   }
 
   /**
+   * Get live JCMOVES token balance from Solana blockchain
+   */
+  async getLiveTokenBalance(): Promise<{
+    success: boolean;
+    balance: number;
+    walletAddress: string;
+    error?: string;
+  }> {
+    try {
+      await this.initializeTreasuryAddress();
+      
+      if (!this.treasuryWalletAddress) {
+        return {
+          success: false,
+          balance: 0,
+          walletAddress: '',
+          error: 'Treasury wallet address not found'
+        };
+      }
+
+      const publicKey = new PublicKey(this.treasuryWalletAddress);
+      const tokenMint = new PublicKey(this.jcmovesTokenAddress);
+
+      // Get all token accounts for this wallet
+      const tokenAccounts = await this.connection.getParsedTokenAccountsByOwner(publicKey, {
+        mint: tokenMint
+      });
+
+      if (tokenAccounts.value.length === 0) {
+        return {
+          success: true,
+          balance: 0,
+          walletAddress: this.treasuryWalletAddress
+        };
+      }
+
+      // Get the balance from the first token account
+      const accountInfo = tokenAccounts.value[0].account.data.parsed.info;
+      const balance = parseFloat(accountInfo.tokenAmount.uiAmount || '0');
+
+      console.log(`💰 Live blockchain balance: ${balance.toLocaleString()} JCMOVES`);
+
+      return {
+        success: true,
+        balance,
+        walletAddress: this.treasuryWalletAddress
+      };
+    } catch (error) {
+      console.error('Error fetching live token balance:', error);
+      return {
+        success: false,
+        balance: 0,
+        walletAddress: this.treasuryWalletAddress || '',
+        error: error instanceof Error ? error.message : 'Failed to fetch balance'
+      };
+    }
+  }
+
+  /**
    * Get monitoring status
    */
   getStatus() {
