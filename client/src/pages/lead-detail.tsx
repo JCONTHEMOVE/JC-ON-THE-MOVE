@@ -141,7 +141,28 @@ export default function LeadDetailPage() {
     });
   };
 
-  // Status progression mutation
+  // Job acceptance mutation (for employees)
+  const acceptJob = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", `/api/leads/${params?.id}/accept`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({
+        title: "Success",
+        description: "Job accepted successfully! You've been added to the crew.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to accept job",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Status progression mutation (for admin)
   const updateStatus = useMutation({
     mutationFn: async (newStatus: string) => {
       return await apiRequest("PATCH", `/api/leads/${params?.id}/status`, { status: newStatus });
@@ -153,10 +174,10 @@ export default function LeadDetailPage() {
         description: "Job status updated successfully",
       });
     },
-    onError: () => {
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: "Failed to update job status",
+        description: error.message || "Failed to update job status",
         variant: "destructive",
       });
     },
@@ -177,7 +198,10 @@ export default function LeadDetailPage() {
   };
 
   const nextStatus = getNextStatus();
-  const canProgress = nextStatus !== null;
+  const currentStatus = (lead?.status || "new").toLowerCase();
+  
+  // For "available" jobs, employees should use the "Accept Job" button instead of generic status progression
+  const canProgress = nextStatus !== null && currentStatus !== "available";
 
   if (isLoading) {
     return (
@@ -449,7 +473,27 @@ export default function LeadDetailPage() {
 
           {/* Sidebar - Potential Earnings & Rewards */}
           <div className="space-y-6">
-            {/* Workflow Controls */}
+            {/* Accept Job Button (for available jobs) */}
+            {currentStatus === "available" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Accept This Job</CardTitle>
+                  <CardDescription>Join the crew for this job</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button 
+                    onClick={() => acceptJob.mutate()} 
+                    disabled={acceptJob.isPending}
+                    className="w-full"
+                    data-testid="button-accept-job"
+                  >
+                    {acceptJob.isPending ? "Accepting..." : "Accept Job"}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Workflow Controls (for admin status progression) */}
             {canProgress && (
               <Card>
                 <CardHeader>
