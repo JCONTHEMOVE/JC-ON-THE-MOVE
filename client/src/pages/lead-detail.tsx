@@ -13,6 +13,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Lead {
   id: string;
@@ -37,6 +38,7 @@ interface Lead {
   confirmedFromAddress?: string;
   confirmedToAddress?: string;
   crewMembers?: string[];
+  acceptedByEmployees?: string[];
   hasHotTub?: boolean;
   hotTubWeight?: number;
   hotTubFee?: string;
@@ -71,6 +73,7 @@ export default function LeadDetailPage() {
   const [, params] = useRoute("/lead/:id");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
 
   const { data: lead, isLoading } = useQuery<Lead>({
@@ -147,7 +150,9 @@ export default function LeadDetailPage() {
       return await apiRequest("POST", `/api/leads/${params?.id}/accept`, {});
     },
     onSuccess: () => {
+      // Invalidate both the collection and detail queries to refresh the UI
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
       toast({
         title: "Success",
         description: "Job accepted successfully! You've been added to the crew.",
@@ -473,25 +478,52 @@ export default function LeadDetailPage() {
 
           {/* Sidebar - Potential Earnings & Rewards */}
           <div className="space-y-6">
-            {/* Accept Job Button (for available jobs) */}
-            {currentStatus === "available" && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Accept This Job</CardTitle>
-                  <CardDescription>Join the crew for this job</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button 
-                    onClick={() => acceptJob.mutate()} 
-                    disabled={acceptJob.isPending}
-                    className="w-full"
-                    data-testid="button-accept-job"
-                  >
-                    {acceptJob.isPending ? "Accepting..." : "Accept Job"}
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+            {/* Job Acceptance Status (for available jobs) */}
+            {currentStatus === "available" && (() => {
+              const hasAccepted = lead?.acceptedByEmployees?.includes(user?.id || '');
+              const crewSize = lead?.crewSize || 2;
+              const currentCrew = lead?.acceptedByEmployees?.length || 0;
+              const isCrewFull = currentCrew >= crewSize;
+
+              return (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Job Acceptance</CardTitle>
+                    <CardDescription>Crew Status: {currentCrew}/{crewSize} employees accepted</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {hasAccepted ? (
+                      <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                        <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                          ✓ You've accepted this job
+                        </p>
+                        <p className="text-xs text-green-600 dark:text-green-300 mt-1">
+                          Waiting for {crewSize - currentCrew} more crew member{crewSize - currentCrew !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    ) : isCrewFull ? (
+                      <div className="p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                        <p className="text-sm font-medium text-orange-800 dark:text-orange-200">
+                          Crew is full
+                        </p>
+                        <p className="text-xs text-orange-600 dark:text-orange-300 mt-1">
+                          All positions have been filled
+                        </p>
+                      </div>
+                    ) : (
+                      <Button 
+                        onClick={() => acceptJob.mutate()} 
+                        disabled={acceptJob.isPending}
+                        className="w-full"
+                        data-testid="button-accept-job"
+                      >
+                        {acceptJob.isPending ? "Accepting..." : "Accept Job"}
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
             {/* Workflow Controls (for admin status progression) */}
             {canProgress && (
