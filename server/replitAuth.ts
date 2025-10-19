@@ -305,21 +305,6 @@ export async function setupAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  // TEMPORARY BYPASS: Check for dev mode bypass header
-  const bypassAuth = req.headers['x-dev-bypass'] === 'darrell';
-  if (bypassAuth) {
-    console.log('⚠️ DEV BYPASS: Authentication bypassed for development');
-    // Create mock user object for downstream middleware
-    (req as any).user = { 
-      claims: { 
-        sub: '47798367', 
-        email: 'upmichiganstatemovers@gmail.com' 
-      },
-      expires_at: 9999999999 
-    };
-    return next();
-  }
-
   const user = req.user as any;
   
   console.log('[AUTH CHECK] Path:', req.path);
