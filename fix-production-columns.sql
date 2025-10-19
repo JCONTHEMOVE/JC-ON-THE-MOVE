@@ -7,8 +7,8 @@ ALTER COLUMN amount TYPE DECIMAL(18,8)
 USING (
   CASE 
     WHEN amount IS NULL THEN 0
-    WHEN TRIM(amount) = '' THEN 0
-    WHEN TRIM(amount) ~ '^-?[0-9]+\.?[0-9]*$' THEN TRIM(amount)::numeric(18,8)
+    WHEN LENGTH(amount) = 0 THEN 0
+    WHEN amount ~ '^-?[0-9]+\.?[0-9]*$' THEN amount::numeric(18,8)
     ELSE 0
   END
 );
@@ -19,8 +19,8 @@ ALTER COLUMN balance_after TYPE DECIMAL(18,8)
 USING (
   CASE 
     WHEN balance_after IS NULL THEN 0
-    WHEN TRIM(balance_after) = '' THEN 0
-    WHEN TRIM(balance_after) ~ '^-?[0-9]+\.?[0-9]*$' THEN TRIM(balance_after)::numeric(18,8)
+    WHEN LENGTH(balance_after) = 0 THEN 0
+    WHEN balance_after ~ '^-?[0-9]+\.?[0-9]*$' THEN balance_after::numeric(18,8)
     ELSE 0
   END
 );
@@ -31,8 +31,8 @@ ALTER COLUMN balance TYPE DECIMAL(18,8)
 USING (
   CASE 
     WHEN balance IS NULL THEN 0
-    WHEN TRIM(balance) = '' THEN 0
-    WHEN TRIM(balance) ~ '^-?[0-9]+\.?[0-9]*$' THEN TRIM(balance)::numeric(18,8)
+    WHEN LENGTH(balance) = 0 THEN 0
+    WHEN balance ~ '^-?[0-9]+\.?[0-9]*$' THEN balance::numeric(18,8)
     ELSE 0
   END
 );
@@ -43,8 +43,8 @@ ALTER COLUMN token_reward TYPE DECIMAL(18,8)
 USING (
   CASE 
     WHEN token_reward IS NULL THEN 0
-    WHEN TRIM(token_reward) = '' THEN 0
-    WHEN TRIM(token_reward) ~ '^-?[0-9]+\.?[0-9]*$' THEN TRIM(token_reward)::numeric(18,8)
+    WHEN LENGTH(token_reward) = 0 THEN 0
+    WHEN token_reward ~ '^-?[0-9]+\.?[0-9]*$' THEN token_reward::numeric(18,8)
     ELSE 0
   END
 );
@@ -55,8 +55,8 @@ ALTER COLUMN minimum_balance TYPE DECIMAL(18,8)
 USING (
   CASE 
     WHEN minimum_balance IS NULL THEN 0
-    WHEN TRIM(minimum_balance) = '' THEN 0
-    WHEN TRIM(minimum_balance) ~ '^-?[0-9]+\.?[0-9]*$' THEN TRIM(minimum_balance)::numeric(18,8)
+    WHEN LENGTH(minimum_balance) = 0 THEN 0
+    WHEN minimum_balance ~ '^-?[0-9]+\.?[0-9]*$' THEN minimum_balance::numeric(18,8)
     ELSE 0
   END
 );
@@ -67,8 +67,8 @@ ALTER COLUMN withdrawal_fee_percent TYPE NUMERIC(5,2)
 USING (
   CASE 
     WHEN withdrawal_fee_percent IS NULL THEN 0
-    WHEN TRIM(withdrawal_fee_percent) = '' THEN 0
-    WHEN TRIM(withdrawal_fee_percent) ~ '^-?[0-9]+\.?[0-9]*$' THEN TRIM(withdrawal_fee_percent)::numeric(5,2)
+    WHEN LENGTH(withdrawal_fee_percent) = 0 THEN 0
+    WHEN withdrawal_fee_percent ~ '^-?[0-9]+\.?[0-9]*$' THEN withdrawal_fee_percent::numeric(5,2)
     ELSE 0
   END
 );
