@@ -35,7 +35,7 @@ export const leads = pgTable("leads", {
   createdByUserId: varchar("created_by_user_id").references(() => users.id), // Track employee who created the job for rewards
   truckConfig: text("truck_config"), // 'customer_truck', 'company_truck', 'no_truck'
   crewSize: integer("crew_size").default(2), // Number of crew members needed (2 is standard)
-  acceptedByEmployees: text("accepted_by_employees").array().default(sql`ARRAY[]::text[]`), // Track which employees have accepted this job
+  acceptedByEmployees: jsonb("accepted_by_employees").default("[]"), // Track which employees have accepted this job
   photos: jsonb("photos").default("[]"), // Array of photo objects with metadata
   
   // Quote and pricing fields

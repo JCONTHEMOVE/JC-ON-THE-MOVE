@@ -741,7 +741,7 @@ export class DatabaseStorage implements IStorage {
       const [lead] = await db
         .update(leads)
         .set({
-          acceptedByEmployees: sql`array_append(COALESCE(accepted_by_employees, ARRAY[]::text[]), ${employeeId})`,
+          acceptedByEmployees: sql`COALESCE(accepted_by_employees, '[]'::jsonb) || ${JSON.stringify([employeeId])}::jsonb`,
           status: 'accepted',
           crewMembers: updatedAcceptedBy,
           assignedToUserId: updatedAcceptedBy[0],
@@ -753,7 +753,7 @@ export class DatabaseStorage implements IStorage {
       const [lead] = await db
         .update(leads)
         .set({
-          acceptedByEmployees: sql`array_append(COALESCE(accepted_by_employees, ARRAY[]::text[]), ${employeeId})`,
+          acceptedByEmployees: sql`COALESCE(accepted_by_employees, '[]'::jsonb) || ${JSON.stringify([employeeId])}::jsonb`,
         })
         .where(eq(leads.id, leadId))
         .returning();
