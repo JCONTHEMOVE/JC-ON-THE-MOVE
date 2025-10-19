@@ -267,6 +267,77 @@ export class SolanaMonitor {
   }
 
   /**
+   * Scan historical transactions (for finding missed deposits)
+   */
+  async scanHistoricalTransactions(limit: number = 50): Promise<{
+    success: boolean;
+    scanned: number;
+    found: number;
+    recorded: number;
+    transactions: Array<{ signature: string; amount: number; status: string }>;
+  }> {
+    await this.initializeTreasuryAddress();
+    
+    if (!this.treasuryWalletAddress) {
+      throw new Error('Treasury wallet address not found');
+    }
+
+    console.log(`🔍 Scanning last ${limit} transactions for treasury wallet...`);
+    
+    const publicKey = new PublicKey(this.treasuryWalletAddress);
+    const signatures = await this.connection.getSignaturesForAddress(publicKey, {
+      limit
+    });
+
+    const results: Array<{ signature: string; amount: number; status: string }> = [];
+    let found = 0;
+    let recorded = 0;
+
+    for (const sigInfo of signatures) {
+      try {
+        const transaction = await this.connection.getParsedTransaction(sigInfo.signature, {
+          maxSupportedTransactionVersion: 0
+        });
+
+        if (!transaction || !transaction.meta || transaction.meta.err) {
+          continue;
+        }
+
+        const tokenTransfer = this.findJCMOVESTransfer(transaction, this.treasuryWalletAddress);
+
+        if (tokenTransfer) {
+          found++;
+          const { amount, fromAddress } = tokenTransfer;
+          
+          // Check if already recorded
+          const alreadyRecorded = await this.checkIfAlreadyRecorded(sigInfo.signature);
+          
+          if (alreadyRecorded) {
+            results.push({ signature: sigInfo.signature, amount, status: 'already_recorded' });
+          } else {
+            // Auto-record the deposit
+            await this.autoRecordDeposit(amount, sigInfo.signature, fromAddress);
+            recorded++;
+            results.push({ signature: sigInfo.signature, amount, status: 'newly_recorded' });
+          }
+        }
+      } catch (error) {
+        console.error(`Error processing transaction ${sigInfo.signature}:`, error);
+      }
+    }
+
+    console.log(`✅ Scan complete: Scanned ${signatures.length}, Found ${found} JCMOVES deposits, Recorded ${recorded} new deposits`);
+
+    return {
+      success: true,
+      scanned: signatures.length,
+      found,
+      recorded,
+      transactions: results
+    };
+  }
+
+  /**
    * Get monitoring status
    */
   getStatus() {

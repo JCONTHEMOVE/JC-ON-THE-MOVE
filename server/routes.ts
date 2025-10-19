@@ -2249,6 +2249,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Scan historical transactions (for finding missed deposits)
+  app.post("/api/solana/monitor/scan-history", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { limit = 50 } = req.body;
+      const result = await solanaMonitor.scanHistoricalTransactions(Math.min(limit, 100));
+      res.json(result);
+    } catch (error) {
+      console.error("Error scanning historical transactions:", error);
+      res.status(500).json({ 
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to scan historical transactions" 
+      });
+    }
+  });
+
   // Get reserve transaction history
   app.get("/api/treasury/transactions", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
     try {

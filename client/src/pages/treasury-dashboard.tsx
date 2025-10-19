@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, DollarSign, TrendingUp, TrendingDown, AlertTriangle, Activity, Plus, Wallet, Radio, Play, Square, ArrowRightLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, DollarSign, TrendingUp, TrendingDown, AlertTriangle, Activity, Plus, Wallet, Radio, Play, Square, ArrowRightLeft, Loader2, Search } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -321,6 +321,29 @@ export default function TreasuryDashboard() {
       toast({
         title: "Failed to Stop Monitoring",
         description: error.message || "Could not stop blockchain monitoring",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Scan historical transactions mutation
+  const scanHistoryMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/solana/monitor/scan-history", { limit: 50 });
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "✅ Historical Scan Complete",
+        description: `Scanned ${data.scanned} transactions • Found ${data.found} deposits • Recorded ${data.recorded} new`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/treasury/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/treasury/deposits"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Scan Failed",
+        description: error.message || "Could not scan historical transactions",
         variant: "destructive",
       });
     },
@@ -725,6 +748,23 @@ export default function TreasuryDashboard() {
                       </code>
                     </div>
                   )}
+
+                  <div className="pt-4 border-t">
+                    <p className="text-sm text-muted-foreground mb-3">Find missed deposits from before monitoring started</p>
+                    <Button
+                      onClick={() => scanHistoryMutation.mutate()}
+                      disabled={scanHistoryMutation.isPending}
+                      variant="secondary"
+                      className="w-full"
+                      data-testid="button-scan-history"
+                    >
+                      {scanHistoryMutation.isPending ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scanning Blockchain...</>
+                      ) : (
+                        <><Search className="mr-2 h-4 w-4" />Scan Historical Transactions</>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
