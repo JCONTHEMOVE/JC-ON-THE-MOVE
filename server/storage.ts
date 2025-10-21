@@ -737,28 +737,23 @@ export class DatabaseStorage implements IStorage {
     const updatedAcceptedBy = [...acceptedByEmployees, employeeId];
 
     // If crew is full, set status to 'accepted' and populate crewMembers
+    const updates: any = {
+      acceptedByEmployees: updatedAcceptedBy,
+    };
+
     if (isCrewFull) {
-      const [lead] = await db
-        .update(leads)
-        .set({
-          acceptedByEmployees: sql`COALESCE(accepted_by_employees, '[]'::jsonb) || ${JSON.stringify([employeeId])}::jsonb`,
-          status: 'accepted',
-          crewMembers: updatedAcceptedBy,
-          assignedToUserId: updatedAcceptedBy[0],
-        })
-        .where(eq(leads.id, leadId))
-        .returning();
-      return lead || undefined;
-    } else {
-      const [lead] = await db
-        .update(leads)
-        .set({
-          acceptedByEmployees: sql`COALESCE(accepted_by_employees, '[]'::jsonb) || ${JSON.stringify([employeeId])}::jsonb`,
-        })
-        .where(eq(leads.id, leadId))
-        .returning();
-      return lead || undefined;
+      updates.status = 'accepted';
+      updates.crewMembers = updatedAcceptedBy;
+      updates.assignedToUserId = updatedAcceptedBy[0]; // First employee who accepted
     }
+
+    const [lead] = await db
+      .update(leads)
+      .set(updates)
+      .where(eq(leads.id, leadId))
+      .returning();
+    
+    return lead || undefined;
   }
 
   async getAvailableLeads(): Promise<Lead[]> {

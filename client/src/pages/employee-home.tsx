@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Calendar as CalendarIcon, BookOpen, Store, Star, Camera, MapPin, Phone, Mail, Plus } from "lucide-react";
+import { Calendar as CalendarIcon, BookOpen, Store, Star, Camera, MapPin, Phone, Mail } from "lucide-react";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
 
@@ -456,17 +456,8 @@ export default function EmployeeHomePage() {
             </DialogHeader>
             <div className="space-y-4 mt-4">
               {selectedDateJobs.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground mb-4">No jobs scheduled for this date</p>
-                  <Link href="/employee/add-job">
-                    <Button 
-                      className="gap-2" 
-                      data-testid="button-add-job-from-calendar"
-                    >
-                      <Plus className="h-5 w-5" />
-                      Add a Job Lead
-                    </Button>
-                  </Link>
+                <div className="text-center py-8 text-muted-foreground">
+                  No jobs scheduled for this date
                 </div>
               ) : (
                 selectedDateJobs.map(job => (

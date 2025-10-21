@@ -175,8 +175,22 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/login", (req, res, next) => {
+    // Define canonical domain for consistent session cookies
+    const canonicalDomain = process.env.NODE_ENV === 'development' 
+      ? 'localhost:5000' 
+      : 'jconthemove.replit.app';
+    
     // Handle localhost with port for development
     const hostname = req.hostname === 'localhost' ? 'localhost:5000' : req.hostname;
+    
+    // Redirect to canonical domain if accessing from a different domain
+    if (hostname !== canonicalDomain) {
+      const protocol = hostname.includes('localhost') ? 'http' : 'https';
+      const roleParam = req.query.role ? `?role=${req.query.role}` : '';
+      const canonicalUrl = `${protocol === 'http' ? 'http' : 'https'}://${canonicalDomain}/api/login${roleParam}`;
+      console.log(`Redirecting from ${hostname} to canonical domain ${canonicalDomain} for consistent session`);
+      return res.redirect(canonicalUrl);
+    }
     
     // Store the requested role in session before authentication
     const requestedRole = req.query.role as string;
@@ -291,6 +305,21 @@ export async function setupAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
+  // TEMPORARY BYPASS: Check for dev mode bypass header
+  const bypassAuth = req.headers['x-dev-bypass'] === 'darrell';
+  if (bypassAuth) {
+    console.log('⚠️ DEV BYPASS: Authentication bypassed for development');
+    // Create mock user object for downstream middleware
+    (req as any).user = { 
+      claims: { 
+        sub: '47798367', 
+        email: 'upmichiganstatemovers@gmail.com' 
+      },
+      expires_at: 9999999999 
+    };
+    return next();
+  }
+
   const user = req.user as any;
   
   console.log('[AUTH CHECK] Path:', req.path);

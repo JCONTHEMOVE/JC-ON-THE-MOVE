@@ -10,11 +10,9 @@ export function useAuth() {
       try {
         const response = await fetch("/api/auth/user", { 
           cache: 'no-store',
-          credentials: 'include',
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'x-dev-bypass': 'darrell' // TEMPORARY: Auth bypass for broken OAuth
+            'Pragma': 'no-cache'
           }
         });
         if (response.status === 401) {

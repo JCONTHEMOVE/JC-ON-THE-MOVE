@@ -264,6 +264,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Role-based access control middleware
   const requireBusinessOwner = async (req: any, res: any, next: any) => {
     try {
+      // TEMPORARY BYPASS: Check for dev mode bypass header
+      const bypassAuth = req.headers['x-dev-bypass'] === 'darrell';
+      if (bypassAuth) {
+        console.log('⚠️ DEV BYPASS: Using hardcoded admin user');
+        const adminUser = await storage.getUser('47798367');
+        if (adminUser) {
+          req.currentUser = adminUser;
+          req.user = { claims: { sub: '47798367', email: adminUser.email } };
+          return next();
+        }
+      }
+
       const userId = req.user?.claims?.sub;
       if (!userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -2246,37 +2258,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting monitor status:", error);
       res.status(500).json({ error: "Failed to get monitoring status" });
-    }
-  });
-
-  // Scan historical transactions (for finding missed deposits)
-  app.post("/api/solana/monitor/scan-history", isAuthenticated, requireBusinessOwner, async (req, res) => {
-    try {
-      const { limit = 50 } = req.body;
-      const result = await solanaMonitor.scanHistoricalTransactions(Math.min(limit, 100));
-      res.json(result);
-    } catch (error) {
-      console.error("Error scanning historical transactions:", error);
-      res.status(500).json({ 
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to scan historical transactions" 
-      });
-    }
-  });
-
-  // Get live blockchain balance
-  app.get("/api/solana/balance", isAuthenticated, requireBusinessOwner, async (req, res) => {
-    try {
-      const result = await solanaMonitor.getLiveTokenBalance();
-      res.json(result);
-    } catch (error) {
-      console.error("Error fetching live blockchain balance:", error);
-      res.status(500).json({ 
-        success: false,
-        balance: 0,
-        walletAddress: '',
-        error: error instanceof Error ? error.message : "Failed to fetch balance" 
-      });
     }
   });
 
