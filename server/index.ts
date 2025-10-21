@@ -1,3 +1,4 @@
+// JC ON THE MOVE - Version 2.0.0 (Database Reset - October 21, 2025)
 import express, { type Request, Response, NextFunction } from "express";
 import path from "path";
 import { registerRoutes } from "./routes";
