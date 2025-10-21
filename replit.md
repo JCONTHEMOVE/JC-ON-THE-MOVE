@@ -54,6 +54,7 @@ Preferred communication style: Simple, everyday language.
 ## Database
 - **Neon Database**: Serverless PostgreSQL database.
 - **Drizzle Kit**: For schema management and migrations.
+  - Note: Uses `drizzle.config.mjs` (ESM format) instead of `.ts` to avoid TypeScript transpilation errors with the `defineConfig` function.
 
 ## Email Service
 - **SendGrid**: For transactional email delivery and notifications.
