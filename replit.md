@@ -4,6 +4,15 @@ This is a full-stack moving and junk removal service website built with React, T
 
 # Recent Changes
 
+## Blockchain Balance Verification (October 21, 2025)
+- **Live Balance Verification**: Added Solana blockchain verification via `/api/solana/balance` endpoint
+- **Balance Comparison**: Compares live blockchain balance with database records to detect discrepancies
+- **SolanaMonitor Service**: Integrated solana-monitor service for real-time blockchain queries
+- **Treasury Dashboard UI**: Added blockchain verification card on Treasury Overview tab
+- **Error Handling**: Graceful fallbacks when token mint doesn't exist or wallet has no token account
+- **Current Status**: Error occurs because JCMOVES token may not exist on Solana mainnet (Moonshot-exclusive token)
+- **Resolution Needed**: Verify correct JCMOVES mint address or wait for token to be deployed on Solana mainnet
+
 ## Live Token Pricing Integration (October 14, 2025)
 - **Real-Time Price API**: Created `/api/crypto/live-price` endpoint for live JCMOVES pricing data
 - **Auto-Refresh System**: Frontend polls price every 5 seconds for real-time updates

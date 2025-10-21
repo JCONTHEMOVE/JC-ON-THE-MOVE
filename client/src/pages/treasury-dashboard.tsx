@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, DollarSign, TrendingUp, AlertTriangle, Activity, Plus } from "lucide-react";
+import { ArrowLeft, DollarSign, TrendingUp, AlertTriangle, Activity, Plus, Wallet, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -175,6 +175,17 @@ export default function TreasuryDashboard() {
       if (error?.status === 401 || error?.status === 403) return false;
       return failureCount < 2;
     },
+  });
+
+  // Fetch live blockchain balance
+  const { data: liveBalance, isLoading: loadingBalance, refetch: refetchBalance } = useQuery<{
+    success: boolean;
+    balance: number;
+    walletAddress: string;
+    error?: string;
+  }>({
+    queryKey: ["/api/solana/balance"],
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 
   // Handle authorization errors
@@ -511,9 +522,109 @@ export default function TreasuryDashboard() {
                 </Card>
               )}
             </div>
+
+            {/* Blockchain Balance Verification */}
+            <Card className="border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Wallet className="h-5 w-5 text-blue-600" />
+                  Blockchain Balance Verification
+                </CardTitle>
+                <CardDescription>
+                  Live balance verification via Solscan.io - Compare blockchain with database records
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingBalance ? (
+                  <div className="space-y-3">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                ) : liveBalance?.success ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="p-4 bg-white dark:bg-gray-900 rounded-lg border">
+                        <p className="text-sm text-muted-foreground mb-1">Live Blockchain Balance</p>
+                        <p className="text-2xl font-bold text-blue-600">
+                          {liveBalance.balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">JCMOVES tokens</p>
+                      </div>
+                      <div className="p-4 bg-white dark:bg-gray-900 rounded-lg border">
+                        <p className="text-sm text-muted-foreground mb-1">Database Balance</p>
+                        <p className="text-2xl font-bold">
+                          {treasurySummary?.stats?.tokenReserve.toLocaleString(undefined, { maximumFractionDigits: 2 }) || '0'}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">JCMOVES tokens</p>
+                      </div>
+                    </div>
+                    
+                    {liveBalance.balance !== treasurySummary?.stats?.tokenReserve && (
+                      <div className="p-4 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-900 rounded-lg">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-medium text-yellow-900 dark:text-yellow-100">Balance Discrepancy Detected</p>
+                            <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+                              Difference: {Math.abs((liveBalance.balance || 0) - (treasurySummary?.stats?.tokenReserve || 0)).toLocaleString()} JCMOVES
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {liveBalance.balance === treasurySummary?.stats?.tokenReserve && (
+                      <div className="p-4 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 bg-green-500 rounded-full" />
+                          <p className="font-medium text-green-900 dark:text-green-100">✓ Balances Match</p>
+                        </div>
+                        <p className="text-sm text-green-700 dark:text-green-300 mt-1">
+                          Blockchain and database balances are in sync
+                        </p>
+                      </div>
+                    )}
+                    
+                    <div className="pt-4 border-t space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Treasury Wallet</span>
+                        <code className="text-xs bg-muted px-2 py-1 rounded">{liveBalance.walletAddress.slice(0, 8)}...{liveBalance.walletAddress.slice(-6)}</code>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => window.open(`https://solscan.io/account/${liveBalance.walletAddress}`, '_blank')}
+                          data-testid="button-view-solscan"
+                        >
+                          View on Solscan.io
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => refetchBalance()}
+                          disabled={loadingBalance}
+                          data-testid="button-refresh-balance"
+                        >
+                          {loadingBalance ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded-lg">
+                    <p className="text-sm text-red-700 dark:text-red-300">
+                      {liveBalance?.error || 'Failed to fetch blockchain balance'}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
-          {/* Deposits Tab */}
+          {/* Deposits Tab */}}
           <TabsContent value="deposits" className="space-y-6">
             <Card>
               <CardHeader>

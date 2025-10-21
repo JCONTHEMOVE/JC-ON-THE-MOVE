@@ -22,6 +22,7 @@ import { getFaucetPayService } from "./services/faucetpay";
 import { getAdvertisingService } from "./services/advertising";
 import { FAUCET_CONFIG } from "./constants";
 import { walletService } from "./services/wallet";
+import { solanaMonitor } from "./services/solana-monitor";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware with graceful error handling
@@ -2044,6 +2045,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting live token price:", error);
       res.status(500).json({ error: "Failed to get live price data" });
+    }
+  });
+
+  // Get live blockchain balance for treasury wallet
+  app.get("/api/solana/balance", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const result = await solanaMonitor.getLiveTokenBalance();
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching live blockchain balance:", error);
+      res.status(500).json({ 
+        success: false,
+        balance: 0,
+        walletAddress: '',
+        error: error instanceof Error ? error.message : "Failed to fetch balance" 
+      });
     }
   });
 
