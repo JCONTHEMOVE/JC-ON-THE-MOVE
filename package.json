@@ -8,7 +8,12 @@
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "db:backup": "tsx scripts/db-backup.ts development",
+    "db:backup:prod": "tsx scripts/db-backup.ts production",
+    "db:restore": "tsx scripts/db-restore.ts",
+    "db:compare": "tsx scripts/db-compare.ts",
+    "db:sync": "tsx scripts/db-sync-to-production.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
