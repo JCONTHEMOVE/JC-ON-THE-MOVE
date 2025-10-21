@@ -5,13 +5,14 @@ This is a full-stack moving and junk removal service website built with React, T
 # Recent Changes
 
 ## Blockchain Balance Verification (October 21, 2025)
+- **Configuration Fixed**: Corrected treasury wallet address (was typed as `bxK`, should be `bkK`)
+- **Token Mint Address**: Verified and using correct JCMOVES mint address `BHZW4jds7NSe5Fqvw9Z4pvt423EJSx63k8MT11F2moon`
 - **Live Balance Verification**: Added Solana blockchain verification via `/api/solana/balance` endpoint
-- **Balance Comparison**: Compares live blockchain balance with database records to detect discrepancies
-- **SolanaMonitor Service**: Integrated solana-monitor service for real-time blockchain queries
-- **Treasury Dashboard UI**: Added blockchain verification card on Treasury Overview tab
-- **Error Handling**: Graceful fallbacks when token mint doesn't exist or wallet has no token account
-- **Current Status**: Error occurs because JCMOVES token may not exist on Solana mainnet (Moonshot-exclusive token)
-- **Resolution Needed**: Verify correct JCMOVES mint address or wait for token to be deployed on Solana mainnet
+- **Balance Comparison**: System now correctly shows live blockchain balance (5,914,739.69 JCMOVES) vs database balance (3,370,230.39 JCMOVES)
+- **Balance Reconciliation**: Added `/api/solana/scan-history` endpoint with one-click reconciliation button to scan blockchain history and import missing deposits
+- **Security**: Input validation constrains scan limit to 1-200 transactions, audit logging for all scan operations
+- **Auto-Refresh**: Blockchain balance refreshes every 30 seconds for real-time monitoring
+- **Current Status**: Blockchain verification working correctly, discrepancy of 2.5M JCMOVES detected (tokens exist on-chain but not recorded in database)
 
 ## Live Token Pricing Integration (October 14, 2025)
 - **Real-Time Price API**: Created `/api/crypto/live-price` endpoint for live JCMOVES pricing data

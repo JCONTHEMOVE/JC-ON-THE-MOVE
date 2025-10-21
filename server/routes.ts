@@ -2064,6 +2064,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Scan historical blockchain transactions and reconcile missing deposits
+  app.post("/api/solana/scan-history", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      // Validate and constrain limit parameter (1-200)
+      const limitParam = parseInt(req.body.limit as string);
+      const limit = Number.isFinite(limitParam) && limitParam >= 1 && limitParam <= 200 
+        ? limitParam 
+        : 100;
+      
+      console.log(`[BLOCKCHAIN SCAN] Admin ${(req.user as any)?.email} initiated scan with limit: ${limit}`);
+      
+      const result = await solanaMonitor.scanHistoricalTransactions(limit);
+      
+      // Log scan results for audit trail
+      console.log(`[BLOCKCHAIN SCAN] Complete - Scanned: ${result.scanned}, Found: ${result.found}, Recorded: ${result.recorded}`);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error scanning blockchain history:", error);
+      res.status(500).json({ 
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to scan history" 
+      });
+    }
+  });
+
   // Convert USD to JCMOVES tokens at current price
   app.post("/api/treasury/crypto/convert-usd", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {

@@ -220,6 +220,31 @@ export default function TreasuryDashboard() {
     );
   }
 
+  // Historical blockchain scan mutation
+  const scanHistoryMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/solana/scan-history", { limit: 100 });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/treasury/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/treasury/deposits"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/solana/balance"] });
+      refetchBalance();
+      toast({
+        title: "Blockchain scan complete",
+        description: `Scanned ${data.scanned} transactions, found ${data.found} deposits, recorded ${data.recorded} new deposits.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Scan failed",
+        description: error?.message || "Failed to scan blockchain history",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Deposit funds mutation
   const depositMutation = useMutation({
     mutationFn: async (depositData: { amount: number; depositMethod: string; notes?: string }) => {
@@ -564,11 +589,28 @@ export default function TreasuryDashboard() {
                       <div className="p-4 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-900 rounded-lg">
                         <div className="flex items-start gap-2">
                           <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-                          <div>
+                          <div className="flex-1">
                             <p className="font-medium text-yellow-900 dark:text-yellow-100">Balance Discrepancy Detected</p>
                             <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
                               Difference: {Math.abs((liveBalance.balance || 0) - (treasurySummary?.stats?.tokenReserve || 0)).toLocaleString()} JCMOVES
                             </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="mt-3 border-yellow-600 text-yellow-900 hover:bg-yellow-100 dark:text-yellow-100 dark:hover:bg-yellow-900/20"
+                              onClick={() => scanHistoryMutation.mutate()}
+                              disabled={scanHistoryMutation.isPending}
+                              data-testid="button-reconcile-balance"
+                            >
+                              {scanHistoryMutation.isPending ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Scanning Blockchain...
+                                </>
+                              ) : (
+                                'Reconcile Balance'
+                              )}
+                            </Button>
                           </div>
                         </div>
                       </div>
