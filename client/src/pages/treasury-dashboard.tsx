@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, DollarSign, TrendingUp, TrendingDown, AlertTriangle, Activity, Plus, Wallet, Radio, Play, Square, ArrowRightLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, DollarSign, TrendingUp, AlertTriangle, Activity, Plus } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,7 +56,7 @@ interface TreasurySummary extends TreasuryStatus {
 
 interface FundingDeposit {
   id: string;
-  depositAmount: string;
+  usdAmount: string;
   depositMethod: string;
   notes?: string;
   createdAt: string;
@@ -90,33 +90,6 @@ interface TreasuryAnalytics {
   }>;
 }
 
-interface MonitoringStatus {
-  isMonitoring: boolean;
-  treasuryWallet: string | null;
-  lastCheckedSignature: string | null;
-  jcmovesTokenAddress: string;
-}
-
-interface LivePrice {
-  price: number;
-  priceFormatted: string;
-  change24h: number | null;
-  changePercent24h: string | null;
-  volume24h: number | null;
-  volumeFormatted: string | null;
-  symbol: string;
-  tokenName: string;
-  lastUpdated: string;
-  status: 'live' | 'fallback';
-}
-
-interface MoonshotTransfer {
-  tokenAmount: number;
-  transactionHash: string;
-  moonshotAccountId?: string;
-  notes?: string;
-}
-
 export default function TreasuryDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -125,12 +98,6 @@ export default function TreasuryDashboard() {
   const [depositAmount, setDepositAmount] = useState('');
   const [depositMethod, setDepositMethod] = useState('manual');
   const [depositNotes, setDepositNotes] = useState('');
-  const [transferData, setTransferData] = useState<MoonshotTransfer>({
-    tokenAmount: 0,
-    transactionHash: "",
-    moonshotAccountId: "",
-    notes: ""
-  });
 
   // Role-based access control
   if (authLoading) {
@@ -210,18 +177,6 @@ export default function TreasuryDashboard() {
     },
   });
 
-  // Fetch blockchain monitoring status
-  const { data: monitorStatus, isLoading: loadingMonitor } = useQuery<MonitoringStatus>({
-    queryKey: ["/api/solana/monitor/status"],
-    refetchInterval: 5000, // Check status every 5 seconds
-  });
-
-  // Fetch live token price
-  const { data: livePrice, isLoading: loadingPrice } = useQuery<LivePrice>({
-    queryKey: ["/api/crypto/live-price"],
-    refetchInterval: 5000, // Refresh every 5 seconds for live updates
-  });
-
   // Handle authorization errors
   const hasAuthError = [summaryError, depositsError, transactionsError, analyticsError].some(
     (error: any) => error?.status === 401 || error?.status === 403
@@ -282,81 +237,6 @@ export default function TreasuryDashboard() {
     },
   });
 
-  // Start monitoring mutation
-  const startMonitoringMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/solana/monitor/start", {});
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "✅ Blockchain Monitoring Started",
-        description: "Now automatically detecting incoming JCMOVES deposits",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/solana/monitor/status"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to Start Monitoring",
-        description: error.message || "Could not start blockchain monitoring",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Stop monitoring mutation
-  const stopMonitoringMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/solana/monitor/stop", {});
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Monitoring Stopped",
-        description: "Blockchain monitoring has been disabled",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/solana/monitor/status"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to Stop Monitoring",
-        description: error.message || "Could not stop blockchain monitoring",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Moonshot deposit mutation - auto-accepts completed transfers
-  const moonshotDepositMutation = useMutation({
-    mutationFn: async (data: MoonshotTransfer) => {
-      const response = await apiRequest("POST", "/api/treasury/record-token-deposit", data);
-      return response.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "✅ Deposit Automatically Accepted",
-        description: data.message || "Tokens successfully recorded in treasury",
-      });
-      // Reset form
-      setTransferData({
-        tokenAmount: 0,
-        transactionHash: "",
-        moonshotAccountId: "",
-        notes: ""
-      });
-      // Refresh treasury data
-      queryClient.invalidateQueries({ queryKey: ["/api/treasury/summary"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/treasury/deposits"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Deposit Failed",
-        description: error.message || "Failed to record deposit",
-        variant: "destructive",
-      });
-    },
-  });
-
   const handleDeposit = (e: React.FormEvent) => {
     e.preventDefault();
     const amount = parseFloat(depositAmount);
@@ -374,30 +254,6 @@ export default function TreasuryDashboard() {
       depositMethod,
       notes: depositNotes || undefined,
     });
-  };
-
-  const handleMoonshotTransfer = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!transferData.transactionHash.trim()) {
-      toast({
-        title: "Transaction Hash Required",
-        description: "Please enter the Moonshot transaction hash",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!transferData.tokenAmount || transferData.tokenAmount <= 0) {
-      toast({
-        title: "Invalid Amount",
-        description: "Please enter a valid token amount",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    moonshotDepositMutation.mutate(transferData);
   };
 
   const getHealthBadge = (status: string) => {
@@ -556,9 +412,8 @@ export default function TreasuryDashboard() {
 
         {/* Main Dashboard Tabs */}
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
-            <TabsTrigger value="blockchain" data-testid="tab-blockchain">Blockchain</TabsTrigger>
             <TabsTrigger value="deposits" data-testid="tab-deposits">Deposits</TabsTrigger>
             <TabsTrigger value="transactions" data-testid="tab-transactions">Transactions</TabsTrigger>
             <TabsTrigger value="analytics" data-testid="tab-analytics">Analytics</TabsTrigger>
@@ -658,230 +513,6 @@ export default function TreasuryDashboard() {
             </div>
           </TabsContent>
 
-          {/* Blockchain & Moonshot Tab */}
-          <TabsContent value="blockchain" className="space-y-6">
-            {/* Blockchain Monitoring Status */}
-            <Card className="border-2">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Radio className={`h-5 w-5 ${monitorStatus?.isMonitoring ? 'text-green-600 animate-pulse' : 'text-gray-400'}`} />
-                  Automatic Blockchain Detection
-                </CardTitle>
-                <CardDescription>
-                  Monitors Solana blockchain for incoming JCMOVES tokens and auto-records deposits
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className={`h-3 w-3 rounded-full ${monitorStatus?.isMonitoring ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-                      <div>
-                        <p className="font-medium">
-                          {loadingMonitor ? 'Loading...' : monitorStatus?.isMonitoring ? 'Monitoring Active' : 'Monitoring Inactive'}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {monitorStatus?.isMonitoring 
-                            ? 'Auto-detecting deposits every 30 seconds' 
-                            : 'Start monitoring to automatically record incoming tokens'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      {monitorStatus?.isMonitoring ? (
-                        <Button
-                          onClick={() => stopMonitoringMutation.mutate()}
-                          disabled={stopMonitoringMutation.isPending}
-                          variant="outline"
-                          data-testid="button-stop-monitoring"
-                        >
-                          {stopMonitoringMutation.isPending ? (
-                            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Stopping...</>
-                          ) : (
-                            <><Square className="mr-2 h-4 w-4" />Stop</>
-                          )}
-                        </Button>
-                      ) : (
-                        <Button
-                          onClick={() => startMonitoringMutation.mutate()}
-                          disabled={startMonitoringMutation.isPending}
-                          data-testid="button-start-monitoring"
-                        >
-                          {startMonitoringMutation.isPending ? (
-                            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Starting...</>
-                          ) : (
-                            <><Play className="mr-2 h-4 w-4" />Start Monitoring</>
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {monitorStatus?.treasuryWallet && (
-                    <div className="text-sm">
-                      <p className="text-muted-foreground mb-1">Watching Treasury Wallet:</p>
-                      <code className="px-2 py-1 bg-muted rounded text-xs font-mono">
-                        {monitorStatus.treasuryWallet}
-                      </code>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-6 md:grid-cols-2">
-              {/* Moonshot Transfer Form */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <ArrowRightLeft className="h-5 w-5" />
-                    Record Moonshot Transfer
-                  </CardTitle>
-                  <CardDescription>
-                    After transferring JCMOVES tokens from Moonshot, record the transaction here
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleMoonshotTransfer} className="space-y-4">
-                    <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800 mb-4">
-                      <p className="text-sm text-blue-800 dark:text-blue-200">
-                        <strong>Step 1:</strong> Complete your transfer in Moonshot app first<br/>
-                        <strong>Step 2:</strong> Enter the transaction details below to automatically record it
-                      </p>
-                    </div>
-
-                    <div data-testid="input-token-amount">
-                      <Label htmlFor="tokenAmount">JCMOVES Token Amount *</Label>
-                      <Input
-                        id="tokenAmount"
-                        type="number"
-                        step="0.01"
-                        placeholder="80640"
-                        value={transferData.tokenAmount || ""}
-                        onChange={(e) => setTransferData({ ...transferData, tokenAmount: parseFloat(e.target.value) || 0 })}
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Enter the exact number of JCMOVES tokens you transferred
-                      </p>
-                    </div>
-
-                    <div data-testid="input-transaction-hash">
-                      <Label htmlFor="transactionHash">Transaction Hash/ID *</Label>
-                      <Input
-                        id="transactionHash"
-                        placeholder="Enter Moonshot transaction hash"
-                        value={transferData.transactionHash}
-                        onChange={(e) => setTransferData({ ...transferData, transactionHash: e.target.value })}
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Copy this from your Moonshot transfer confirmation
-                      </p>
-                    </div>
-
-                    <div data-testid="input-moonshot-account-id">
-                      <Label htmlFor="moonshotAccountId">Moonshot Account ID (Optional)</Label>
-                      <Input
-                        id="moonshotAccountId"
-                        placeholder="Your Moonshot account ID"
-                        value={transferData.moonshotAccountId}
-                        onChange={(e) => setTransferData({ ...transferData, moonshotAccountId: e.target.value })}
-                      />
-                    </div>
-
-                    <div data-testid="input-transfer-notes">
-                      <Label htmlFor="transferNotes">Notes (Optional)</Label>
-                      <Textarea
-                        id="transferNotes"
-                        placeholder="Add any notes about this transfer..."
-                        value={transferData.notes}
-                        onChange={(e) => setTransferData({ ...transferData, notes: e.target.value })}
-                      />
-                    </div>
-
-                    <Button 
-                      type="submit" 
-                      className="w-full" 
-                      disabled={moonshotDepositMutation.isPending}
-                      data-testid="button-record-deposit"
-                    >
-                      {moonshotDepositMutation.isPending ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Recording Deposit...
-                        </>
-                      ) : (
-                        "✅ Record & Auto-Accept Deposit"
-                      )}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-
-              {/* Live Price Display */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Activity className="h-5 w-5" />
-                    Live Market Price
-                  </CardTitle>
-                  <CardDescription>Real-time JCMOVES token pricing</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {loadingPrice ? (
-                    <div className="flex items-center justify-center h-32">
-                      <Loader2 className="h-8 w-8 animate-spin" />
-                    </div>
-                  ) : livePrice ? (
-                    <div className="space-y-4">
-                      {/* Live Price Display */}
-                      <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-sm font-medium text-muted-foreground">{livePrice.symbol}</p>
-                          <div className="flex items-center gap-1">
-                            {livePrice.change24h !== null && livePrice.change24h > 0 ? (
-                              <TrendingUp className="h-4 w-4 text-green-600" data-testid="icon-trending-up" />
-                            ) : livePrice.change24h !== null && livePrice.change24h < 0 ? (
-                              <TrendingDown className="h-4 w-4 text-red-600" data-testid="icon-trending-down" />
-                            ) : null}
-                            <span className={`text-sm font-medium ${livePrice.change24h !== null && livePrice.change24h >= 0 ? 'text-green-600' : 'text-red-600'}`} data-testid="text-price-change">
-                              {livePrice.changePercent24h || 'N/A'}
-                            </span>
-                          </div>
-                        </div>
-                        <p className="text-3xl font-bold text-primary mb-1" data-testid="text-live-price">
-                          {livePrice.priceFormatted}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          24h Volume: {livePrice.volumeFormatted || 'N/A'} • Updated: {new Date(livePrice.lastUpdated).toLocaleTimeString()}
-                        </p>
-                      </div>
-
-                      {/* Treasury Reserve Info */}
-                      {treasurySummary && (
-                        <div className="grid grid-cols-2 gap-4">
-                          <div data-testid="text-current-market-value">
-                            <p className="text-sm text-muted-foreground">Treasury Value</p>
-                            <p className="text-xl font-bold text-green-600">
-                              ${parseFloat(treasurySummary.stats?.currentMarketValueUsd.toString() || '0').toFixed(2)}
-                            </p>
-                          </div>
-                          <div data-testid="text-token-reserve">
-                            <p className="text-sm text-muted-foreground">Token Reserve</p>
-                            <p className="text-xl font-bold">
-                              {parseFloat(treasurySummary.stats?.tokenReserve.toString() || '0').toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-center text-muted-foreground">Unable to load live price</p>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
           {/* Deposits Tab */}
           <TabsContent value="deposits" className="space-y-6">
             <Card>
@@ -911,7 +542,7 @@ export default function TreasuryDashboard() {
                     {depositsData.deposits.map((deposit) => (
                       <div key={deposit.id} className="flex items-center justify-between p-4 border rounded-lg">
                         <div>
-                          <div className="font-medium">${parseFloat(deposit.depositAmount || '0').toFixed(2)}</div>
+                          <div className="font-medium">${parseFloat(deposit.usdAmount).toFixed(2)}</div>
                           <div className="text-sm text-muted-foreground">
                             {new Date(deposit.createdAt).toLocaleDateString()} • {deposit.depositMethod}
                           </div>

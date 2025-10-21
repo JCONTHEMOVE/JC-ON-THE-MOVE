@@ -30,7 +30,7 @@ export const leads = pgTable("leads", {
   moveDate: text("move_date"),
   propertySize: text("property_size"),
   details: text("details"),
-  status: text("status").notNull().default("new"), // 'new', 'edited', 'contacted', 'quoted', 'confirmed', 'available', 'accepted', 'in_progress', 'completed'
+  status: text("status").notNull().default("new"), // 'new', 'contacted', 'quoted', 'accepted', 'in_progress', 'completed'
   assignedToUserId: varchar("assigned_to_user_id").references(() => users.id),
   createdByUserId: varchar("created_by_user_id").references(() => users.id), // Track employee who created the job for rewards
   truckConfig: text("truck_config"), // 'customer_truck', 'company_truck', 'no_truck'
@@ -68,9 +68,6 @@ export const leads = pgTable("leads", {
   // Quote management fields
   quoteNotes: text("quote_notes"), // Project-specific notes and updates
   lastQuoteUpdatedAt: timestamp("last_quote_updated_at"), // Track when quote was last modified
-  
-  // Job completion tracking
-  completedAt: timestamp("completed_at"), // When the job was first marked complete (for idempotent rewards)
   
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });

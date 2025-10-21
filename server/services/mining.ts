@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { miningSessions, miningClaims, walletAccounts, reserveTransactions, treasuryAccounts, rewards } from "@shared/schema";
+import { miningSessions, miningClaims, walletAccounts, reserveTransactions, treasuryAccounts } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { treasuryService } from "./treasury";
 
@@ -241,30 +241,12 @@ export class MiningService {
         });
       }
 
-      // Record the claim in mining_claims table
+      // Record the claim
       await db.insert(miningClaims).values({
         userId,
         sessionId: session.id,
         tokenAmount: tokensToClaim.toFixed(8),
         claimType,
-      });
-
-      // Also record in rewards table for history tracking
-      const cashValue = (tokensToClaim * tokenPrice).toFixed(4);
-      await db.insert(rewards).values({
-        userId,
-        rewardType: 'mining_claim',
-        tokenAmount: tokensToClaim.toFixed(8),
-        cashValue: cashValue,
-        status: 'confirmed',
-        earnedDate: new Date(),
-        metadata: {
-          sessionId: session.id,
-          claimType,
-          baseTokens: baseTokens.toFixed(8),
-          streakCount,
-          streakBonus: streakBonus.toFixed(8),
-        },
       });
 
       // Update session for next 24-hour cycle with streak tracking

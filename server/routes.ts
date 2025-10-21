@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema, userWallets } from "@shared/schema";
+import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema } from "@shared/schema";
 import { sendEmail, generateLeadNotificationEmail, generateContactNotificationEmail } from "./services/email";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 // REMOVED: Daily check-in service replaced by unified mining system with streaks
@@ -22,7 +22,6 @@ import { getFaucetPayService } from "./services/faucetpay";
 import { getAdvertisingService } from "./services/advertising";
 import { FAUCET_CONFIG } from "./constants";
 import { walletService } from "./services/wallet";
-import { solanaMonitor } from "./services/solana-monitor";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware with graceful error handling
@@ -759,112 +758,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const { status } = req.body;
       
-      const allowedStatuses = ["new", "edited", "contacted", "quoted", "confirmed", "available", "accepted", "in_progress", "completed"];
-      if (!status || !allowedStatuses.includes(status)) {
+      if (!status || !["new", "contacted", "quoted", "confirmed", "available", "accepted"].includes(status)) {
         return res.status(400).json({ error: "Invalid status" });
       }
 
       const updatedLead = await storage.updateLeadStatus(id, status);
       if (!updatedLead) {
         return res.status(404).json({ error: "Lead not found" });
-      }
-
-      // Distribute rewards when job is completed (idempotent - only once)
-      if (status === 'completed' && updatedLead.crewMembers && updatedLead.crewMembers.length > 0 && !updatedLead.completedAt) {
-        try {
-          // Mark job as completed now to prevent duplicate rewards
-          await storage.updateLeadQuote(id, { completedAt: new Date() });
-          
-          // Base rewards per crew member
-          const basePoints = 100;
-          const baseTokens = 500;
-          
-          // Check for on-time completion bonus (20%)
-          // TODO: Implement proper timezone-aware on-time calculation with persisted completedAt
-          // For now, always award on-time bonus to enable testing of rewards system
-          const onTimeMultiplier = 1.2; // Always award 20% bonus for testing
-          
-          // Placeholder for customer rating bonus (30% for 4.0+)
-          // Note: customer_rating field would need to be added to schema
-          const ratingMultiplier = 1.0; // Default, can be enhanced later
-          
-          const totalMultiplier = onTimeMultiplier * ratingMultiplier;
-          
-          // Distribute rewards to each crew member
-          for (const employeeId of updatedLead.crewMembers) {
-            const points = Math.floor(basePoints * totalMultiplier);
-            const tokens = Math.floor(baseTokens * totalMultiplier);
-            
-            // Update employee points
-            const employeeStats = await storage.getEmployeeStats(employeeId);
-            if (employeeStats) {
-              await storage.updateEmployeeStats(employeeId, {
-                totalPoints: (employeeStats.totalPoints || 0) + points
-              });
-            }
-            
-            // Create point transaction record
-            await storage.createPointTransaction({
-              userId: employeeId,
-              points: points,
-              transactionType: 'job_completion',
-              relatedEntityType: 'lead',
-              relatedEntityId: id,
-              description: `Job completion reward (${onTimeMultiplier > 1 ? 'On-time bonus' : 'Base'})`
-            });
-            
-            // Update wallet tokens
-            const wallet = await storage.getWalletAccount(employeeId);
-            if (wallet) {
-              const newBalance = parseFloat(wallet.tokenBalance || '0') + tokens;
-              const newEarned = parseFloat(wallet.totalEarned || '0') + tokens;
-              await storage.updateWalletAccount(employeeId, {
-                tokenBalance: newBalance.toString(),
-                totalEarned: newEarned.toString()
-              });
-            }
-          }
-          
-          // Award creator bonus if job was created by an employee
-          if (updatedLead.createdByUserId && !updatedLead.crewMembers.includes(updatedLead.createdByUserId)) {
-            const creatorBonus = updatedLead.crewMembers.length * Math.floor((basePoints * totalMultiplier) * 0.5);
-            const creatorTokenBonus = updatedLead.crewMembers.length * Math.floor((baseTokens * totalMultiplier) * 0.5);
-            
-            // Update creator points
-            const creatorStats = await storage.getEmployeeStats(updatedLead.createdByUserId);
-            if (creatorStats) {
-              await storage.updateEmployeeStats(updatedLead.createdByUserId, {
-                totalPoints: (creatorStats.totalPoints || 0) + creatorBonus
-              });
-            }
-            
-            // Create creator point transaction
-            await storage.createPointTransaction({
-              userId: updatedLead.createdByUserId,
-              points: creatorBonus,
-              transactionType: 'bonus',
-              relatedEntityType: 'lead',
-              relatedEntityId: id,
-              description: `Job creation bonus (${updatedLead.crewMembers.length} crew member${updatedLead.crewMembers.length > 1 ? 's' : ''})`
-            });
-            
-            // Update creator wallet tokens
-            const creatorWallet = await storage.getWalletAccount(updatedLead.createdByUserId);
-            if (creatorWallet) {
-              const newBalance = parseFloat(creatorWallet.tokenBalance || '0') + creatorTokenBonus;
-              const newEarned = parseFloat(creatorWallet.totalEarned || '0') + creatorTokenBonus;
-              await storage.updateWalletAccount(updatedLead.createdByUserId, {
-                tokenBalance: newBalance.toString(),
-                totalEarned: newEarned.toString()
-              });
-            }
-          }
-          
-          console.log(`✅ Rewards distributed for completed job ${id} to ${updatedLead.crewMembers.length} crew members`);
-        } catch (rewardError) {
-          console.error("Error distributing completion rewards:", rewardError);
-          // Don't fail the status update if rewards fail
-        }
       }
 
       // Send notifications for important status changes
@@ -901,92 +801,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: error.message });
       }
       res.status(500).json({ error: "Failed to update lead status" });
-    }
-  });
-
-  // Comprehensive lead editing endpoint (admin only) - supports full workflow
-  app.patch("/api/leads/:id/edit", isAuthenticated, requireBusinessOwner, async (req, res) => {
-    try {
-      const { id } = req.params;
-      const updateData = req.body;
-      
-      // Calculate special items fees if updating special items
-      const calculateHeavyItemFee = (weight: number | null | undefined): number => {
-        if (!weight || weight <= 0) return 0;
-        const cappedWeight = Math.min(weight, 1000);
-        const hundredPounds = Math.floor(cappedWeight / 100);
-        return 200 + (hundredPounds * 150);
-      };
-      
-      // Calculate fees for special items if they're being updated
-      if (updateData.hasHotTub !== undefined || updateData.hotTubWeight !== undefined) {
-        updateData.hotTubFee = updateData.hasHotTub ? calculateHeavyItemFee(updateData.hotTubWeight) : 0;
-      }
-      if (updateData.hasHeavySafe !== undefined || updateData.heavySafeWeight !== undefined) {
-        updateData.heavySafeFee = updateData.hasHeavySafe ? calculateHeavyItemFee(updateData.heavySafeWeight) : 0;
-      }
-      if (updateData.hasPoolTable !== undefined || updateData.poolTableWeight !== undefined) {
-        updateData.poolTableFee = updateData.hasPoolTable ? calculateHeavyItemFee(updateData.poolTableWeight) : 0;
-      }
-      if (updateData.hasPiano !== undefined || updateData.pianoWeight !== undefined) {
-        updateData.pianoFee = updateData.hasPiano ? calculateHeavyItemFee(updateData.pianoWeight) : 0;
-      }
-      
-      // Recalculate total if any pricing fields changed
-      if (updateData.basePrice !== undefined || updateData.hotTubFee !== undefined || 
-          updateData.heavySafeFee !== undefined || updateData.poolTableFee !== undefined || updateData.pianoFee !== undefined) {
-        const currentLead = await storage.getLead(id);
-        if (currentLead) {
-          const basePrice = parseFloat(updateData.basePrice?.toString() || currentLead.basePrice?.toString() || '0');
-          const hotTubFee = parseFloat(updateData.hotTubFee?.toString() || currentLead.hotTubFee?.toString() || '0');
-          const safeFee = parseFloat(updateData.heavySafeFee?.toString() || currentLead.heavySafeFee?.toString() || '0');
-          const poolFee = parseFloat(updateData.poolTableFee?.toString() || currentLead.poolTableFee?.toString() || '0');
-          const pianoFeeVal = parseFloat(updateData.pianoFee?.toString() || currentLead.pianoFee?.toString() || '0');
-          
-          updateData.totalSpecialItemsFee = (hotTubFee + safeFee + poolFee + pianoFeeVal).toFixed(2);
-          updateData.totalPrice = (basePrice + parseFloat(updateData.totalSpecialItemsFee)).toFixed(2);
-        }
-      }
-      
-      // Update last quote timestamp
-      updateData.lastQuoteUpdatedAt = new Date();
-      
-      // If status is being changed to 'edited', ensure it's valid
-      if (updateData.status === 'edited') {
-        const currentLead = await storage.getLead(id);
-        if (currentLead && currentLead.status === 'new') {
-          // Valid transition from new to edited
-        }
-      }
-      
-      const updatedLead = await storage.updateLeadQuote(id, updateData);
-      
-      if (!updatedLead) {
-        return res.status(404).json({ error: "Lead not found" });
-      }
-      
-      res.json(updatedLead);
-    } catch (error) {
-      console.error("Error editing lead:", error);
-      res.status(500).json({ error: "Failed to edit lead" });
-    }
-  });
-
-  // Delete lead endpoint (admin only)
-  app.delete("/api/leads/:id", isAuthenticated, requireBusinessOwner, async (req, res) => {
-    try {
-      const { id } = req.params;
-      
-      const deletedLead = await storage.deleteLead(id);
-      
-      if (!deletedLead) {
-        return res.status(404).json({ error: "Lead not found" });
-      }
-      
-      res.json({ success: true, message: "Lead deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting lead:", error);
-      res.status(500).json({ error: "Failed to delete lead" });
     }
   });
 
@@ -1314,7 +1128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/employees/:id/role", isAuthenticated, requireBusinessOwner, async (req, res) => {
+  app.patch("/api/employees/:id/role", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
       const { role } = req.body;
@@ -1444,74 +1258,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Start job endpoint - transition from accepted to in_progress
-  app.post("/api/leads/:id/start", isAuthenticated, requireEmployee, async (req: any, res) => {
-    try {
-      const { id } = req.params;
-      const employeeId = req.currentUser.id;
-      
-      // Get the current lead
-      const lead = await storage.getLead(id);
-      if (!lead) {
-        return res.status(404).json({ error: "Job not found" });
-      }
-
-      // Check if job is accepted (crew is full)
-      if (lead.status !== "accepted") {
-        return res.status(400).json({ error: "Job must be accepted by full crew before starting" });
-      }
-
-      // Check if employee is part of the crew
-      const crewMembers = lead.crewMembers || [];
-      if (!crewMembers.includes(employeeId)) {
-        return res.status(403).json({ error: "You are not part of this job's crew" });
-      }
-
-      // Update status to in_progress
-      const updatedLead = await storage.updateLeadStatus(id, "in_progress");
-      
-      if (!updatedLead) {
-        return res.status(500).json({ error: "Failed to start job" });
-      }
-
-      // Notify all crew members that job has started
-      try {
-        const { notificationService } = await import("./services/notification");
-        for (const crewMemberId of crewMembers) {
-          await notificationService.notifyJobStatusChange(
-            crewMemberId,
-            updatedLead.id,
-            "in_progress",
-            `${updatedLead.firstName} ${updatedLead.lastName}`
-          );
-        }
-      } catch (notificationError) {
-        console.error("Error sending job start notifications:", notificationError);
-      }
-
-      res.json(updatedLead);
-    } catch (error) {
-      console.error("Error starting job:", error);
-      res.status(500).json({ error: "Failed to start job" });
-    }
-  });
-
-  // Complete job endpoint with rewards distribution
+  // Complete job endpoint
   app.post("/api/leads/:id/complete", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
       const { id } = req.params;
       const employeeId = req.currentUser.id;
-      const { customerRating, onTime } = req.body; // Optional: customer rating (1-5) and on-time boolean
       
       // Verify the employee is assigned to this job
       const lead = await storage.getLead(id);
       if (!lead) {
         return res.status(404).json({ error: "Job not found" });
-      }
-      
-      // Check if job is in progress
-      if (lead.status !== "in_progress") {
-        return res.status(400).json({ error: "Job must be in progress to complete it" });
       }
       
       // Check if employee is assigned (either as the assigned employee or part of the crew)
@@ -1526,128 +1282,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Failed to update job status" });
       }
 
-      // Calculate and distribute rewards to crew members
-      const crewMembers = lead.crewMembers || [];
-      const creatorId = lead.createdByUserId; // Employee who created the job
-      
-      const basePoints = 100;
-      const baseTokens = 500;
-      let totalCreatorPoints = 0;
-      let totalCreatorTokens = 0;
-      
-      // Distribute rewards to each crew member
-      for (const crewMemberId of crewMembers) {
-        let crewPoints = basePoints;
-        let crewTokens = baseTokens;
-        
-        // On-time bonus: +20%
-        if (onTime === true) {
-          crewPoints = Math.floor(crewPoints * 1.2);
-          crewTokens = Math.floor(crewTokens * 1.2);
-        }
-        
-        // Customer rating bonus: +30% if rating >= 4.0
-        if (customerRating && parseFloat(customerRating) >= 4.0) {
-          crewPoints = Math.floor(crewPoints * 1.3);
-          crewTokens = Math.floor(crewTokens * 1.3);
-        }
-        
-        // If both bonuses apply, use the higher multiplier (1.5x total)
-        if (onTime === true && customerRating && parseFloat(customerRating) >= 4.0) {
-          crewPoints = Math.floor(basePoints * 1.5);
-          crewTokens = Math.floor(baseTokens * 1.5);
-        }
-        
-        // Award points and tokens to crew member
-        try {
-          // Create reward record for points
-          await db.insert(rewards).values({
-            userId: crewMemberId,
-            rewardType: 'job_completion',
-            tokenAmount: crewTokens.toString(),
-            cashValue: crewPoints.toString(),
-            status: 'confirmed',
-            referenceId: lead.id,
-            metadata: { onTime, customerRating }
-          });
-          
-          // Add tokens to user's wallet
-          const [userWallet] = await db.select().from(userWallets)
-            .where(and(
-              eq(userWallets.userId, crewMemberId),
-              eq(userWallets.currencyId, '1c5758ef-c5fe-4b91-95ac-9278201fc7b4') // JCMOVES currency ID
-            ))
-            .limit(1);
-          
-          if (userWallet) {
-            const currentBalance = parseFloat(userWallet.balance || '0');
-            const newBalance = (currentBalance + crewTokens).toFixed(2);
-            await storage.updateUserWalletBalance(userWallet.id, newBalance);
-          }
-          
-          // Track creator bonuses (50% of crew rewards)
-          if (creatorId && creatorId !== crewMemberId) {
-            totalCreatorPoints += Math.floor(crewPoints * 0.5);
-            totalCreatorTokens += Math.floor(crewTokens * 0.5);
-          }
-        } catch (rewardError) {
-          console.error(`Error awarding rewards to crew member ${crewMemberId}:`, rewardError);
-        }
-      }
-      
-      // Award creator bonuses if there was a creator
-      if (creatorId && totalCreatorPoints > 0) {
-        try {
-          // Create reward record for creator bonus
-          await db.insert(rewards).values({
-            userId: creatorId,
-            rewardType: 'job_completion',
-            tokenAmount: totalCreatorTokens.toString(),
-            cashValue: totalCreatorPoints.toString(),
-            status: 'confirmed',
-            referenceId: lead.id,
-            metadata: { creatorBonus: true, jobId: lead.id }
-          });
-          
-          // Add creator tokens to wallet
-          const [creatorWallet] = await db.select().from(userWallets)
-            .where(and(
-              eq(userWallets.userId, creatorId),
-              eq(userWallets.currencyId, '1c5758ef-c5fe-4b91-95ac-9278201fc7b4')
-            ))
-            .limit(1);
-          
-          if (creatorWallet) {
-            const currentBalance = parseFloat(creatorWallet.balance || '0');
-            const newBalance = (currentBalance + totalCreatorTokens).toFixed(2);
-            await storage.updateUserWalletBalance(creatorWallet.id, newBalance);
-          }
-          
-          // Notify creator about bonus rewards
-          try {
-            const { notificationService } = await import("./services/notification");
-            await notificationService.notifyJobAssigned(
-              creatorId,
-              updatedLead.id,
-              `Creator bonus: ${totalCreatorPoints} points + ${totalCreatorTokens} JCMOVES for job completion!`
-            );
-          } catch (notifError) {
-            console.error("Error notifying creator:", notifError);
-          }
-        } catch (creatorRewardError) {
-          console.error(`Error awarding creator bonuses to ${creatorId}:`, creatorRewardError);
-        }
-      }
-
-      res.json({
-        ...updatedLead,
-        rewardsDistributed: {
-          crewRewards: crewMembers.length > 0,
-          creatorBonus: creatorId && totalCreatorPoints > 0,
-          totalCreatorPoints,
-          totalCreatorTokens
-        }
-      });
+      res.json(updatedLead);
     } catch (error) {
       console.error("Error completing job:", error);
       res.status(500).json({ error: "Failed to complete job" });
@@ -2230,52 +1865,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting funding history:", error);
       res.status(500).json({ error: "Failed to get funding history" });
-    }
-  });
-
-  // ===== Solana Blockchain Monitoring Endpoints =====
-
-  // Start blockchain monitoring for auto-detecting deposits
-  app.post("/api/solana/monitor/start", isAuthenticated, requireBusinessOwner, async (req, res) => {
-    try {
-      const { intervalMs = 30000 } = req.body; // Default 30 seconds
-      await solanaMonitor.startMonitoring(intervalMs);
-      res.json({ 
-        success: true, 
-        message: "Solana transaction monitoring started",
-        status: solanaMonitor.getStatus()
-      });
-    } catch (error) {
-      console.error("Error starting Solana monitor:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: error instanceof Error ? error.message : "Failed to start monitoring" 
-      });
-    }
-  });
-
-  // Stop blockchain monitoring
-  app.post("/api/solana/monitor/stop", isAuthenticated, requireBusinessOwner, async (req, res) => {
-    try {
-      solanaMonitor.stopMonitoring();
-      res.json({ 
-        success: true, 
-        message: "Solana transaction monitoring stopped" 
-      });
-    } catch (error) {
-      console.error("Error stopping Solana monitor:", error);
-      res.status(500).json({ error: "Failed to stop monitoring" });
-    }
-  });
-
-  // Get blockchain monitoring status
-  app.get("/api/solana/monitor/status", isAuthenticated, requireBusinessOwner, async (req, res) => {
-    try {
-      const status = solanaMonitor.getStatus();
-      res.json(status);
-    } catch (error) {
-      console.error("Error getting monitor status:", error);
-      res.status(500).json({ error: "Failed to get monitoring status" });
     }
   });
 
@@ -3814,98 +3403,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error funding treasury from wallet:", error);
       res.status(500).json({ error: "Failed to fund treasury" });
-    }
-  });
-
-  // Withdraw JCMOVES tokens to external Solana wallet
-  app.post("/api/wallets/withdraw", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.currentUser.id;
-      const { toAddress, amount, note } = req.body;
-
-      if (!toAddress || !amount || parseFloat(amount) <= 0) {
-        return res.status(400).json({ error: "Missing required fields or invalid amount" });
-      }
-
-      const withdrawAmount = parseFloat(amount);
-
-      // Validate Solana address
-      const { solanaTransferService } = await import('./services/solana-transfer.js');
-      if (!solanaTransferService.isValidAddress(toAddress)) {
-        return res.status(400).json({ error: "Invalid Solana wallet address" });
-      }
-
-      // Get user's JCMOVES wallet
-      const userWallets = await walletService.getUserWallets(userId);
-      const jcmovesWallet = userWallets.find(w => w.currency.symbol === 'JCMOVES');
-      
-      if (!jcmovesWallet) {
-        return res.status(404).json({ error: "JCMOVES wallet not found" });
-      }
-
-      const currentBalance = parseFloat(jcmovesWallet.balance);
-
-      // Check minimum withdrawal (prevent dust transactions)
-      if (withdrawAmount < 100) {
-        return res.status(400).json({ error: "Minimum withdrawal is 100 JCMOVES" });
-      }
-
-      if (withdrawAmount > currentBalance) {
-        return res.status(400).json({ 
-          error: "Insufficient balance",
-          currentBalance,
-          requestedAmount: withdrawAmount
-        });
-      }
-
-      // 1. Deduct from user's wallet
-      const newBalance = currentBalance - withdrawAmount;
-      await storage.updateUserWalletBalance(jcmovesWallet.id, newBalance.toString());
-
-      // 2. Send tokens to external address
-      let transactionHash: string;
-      try {
-        transactionHash = await solanaTransferService.sendTokens(toAddress, withdrawAmount);
-      } catch (error: any) {
-        // Revert balance if blockchain transfer fails
-        await storage.updateUserWalletBalance(jcmovesWallet.id, currentBalance.toString());
-        throw new Error(`Blockchain transfer failed: ${error.message}`);
-      }
-
-      // 3. Record withdrawal transaction
-      await storage.createWalletTransaction({
-        userWalletId: jcmovesWallet.id,
-        transactionType: 'withdrawal',
-        amount: withdrawAmount.toString(),
-        balanceAfter: newBalance.toString(),
-        transactionHash: transactionHash,
-        status: 'confirmed',
-        confirmations: 1,
-        metadata: {
-          externalWithdrawal: true,
-          recipientAddress: toAddress,
-          note: note || 'External withdrawal',
-          withdrawnAt: new Date().toISOString(),
-          explorerUrl: `https://solscan.io/tx/${transactionHash}`
-        }
-      });
-
-      res.json({ 
-        success: true, 
-        message: `Successfully sent ${withdrawAmount.toLocaleString()} JCMOVES to ${toAddress.slice(0, 8)}...`,
-        transactionHash,
-        explorerUrl: `https://solscan.io/tx/${transactionHash}`,
-        withdrawnAmount: withdrawAmount,
-        newBalance,
-        recipientAddress: toAddress
-      });
-
-    } catch (error: any) {
-      console.error("Error processing withdrawal:", error);
-      res.status(500).json({ 
-        error: error.message || "Failed to process withdrawal",
-        details: error.toString()
-      });
     }
   });
 

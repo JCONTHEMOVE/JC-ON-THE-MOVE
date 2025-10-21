@@ -7,12 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Wallet, ArrowRightLeft, DollarSign, TrendingUp, TrendingDown, Activity, Play, Square, Radio } from "lucide-react";
+import { Loader2, Wallet, ArrowRightLeft, DollarSign, TrendingUp, TrendingDown, Activity } from "lucide-react";
 
 interface MoonshotTransfer {
-  tokenAmount: number;
-  transactionHash: string;
-  moonshotAccountId?: string;
+  accountId: string;
+  tokenSymbol: string;
+  tokenAmount: string;
+  treasuryAccountId: string;
   notes?: string;
 }
 
@@ -29,19 +30,13 @@ interface LivePrice {
   status: 'live' | 'fallback';
 }
 
-interface MonitoringStatus {
-  isMonitoring: boolean;
-  treasuryWallet: string | null;
-  lastCheckedSignature: string | null;
-  jcmovesTokenAddress: string;
-}
-
 export default function AdminMoonshotPage() {
   const { toast } = useToast();
   const [transferData, setTransferData] = useState<MoonshotTransfer>({
-    tokenAmount: 0,
-    transactionHash: "",
-    moonshotAccountId: "",
+    accountId: "",
+    tokenSymbol: "SOL",
+    tokenAmount: "",
+    treasuryAccountId: "",
     notes: ""
   });
 
@@ -63,72 +58,23 @@ export default function AdminMoonshotPage() {
     refetchInterval: 30000,
   });
 
-  // Get blockchain monitoring status
-  const { data: monitorStatus, isLoading: loadingMonitor } = useQuery<MonitoringStatus>({
-    queryKey: ["/api/solana/monitor/status"],
-    refetchInterval: 5000, // Check status every 5 seconds
-  });
-
-  // Start monitoring mutation
-  const startMonitoringMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/solana/monitor/start", {});
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "✅ Blockchain Monitoring Started",
-        description: "Now automatically detecting incoming JCMOVES deposits",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/solana/monitor/status"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to Start Monitoring",
-        description: error.message || "Could not start blockchain monitoring",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Stop monitoring mutation
-  const stopMonitoringMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/solana/monitor/stop", {});
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Monitoring Stopped",
-        description: "Blockchain monitoring has been disabled",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/solana/monitor/status"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to Stop Monitoring",
-        description: error.message || "Could not stop blockchain monitoring",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Moonshot deposit mutation - auto-accepts completed transfers
+  // Moonshot deposit mutation
   const moonshotDepositMutation = useMutation({
     mutationFn: async (data: MoonshotTransfer) => {
-      const response = await apiRequest("POST", "/api/treasury/record-token-deposit", data);
+      const response = await apiRequest("POST", "/api/treasury/moonshot-deposit", data);
       return response.json();
     },
     onSuccess: (data) => {
       toast({
-        title: "✅ Deposit Automatically Accepted",
-        description: data.message || "Tokens successfully recorded in treasury",
+        title: "Moonshot Transfer Successful",
+        description: data.message || "Tokens successfully transferred from Moonshot account",
       });
       // Reset form
       setTransferData({
-        tokenAmount: 0,
-        transactionHash: "",
-        moonshotAccountId: "",
+        accountId: "",
+        tokenSymbol: "SOL", 
+        tokenAmount: "",
+        treasuryAccountId: "",
         notes: ""
       });
       // Refresh treasury data
@@ -137,8 +83,8 @@ export default function AdminMoonshotPage() {
     },
     onError: (error: any) => {
       toast({
-        title: "Deposit Failed",
-        description: error.message || "Failed to record deposit",
+        title: "Transfer Failed",
+        description: error.message || "Failed to process Moonshot transfer",
         variant: "destructive",
       });
     },
@@ -147,16 +93,16 @@ export default function AdminMoonshotPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!transferData.transactionHash.trim()) {
+    if (!transferData.accountId.trim()) {
       toast({
-        title: "Transaction Hash Required",
-        description: "Please enter the Moonshot transaction hash",
+        title: "Account ID Required",
+        description: "Please enter your Moonshot account ID",
         variant: "destructive",
       });
       return;
     }
 
-    if (!transferData.tokenAmount || transferData.tokenAmount <= 0) {
+    if (!transferData.tokenAmount.trim() || parseFloat(transferData.tokenAmount) <= 0) {
       toast({
         title: "Invalid Amount",
         description: "Please enter a valid token amount",
@@ -180,75 +126,6 @@ export default function AdminMoonshotPage() {
         </div>
       </div>
 
-      {/* Blockchain Monitoring Status */}
-      <Card className="border-2">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Radio className={`h-5 w-5 ${monitorStatus?.isMonitoring ? 'text-green-600 animate-pulse' : 'text-gray-400'}`} />
-            Automatic Blockchain Detection
-          </CardTitle>
-          <CardDescription>
-            Monitors Solana blockchain for incoming JCMOVES tokens and auto-records deposits
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className={`h-3 w-3 rounded-full ${monitorStatus?.isMonitoring ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-                <div>
-                  <p className="font-medium">
-                    {loadingMonitor ? 'Loading...' : monitorStatus?.isMonitoring ? 'Monitoring Active' : 'Monitoring Inactive'}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {monitorStatus?.isMonitoring 
-                      ? 'Auto-detecting deposits every 30 seconds' 
-                      : 'Start monitoring to automatically record incoming tokens'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                {monitorStatus?.isMonitoring ? (
-                  <Button
-                    onClick={() => stopMonitoringMutation.mutate()}
-                    disabled={stopMonitoringMutation.isPending}
-                    variant="outline"
-                    data-testid="button-stop-monitoring"
-                  >
-                    {stopMonitoringMutation.isPending ? (
-                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Stopping...</>
-                    ) : (
-                      <><Square className="mr-2 h-4 w-4" />Stop</>
-                    )}
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={() => startMonitoringMutation.mutate()}
-                    disabled={startMonitoringMutation.isPending}
-                    data-testid="button-start-monitoring"
-                  >
-                    {startMonitoringMutation.isPending ? (
-                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Starting...</>
-                    ) : (
-                      <><Play className="mr-2 h-4 w-4" />Start Monitoring</>
-                    )}
-                  </Button>
-                )}
-              </div>
-            </div>
-            
-            {monitorStatus?.treasuryWallet && (
-              <div className="text-sm">
-                <p className="text-muted-foreground mb-1">Watching Treasury Wallet:</p>
-                <code className="px-2 py-1 bg-muted rounded text-xs font-mono">
-                  {monitorStatus.treasuryWallet}
-                </code>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
       <div className="grid gap-6 md:grid-cols-2">
         {/* Transfer Form */}
         <Card>
@@ -263,48 +140,46 @@ export default function AdminMoonshotPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800 mb-4">
-                <p className="text-sm text-blue-800 dark:text-blue-200">
-                  <strong>Step 1:</strong> Complete your transfer in Moonshot app first<br/>
-                  <strong>Step 2:</strong> Enter the transaction details below to automatically record it
-                </p>
-              </div>
-
-              <div data-testid="input-token-amount">
-                <Label htmlFor="tokenAmount">JCMOVES Token Amount *</Label>
+              <div data-testid="input-account-id">
+                <Label htmlFor="accountId">Moonshot Account ID *</Label>
                 <Input
-                  id="tokenAmount"
-                  type="number"
-                  step="0.01"
-                  placeholder="80640"
-                  value={transferData.tokenAmount || ""}
-                  onChange={(e) => setTransferData({ ...transferData, tokenAmount: parseFloat(e.target.value) || 0 })}
+                  id="accountId"
+                  placeholder="Enter your Moonshot account ID"
+                  value={transferData.accountId}
+                  onChange={(e) => setTransferData({ ...transferData, accountId: e.target.value })}
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Enter the exact number of JCMOVES tokens you transferred
-                </p>
               </div>
 
-              <div data-testid="input-transaction-hash">
-                <Label htmlFor="transactionHash">Transaction Hash/ID *</Label>
-                <Input
-                  id="transactionHash"
-                  placeholder="Enter Moonshot transaction hash"
-                  value={transferData.transactionHash}
-                  onChange={(e) => setTransferData({ ...transferData, transactionHash: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Copy this from your Moonshot transfer confirmation
-                </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div data-testid="input-token-symbol">
+                  <Label htmlFor="tokenSymbol">Token</Label>
+                  <Input
+                    id="tokenSymbol"
+                    value={transferData.tokenSymbol}
+                    onChange={(e) => setTransferData({ ...transferData, tokenSymbol: e.target.value })}
+                  />
+                </div>
+                
+                <div data-testid="input-token-amount">
+                  <Label htmlFor="tokenAmount">Amount *</Label>
+                  <Input
+                    id="tokenAmount"
+                    type="number"
+                    step="0.000001"
+                    placeholder="100.0"
+                    value={transferData.tokenAmount}
+                    onChange={(e) => setTransferData({ ...transferData, tokenAmount: e.target.value })}
+                  />
+                </div>
               </div>
 
-              <div data-testid="input-moonshot-account-id">
-                <Label htmlFor="moonshotAccountId">Moonshot Account ID (Optional)</Label>
+              <div data-testid="input-treasury-id">
+                <Label htmlFor="treasuryAccountId">Treasury Account ID</Label>
                 <Input
-                  id="moonshotAccountId"
-                  placeholder="Your Moonshot account ID"
-                  value={transferData.moonshotAccountId}
-                  onChange={(e) => setTransferData({ ...transferData, moonshotAccountId: e.target.value })}
+                  id="treasuryAccountId"
+                  placeholder="Leave empty to use main treasury"
+                  value={transferData.treasuryAccountId}
+                  onChange={(e) => setTransferData({ ...transferData, treasuryAccountId: e.target.value })}
                 />
               </div>
 
@@ -322,15 +197,15 @@ export default function AdminMoonshotPage() {
                 type="submit" 
                 className="w-full" 
                 disabled={moonshotDepositMutation.isPending}
-                data-testid="button-record-deposit"
+                data-testid="button-transfer"
               >
                 {moonshotDepositMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Recording Deposit...
+                    Processing Transfer...
                   </>
                 ) : (
-                  "✅ Record & Auto-Accept Deposit"
+                  "Transfer from Moonshot"
                 )}
               </Button>
             </form>

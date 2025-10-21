@@ -272,7 +272,6 @@ export default function RewardsDashboard() {
   const getRewardTypeIcon = (type: string) => {
     switch (type) {
       case 'daily_checkin': return <Calendar className="h-4 w-4" />;
-      case 'mining_claim': return <Zap className="h-4 w-4" />;
       case 'booking': return <Award className="h-4 w-4" />;
       case 'referral': return <Gift className="h-4 w-4" />;
       case 'job_completion': return <CheckCircle className="h-4 w-4" />;
@@ -283,7 +282,6 @@ export default function RewardsDashboard() {
   const getRewardTypeLabel = (type: string) => {
     switch (type) {
       case 'daily_checkin': return 'Daily Check-in';
-      case 'mining_claim': return 'Mining Claim';
       case 'booking': return 'Booking Reward';
       case 'referral': return 'Referral Bonus';
       case 'job_completion': return 'Job Completion';
@@ -466,14 +464,9 @@ export default function RewardsDashboard() {
                                 {miningStatus.streakCount} Day Streak Bonus
                               </span>
                             </div>
-                            <div className="text-right">
-                              <p className="text-lg font-bold" data-testid="text-streak-multiplier">
-                                {(1 + miningStatus.streakCount * 0.01).toFixed(2)}x
-                              </p>
-                              <p className="text-xs opacity-75" data-testid="text-streak-bonus">
-                                +{parseFloat(miningStatus.nextStreakBonus || "0").toFixed(2)}
-                              </p>
-                            </div>
+                            <span className="text-lg font-bold" data-testid="text-streak-bonus">
+                              +{parseFloat(miningStatus.nextStreakBonus || "0").toFixed(4)}
+                            </span>
                           </div>
                           <div className="mt-2 text-center">
                             <p className="text-sm font-semibold">

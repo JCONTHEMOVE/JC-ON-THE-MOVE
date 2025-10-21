@@ -82,11 +82,6 @@ export default function LeadDetailPage() {
     queryKey: ["/api/rewards"],
   });
 
-  // Fetch employees to show crew members
-  const { data: employees = [] } = useQuery<any[]>({
-    queryKey: ["/api/employees"],
-  });
-
   const form = useForm({
     defaultValues: {
       basePrice: "",
@@ -140,44 +135,6 @@ export default function LeadDetailPage() {
       status: lead?.status,
     });
   };
-
-  // Status progression mutation
-  const updateStatus = useMutation({
-    mutationFn: async (newStatus: string) => {
-      return await apiRequest("PATCH", `/api/leads/${params?.id}/status`, { status: newStatus });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      toast({
-        title: "Success",
-        description: "Job status updated successfully",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update job status",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Get crew members assigned to this job
-  const crewMembers = employees.filter(emp => 
-    lead?.crewMembers && lead.crewMembers.includes(emp.id)
-  );
-
-  // Get the next status in the workflow (matches documented flow in replit.md)
-  const getNextStatus = () => {
-    const statusFlow = ["new", "edited", "contacted", "quoted", "confirmed", "available", "accepted", "in_progress", "completed"];
-    // Normalize current status to lowercase for comparison
-    const currentStatus = (lead?.status || "new").toLowerCase();
-    const currentIndex = statusFlow.indexOf(currentStatus);
-    return currentIndex < statusFlow.length - 1 ? statusFlow[currentIndex + 1] : null;
-  };
-
-  const nextStatus = getNextStatus();
-  const canProgress = nextStatus !== null;
 
   if (isLoading) {
     return (
@@ -449,75 +406,6 @@ export default function LeadDetailPage() {
 
           {/* Sidebar - Potential Earnings & Rewards */}
           <div className="space-y-6">
-            {/* Workflow Controls */}
-            {canProgress && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Job Progress</CardTitle>
-                  <CardDescription>Advance this job to the next stage</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button 
-                    onClick={() => updateStatus.mutate(nextStatus!)} 
-                    disabled={updateStatus.isPending}
-                    className="w-full"
-                    data-testid="button-progress-status"
-                  >
-                    {updateStatus.isPending ? "Updating..." : `Mark as ${nextStatus?.charAt(0).toUpperCase()}${nextStatus?.slice(1).replace('_', ' ')}`}
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Job Creator */}
-            {lead?.createdByUserId && (() => {
-              const creator = employees.find(emp => emp.id === lead.createdByUserId);
-              return creator ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Award className="h-5 w-5" />
-                      Job Creator
-                    </CardTitle>
-                    <CardDescription>Earns 50% bonus when completed</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-3 p-3 bg-primary/5 border border-primary/20 rounded" data-testid="job-creator">
-                      <div className="flex-1">
-                        <p className="font-medium text-sm">{creator.username || creator.email}</p>
-                        <p className="text-xs text-muted-foreground">{creator.email}</p>
-                      </div>
-                      <Badge className="bg-primary">Creator</Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : null;
-            })()}
-
-            {/* Crew Members */}
-            {crewMembers.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="h-5 w-5" />
-                    Crew Assigned ({crewMembers.length})
-                  </CardTitle>
-                  <CardDescription>Workers assigned to this job</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {crewMembers.map(member => (
-                    <div key={member.id} className="flex items-center gap-3 p-2 border rounded" data-testid={`crew-member-${member.id}`}>
-                      <div className="flex-1">
-                        <p className="font-medium text-sm">{member.firstName} {member.lastName}</p>
-                        <p className="text-xs text-muted-foreground">{member.email}</p>
-                      </div>
-                      <Badge variant="secondary">Crew</Badge>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
-
             {/* Potential Earnings */}
             <Card>
               <CardHeader>

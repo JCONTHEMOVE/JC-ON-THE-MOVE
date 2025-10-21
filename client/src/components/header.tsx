@@ -111,6 +111,13 @@ export default function Header() {
                         >
                           Admin
                         </Link>
+                        <Link
+                          href="/admin-moonshot"
+                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                          data-testid="button-moonshot"
+                        >
+                          Moonshot Funding
+                        </Link>
                       </>
                     )}
                     
@@ -305,6 +312,14 @@ export default function Header() {
                         onClick={() => setMobileMenuOpen(false)}
                       >
                         Admin
+                      </Link>
+                      <Link
+                        href="/admin-moonshot"
+                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+                        data-testid="button-mobile-moonshot"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Moonshot Funding
                       </Link>
                     </>
                   )}

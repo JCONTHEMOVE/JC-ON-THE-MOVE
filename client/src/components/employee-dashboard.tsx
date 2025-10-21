@@ -87,10 +87,6 @@ export default function EmployeeDashboard() {
     }
   };
 
-  if (isMobile) {
-    return <MobileLeadManager />;
-  }
-
   if (availableLoading || myJobsLoading) {
     return (
       <div className="min-h-screen bg-muted/30 flex items-center justify-center">
@@ -100,6 +96,10 @@ export default function EmployeeDashboard() {
         </div>
       </div>
     );
+  }
+
+  if (isMobile) {
+    return <MobileLeadManager />;
   }
 
   return (

@@ -374,7 +374,7 @@ const generateSMSTemplate = (lead: Lead): string => {
 export default function MobileLeadManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { canAccessTreasury, user, isAuthenticated, isLoading: userLoading } = useAuth();
+  const { canAccessTreasury, user, isAuthenticated } = useAuth();
   
   
   // Initialize tab based on user permissions
@@ -414,19 +414,15 @@ export default function MobileLeadManager() {
     maximumAge: 300000, // 5 minutes
   });
 
-  // Check if user is admin to determine which endpoints to query
-  const isAdmin = user?.role === 'admin' || user?.role === 'business_owner';
-
-  // Admin queries all leads, employees query available/assigned jobs
   const { data: availableJobs = [], isLoading: availableLoading } = useQuery<Lead[]>({
-    queryKey: isAdmin ? ["/api/leads"] : ["/api/leads/available"],
+    queryKey: ["/api/leads/available"],
     enabled: isOnline,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
   const { data: myJobs = [], isLoading: myJobsLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/my-jobs"],
-    enabled: isOnline && !isAdmin, // Only fetch my jobs if not admin
+    enabled: isOnline,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
@@ -676,14 +672,12 @@ export default function MobileLeadManager() {
     });
   };
 
-  if (userLoading || availableLoading || myJobsLoading) {
+  if (availableLoading || myJobsLoading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {userLoading ? 'Loading user data...' : 'Loading jobs...'}
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">Loading jobs...</p>
         </div>
       </div>
     );
@@ -1375,7 +1369,6 @@ function WalletSection({ userId }: { userId?: string }) {
   const [showExport, setShowExport] = useState(false);
   const [showDeposit, setShowDeposit] = useState(false);
   const [showFundTreasury, setShowFundTreasury] = useState(false);
-  const [showWithdraw, setShowWithdraw] = useState(false);
 
   // Fetch user's wallets
   const { data: wallets, isLoading: walletsLoading } = useQuery({
@@ -1646,12 +1639,12 @@ function WalletSection({ userId }: { userId?: string }) {
                       className="flex-1"
                       onClick={() => {
                         setSelectedWallet(wallet.id);
-                        setShowWithdraw(true);
+                        setShowExport(true);
                       }}
-                      data-testid={`button-withdraw-${wallet.currency.symbol}`}
+                      data-testid={`button-export-${wallet.currency.symbol}`}
                     >
                       <Download className="h-3 w-3 mr-1" />
-                      Withdraw
+                      Export
                     </Button>
                   ) : (
                     <Button 
@@ -1761,17 +1754,6 @@ function WalletSection({ userId }: { userId?: string }) {
           walletData={wallets?.wallets?.find((w: any) => w.id === selectedWallet)}
           onClose={() => {
             setShowExport(false);
-            setSelectedWallet(null);
-          }}
-        />
-      )}
-
-      {/* Withdrawal Modal */}
-      {showWithdraw && (
-        <WithdrawalModal
-          walletData={wallets?.wallets?.find((w: any) => w.id === selectedWallet)}
-          onClose={() => {
-            setShowWithdraw(false);
             setSelectedWallet(null);
           }}
         />
@@ -2155,249 +2137,6 @@ function ExportModal({ onClose, walletData }: { onClose: () => void; walletData:
                     <CheckCircle className="h-4 w-4 mr-2" />
                   )}
                   Yes, Withdraw
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-// Withdrawal Modal Component - Send JCMOVES to external Solana wallet
-function WithdrawalModal({ onClose, walletData }: { onClose: () => void; walletData: any }) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [amount, setAmount] = useState('');
-  const [toAddress, setToAddress] = useState('');
-  const [note, setNote] = useState('');
-  const [showConfirmation, setShowConfirmation] = useState(false);
-
-  const withdrawalMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const response = await fetch('/api/wallets/withdraw', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to process withdrawal');
-      }
-      
-      return response.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/wallets'] });
-      onClose();
-      toast({
-        title: "Withdrawal Successful! 🚀",
-        description: (
-          <div className="space-y-1">
-            <p>Sent {data.withdrawnAmount.toLocaleString()} JCMOVES</p>
-            <p className="text-xs">To: {data.recipientAddress.slice(0, 12)}...</p>
-            <a 
-              href={data.explorerUrl} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-xs underline"
-            >
-              View on Solscan
-            </a>
-          </div>
-        ),
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Withdrawal Failed",
-        description: error.message || "Failed to process withdrawal. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const handleSubmit = () => {
-    if (!amount || parseFloat(amount) < 100) {
-      toast({
-        title: "Invalid Amount",
-        description: "Minimum withdrawal is 100 JCMOVES",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    if (!toAddress || toAddress.trim() === '') {
-      toast({
-        title: "Wallet Address Required",
-        description: "Please enter a valid Solana wallet address",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    if (parseFloat(amount) > parseFloat(walletData?.balance || '0')) {
-      toast({
-        title: "Insufficient Balance",
-        description: "You don't have enough JCMOVES tokens",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Show confirmation dialog
-    setShowConfirmation(true);
-  };
-
-  const handleConfirm = () => {
-    setShowConfirmation(false);
-    withdrawalMutation.mutate({
-      toAddress,
-      amount: parseFloat(amount),
-      note: note || undefined
-    });
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      {!showConfirmation ? (
-        <Card className="w-full max-w-md">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold">Withdraw JCMOVES</h3>
-              <Button size="sm" variant="ghost" onClick={onClose}>
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-            </div>
-            
-            <div className="space-y-4">
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded">
-                <p className="text-sm font-medium text-blue-800">Send to Solana Blockchain</p>
-                <p className="text-xs text-blue-600 mt-1">
-                  Tokens will be sent to any Solana wallet address you specify
-                </p>
-              </div>
-              
-              <div>
-                <label className="text-sm font-medium mb-2 block">Available Balance</label>
-                <div className="p-2 bg-gray-50 rounded text-sm">
-                  {parseFloat(walletData?.balance || '0').toLocaleString()} JCMOVES
-                </div>
-              </div>
-              
-              <div>
-                <label className="text-sm font-medium mb-2 block">Amount to Withdraw</label>
-                <input
-                  type="number"
-                  step="1"
-                  min="100"
-                  placeholder="Minimum: 100 JCMOVES"
-                  className="w-full p-2 border rounded"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  data-testid="input-withdraw-amount"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Minimum withdrawal: 100 JCMOVES
-                </p>
-              </div>
-              
-              <div>
-                <label className="text-sm font-medium mb-2 block">Recipient Solana Wallet Address</label>
-                <input
-                  type="text"
-                  placeholder="Enter Solana wallet address (e.g., 7K7Y...abcd)"
-                  className="w-full p-2 border rounded font-mono text-sm"
-                  value={toAddress}
-                  onChange={(e) => setToAddress(e.target.value)}
-                  required
-                  data-testid="input-recipient-address"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  ⚠️ Double-check this address. Blockchain transactions cannot be reversed.
-                </p>
-              </div>
-              
-              <div>
-                <label className="text-sm font-medium mb-2 block">Notes (Optional)</label>
-                <textarea
-                  placeholder="Add a note for your records"
-                  className="w-full p-2 border rounded"
-                  rows={2}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  data-testid="input-withdrawal-note"
-                />
-              </div>
-              
-              <Button 
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
-                onClick={handleSubmit}
-                disabled={withdrawalMutation.isPending}
-                data-testid="button-submit-withdrawal"
-              >
-                {withdrawalMutation.isPending ? (
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4 mr-2" />
-                )}
-                Review Withdrawal
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="w-full max-w-md">
-          <CardContent className="p-6">
-            <div className="text-center space-y-4">
-              <div className="mx-auto w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-                <AlertTriangle className="h-6 w-6 text-orange-600" />
-              </div>
-              
-              <h3 className="font-semibold text-lg">Confirm Blockchain Withdrawal</h3>
-              
-              <p className="text-sm text-muted-foreground">
-                This action cannot be undone. Please verify the recipient address is correct.
-              </p>
-              
-              <div className="bg-gray-50 p-4 rounded space-y-2 text-left">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Amount:</span>
-                  <span className="font-medium">{parseFloat(amount).toLocaleString()} JCMOVES</span>
-                </div>
-                <div className="text-sm">
-                  <span className="text-muted-foreground">To:</span>
-                  <p className="font-mono text-xs break-all mt-1">{toAddress}</p>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Network:</span>
-                  <span className="font-medium">Solana Mainnet</span>
-                </div>
-              </div>
-              
-              <div className="flex gap-2 pt-2">
-                <Button 
-                  variant="outline" 
-                  className="flex-1"
-                  onClick={() => setShowConfirmation(false)}
-                  data-testid="button-cancel-withdrawal-confirmation"
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
-                  onClick={handleConfirm}
-                  disabled={withdrawalMutation.isPending}
-                  data-testid="button-confirm-withdrawal"
-                >
-                  {withdrawalMutation.isPending ? (
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                  )}
-                  Confirm & Send
                 </Button>
               </div>
             </div>

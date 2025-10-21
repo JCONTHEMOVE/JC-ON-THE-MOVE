@@ -46,7 +46,6 @@ export interface IStorage {
   getLeadsByEmail(email: string): Promise<Lead[]>;
   updateLeadStatus(id: string, status: string): Promise<Lead | undefined>;
   updateLeadQuote(id: string, quoteData: any): Promise<Lead | undefined>;
-  deleteLead(id: string): Promise<Lead | undefined>;
   
   // Job assignment operations
   assignLeadToEmployee(leadId: string, employeeId: string): Promise<Lead | undefined>;
@@ -261,14 +260,6 @@ export class DatabaseStorage implements IStorage {
     const [lead] = await db
       .update(leads)
       .set(quoteData)
-      .where(eq(leads.id, id))
-      .returning();
-    return lead || undefined;
-  }
-
-  async deleteLead(id: string): Promise<Lead | undefined> {
-    const [lead] = await db
-      .delete(leads)
       .where(eq(leads.id, id))
       .returning();
     return lead || undefined;
