@@ -131,6 +131,27 @@ export default function LeadsPage() {
     },
   });
 
+  const deleteLead = useMutation({
+    mutationFn: async (leadId: string) => {
+      const response = await apiRequest("DELETE", `/api/leads/${leadId}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Lead deleted",
+        description: "The lead has been permanently removed.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete lead. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const onSubmit = form.handleSubmit((data) => {
     submitLead.mutate(data);
   });
@@ -245,6 +266,19 @@ export default function LeadsPage() {
               <a href={`tel:${lead.phone}`}>
                 <Phone className="h-4 w-4" />
               </a>
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => {
+                if (confirm(`Delete lead for ${lead.firstName} ${lead.lastName}? This cannot be undone.`)) {
+                  deleteLead.mutate(lead.id);
+                }
+              }}
+              data-testid={`delete-button-${lead.id}`}
+              className="hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
             </Button>
           </div>
         </div>
