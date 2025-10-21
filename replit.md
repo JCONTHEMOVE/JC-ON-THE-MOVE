@@ -69,6 +69,15 @@ This is a full-stack moving and junk removal service website built with React, T
 - **Frontend**: Removed cashout tab, form, and related UI components from rewards dashboard
 - **Database**: cashoutRequests table schema preserved for future use
 
+## Deployment Checklist Document (October 21, 2025)
+- **Comprehensive Checklist**: Created `DEPLOYMENT_CHECKLIST.md` with all environment variables required for production
+- **Variable Categories**: Organized into Critical (required), Important (recommended), and Optional (feature-specific)
+- **Frontend Variables**: Documented VITE_* variables that must be set before deployment build
+- **Security Best Practices**: Added security recommendations for secrets management and key rotation
+- **Troubleshooting Guide**: Common deployment issues and their solutions
+- **Production Verification**: Step-by-step checklist for pre-deployment verification
+- **Health Check Endpoint**: `/api/health` endpoint for verifying configuration status
+
 ## Deployment Fixes (September 30, 2025)
 - **Graceful Authentication Error Handling**: Modified `server/replitAuth.ts` to handle missing `REPLIT_DOMAINS` environment variable without crashing the server
 - **Route Registration Error Handling**: Added try-catch in `server/routes.ts` to prevent authentication setup failures from blocking route registration
