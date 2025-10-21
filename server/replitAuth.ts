@@ -9,10 +9,10 @@ import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
 import { cryptoService } from "./services/crypto";
 
-// REPLIT_DOMAINS is optional - not available in production deployments
+// Gracefully handle missing REPLIT_DOMAINS - warn but don't crash
 if (!process.env.REPLIT_DOMAINS) {
-  console.log("ℹ️  REPLIT_DOMAINS not set (normal for production deployments)");
-  console.log("ℹ️  Authentication will use default domain configuration");
+  console.warn("⚠️  WARNING: Environment variable REPLIT_DOMAINS not provided");
+  console.warn("⚠️  Authentication may not work correctly without proper domain configuration");
 }
 
 const getOidcConfig = memoize(
@@ -95,6 +95,11 @@ async function upsertUser(
 
 export async function setupAuth(app: Express) {
   try {
+    // Validate required environment variables
+    if (!process.env.REPLIT_DOMAINS) {
+      throw new Error("REPLIT_DOMAINS environment variable is required for authentication");
+    }
+    
     app.set("trust proxy", 1);
     app.use(getSession());
     app.use(passport.initialize());
@@ -117,17 +122,8 @@ export async function setupAuth(app: Express) {
     }
   };
 
-  // Get domains from environment, or use default domains for production
-  // REPLIT_DOMAINS is not available in production deployments, so we need to handle that
-  let domains: string[] = [];
-  if (process.env.REPLIT_DOMAINS) {
-    domains = process.env.REPLIT_DOMAINS.split(",").map(d => d.trim());
-    console.log('Using REPLIT_DOMAINS from environment');
-  } else {
-    console.log('REPLIT_DOMAINS not available (production deployment), using default domains');
-    // In production, use the custom domain and common Replit domains
-    domains = ['jconthemove.com', 'www.jconthemove.com'];
-  }
+  // Get domains from environment and add localhost for development
+  const domains = process.env.REPLIT_DOMAINS!.split(",").map(d => d.trim());
   
   // Add localhost for development if not already present
   if (process.env.NODE_ENV === 'development' && !domains.includes('localhost:5000')) {
@@ -268,15 +264,15 @@ export async function setupAuth(app: Express) {
   });
   
   console.log('✅ Authentication setup completed successfully');
-  console.log('✅ Configured domains:', domains);
   } catch (error) {
     console.error('❌ Authentication setup failed:', error);
     console.error('⚠️  Server will continue but authentication features will not work');
+    console.error('⚠️  Please ensure REPLIT_DOMAINS environment variable is set correctly');
     
     // Setup basic routes that return errors when auth is not configured
     app.get("/api/login", (req, res) => {
       res.status(503).json({ 
-        message: "Authentication not configured properly. Please check server logs." 
+        message: "Authentication not configured. Please set REPLIT_DOMAINS environment variable." 
       });
     });
     
