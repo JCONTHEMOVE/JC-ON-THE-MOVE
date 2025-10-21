@@ -19,7 +19,6 @@ import LeadsPage from "@/pages/leads";
 import CustomerPortal from "@/pages/customer-portal";
 import PendingApprovalPage from "@/pages/pending-approval";
 import TreasuryDashboard from "@/pages/treasury-dashboard";
-import TreasuryMonitor from "@/pages/treasury-monitor";
 import AdminDashboardFull from "@/pages/admin-dashboard-full";
 import AdminMoonshotPage from "@/pages/admin-moonshot";
 import NotFound from "@/pages/not-found";
@@ -116,11 +115,6 @@ function AuthenticatedApp() {
           <Route path="/treasury">
             <RouteGuard allowedRoles={['admin']}>
               <PageWrapper component={TreasuryDashboard} />
-            </RouteGuard>
-          </Route>
-          <Route path="/treasury/monitor">
-            <RouteGuard allowedRoles={['admin']}>
-              <PageWrapper component={TreasuryMonitor} />
             </RouteGuard>
           </Route>
           
