@@ -1314,7 +1314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/employees/:id/role", isAuthenticated, requireAdmin, async (req, res) => {
+  app.patch("/api/employees/:id/role", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
       const { id } = req.params;
       const { role } = req.body;
