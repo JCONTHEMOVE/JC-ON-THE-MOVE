@@ -3478,6 +3478,193 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Solscan Monitoring & Verification Endpoints
+  app.get("/api/solscan/balance", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { SolscanService } = await import("./services/solscan-service");
+      
+      const treasuryWallets = await storage.getTreasuryWallets('admin');
+      const mainTreasury = treasuryWallets.find(w => w.purpose === 'treasury');
+      
+      if (!mainTreasury) {
+        return res.status(404).json({ error: "Treasury wallet not found" });
+      }
+
+      const jcmovesTokenAddress = process.env.MOONSHOT_TOKEN_ADDRESS || 'AY9NPebnvjcKSoUteYwNER3JHiJNPh6ptKmC8E4VGrxp';
+      const solscan = new SolscanService(mainTreasury.walletAddress, jcmovesTokenAddress);
+      
+      const result = await solscan.getJCMOVESBalance();
+      
+      if (!result.success) {
+        return res.status(500).json({ error: result.error });
+      }
+
+      res.json({ 
+        balance: result.balance,
+        walletAddress: mainTreasury.walletAddress,
+        source: 'solscan'
+      });
+    } catch (error) {
+      console.error("Error fetching Solscan balance:", error);
+      res.status(500).json({ error: "Failed to fetch balance from Solscan" });
+    }
+  });
+
+  app.get("/api/solscan/transactions", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { SolscanService } = await import("./services/solscan-service");
+      const limit = parseInt(req.query.limit as string) || 50;
+      
+      const treasuryWallets = await storage.getTreasuryWallets('admin');
+      const mainTreasury = treasuryWallets.find(w => w.purpose === 'treasury');
+      
+      if (!mainTreasury) {
+        return res.status(404).json({ error: "Treasury wallet not found" });
+      }
+
+      const jcmovesTokenAddress = process.env.MOONSHOT_TOKEN_ADDRESS || 'AY9NPebnvjcKSoUteYwNER3JHiJNPh6ptKmC8E4VGrxp';
+      const solscan = new SolscanService(mainTreasury.walletAddress, jcmovesTokenAddress);
+      
+      const result = await solscan.getTransactionHistory(limit);
+      
+      if (!result.success) {
+        return res.status(500).json({ error: result.error });
+      }
+
+      res.json({ 
+        transactions: result.transactions,
+        walletAddress: mainTreasury.walletAddress
+      });
+    } catch (error) {
+      console.error("Error fetching Solscan transactions:", error);
+      res.status(500).json({ error: "Failed to fetch transactions from Solscan" });
+    }
+  });
+
+  app.get("/api/solscan/deposits", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { SolscanService } = await import("./services/solscan-service");
+      const limit = parseInt(req.query.limit as string) || 50;
+      
+      const treasuryWallets = await storage.getTreasuryWallets('admin');
+      const mainTreasury = treasuryWallets.find(w => w.purpose === 'treasury');
+      
+      if (!mainTreasury) {
+        return res.status(404).json({ error: "Treasury wallet not found" });
+      }
+
+      const jcmovesTokenAddress = process.env.MOONSHOT_TOKEN_ADDRESS || 'AY9NPebnvjcKSoUteYwNER3JHiJNPh6ptKmC8E4VGrxp';
+      const solscan = new SolscanService(mainTreasury.walletAddress, jcmovesTokenAddress);
+      
+      const result = await solscan.getIncomingDeposits(limit);
+      
+      if (!result.success) {
+        return res.status(500).json({ error: result.error });
+      }
+
+      // Compare with database records
+      const dbDeposits = await storage.getFundingDeposits();
+      const enrichedDeposits = result.deposits!.map(deposit => {
+        const dbRecord = dbDeposits.find(d => d.externalTransactionId === deposit.signature);
+        return {
+          ...deposit,
+          recorded: !!dbRecord,
+          dbId: dbRecord?.id,
+          dbAmount: dbRecord?.tokenAmount
+        };
+      });
+
+      res.json({ 
+        deposits: enrichedDeposits,
+        walletAddress: mainTreasury.walletAddress,
+        totalOnChain: enrichedDeposits.length,
+        totalRecorded: enrichedDeposits.filter(d => d.recorded).length,
+        unrecorded: enrichedDeposits.filter(d => !d.recorded).length
+      });
+    } catch (error) {
+      console.error("Error fetching Solscan deposits:", error);
+      res.status(500).json({ error: "Failed to fetch deposits from Solscan" });
+    }
+  });
+
+  app.get("/api/solscan/verify/:signature", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { SolscanService } = await import("./services/solscan-service");
+      const { signature } = req.params;
+      
+      const treasuryWallets = await storage.getTreasuryWallets('admin');
+      const mainTreasury = treasuryWallets.find(w => w.purpose === 'treasury');
+      
+      if (!mainTreasury) {
+        return res.status(404).json({ error: "Treasury wallet not found" });
+      }
+
+      const jcmovesTokenAddress = process.env.MOONSHOT_TOKEN_ADDRESS || 'AY9NPebnvjcKSoUteYwNER3JHiJNPh6ptKmC8E4VGrxp';
+      const solscan = new SolscanService(mainTreasury.walletAddress, jcmovesTokenAddress);
+      
+      const result = await solscan.verifyTransaction(signature);
+      
+      // Check if we have this in our database
+      const dbDeposits = await storage.getFundingDeposits();
+      const dbRecord = dbDeposits.find(d => d.externalTransactionId === signature);
+
+      res.json({ 
+        ...result,
+        inDatabase: !!dbRecord,
+        dbRecord: dbRecord || null
+      });
+    } catch (error) {
+      console.error("Error verifying transaction:", error);
+      res.status(500).json({ error: "Failed to verify transaction" });
+    }
+  });
+
+  app.post("/api/solscan/sync-balance", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { SolscanService } = await import("./services/solscan-service");
+      
+      const treasuryWallets = await storage.getTreasuryWallets('admin');
+      const mainTreasury = treasuryWallets.find(w => w.purpose === 'treasury');
+      
+      if (!mainTreasury) {
+        return res.status(404).json({ error: "Treasury wallet not found" });
+      }
+
+      const jcmovesTokenAddress = process.env.MOONSHOT_TOKEN_ADDRESS || 'AY9NPebnvjcKSoUteYwNER3JHiJNPh6ptKmC8E4VGrxp';
+      const solscan = new SolscanService(mainTreasury.walletAddress, jcmovesTokenAddress);
+      
+      const result = await solscan.getJCMOVESBalance();
+      
+      if (!result.success || result.balance === undefined) {
+        return res.status(500).json({ error: result.error || "Failed to fetch balance" });
+      }
+
+      // Update database with new balance
+      await db.update(treasuryWallets).set({
+        balance: result.balance.toString(),
+        lastSyncedAt: new Date()
+      }).where(eq(treasuryWallets.id, mainTreasury.id));
+
+      // Update treasury account
+      const accounts = await storage.getTreasuryAccounts();
+      if (accounts.length > 0) {
+        await storage.updateTreasuryAccount(accounts[0].id, {
+          tokenReserve: result.balance
+        });
+      }
+
+      res.json({ 
+        success: true,
+        previousBalance: parseFloat(mainTreasury.balance),
+        newBalance: result.balance,
+        synced: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("Error syncing balance:", error);
+      res.status(500).json({ error: "Failed to sync balance" });
+    }
+  });
+
   // Get wallet transactions
   app.get("/api/wallets/:walletId/transactions", isAuthenticated, async (req: any, res) => {
     try {
