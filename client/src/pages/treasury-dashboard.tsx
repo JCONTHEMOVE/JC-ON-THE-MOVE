@@ -624,7 +624,7 @@ export default function TreasuryDashboard() {
             </Card>
           </TabsContent>
 
-          {/* Deposits Tab */}}
+          {/* Deposits Tab */}
           <TabsContent value="deposits" className="space-y-6">
             <Card>
               <CardHeader>
