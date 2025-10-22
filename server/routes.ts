@@ -8,6 +8,7 @@ import { setupAuth, isAuthenticated } from "./replitAuth";
 // import { dailyCheckinService } from "./services/daily-checkin";
 import { rewardsService } from "./services/rewards";
 import { cryptoCashoutService } from "./services/crypto-cashout";
+import { cryptoService } from "./services/crypto";
 import { moonshotService, moonshotAccountTransferSchema } from "./services/moonshot";
 import { treasuryService } from "./services/treasury";
 import { gamificationService } from "./services/gamification";
@@ -620,11 +621,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Employee job submission - track who created the job for rewards
-  // TEMPORARY: Authentication temporarily disabled for debugging
-  app.post("/api/leads/employee", async (req: any, res) => {
+  app.post("/api/leads/employee", isAuthenticated, requireApprovedEmployee, async (req: any, res) => {
     try {
       console.log('📝 Employee lead creation request:', JSON.stringify(req.body, null, 2));
-      const employeeId = '47798367'; // Hardcoded for testing
+      const employeeId = req.user.claims.sub; // Get from authenticated user
       
       const leadData = insertLeadSchema.parse(req.body);
       console.log('✅ Lead data validated successfully');
@@ -2894,7 +2894,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const existingWallet = await storage.getFaucetWallet(userId, currency);
         if (existingWallet && userId && faucetpayAddress) {
           await storage.updateFaucetWallet(userId, currency, {
-            totalEarned: (parseFloat(existingWallet.totalEarned) + rewardAmount).toFixed(8),
+            totalEarned: (parseFloat(existingWallet.totalEarned || '0') + rewardAmount).toFixed(8),
             totalClaims: (existingWallet.totalClaims || 0) + 1,
             lastClaimTime: new Date(),
             faucetpayAddress

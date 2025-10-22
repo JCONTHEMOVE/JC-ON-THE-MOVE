@@ -96,7 +96,7 @@ export interface IStorage {
   getFaucetWalletsByUserId(userId: string): Promise<FaucetWallet[]>;
   getFaucetWalletByUserCurrency(userId: string, currency: string): Promise<FaucetWallet | undefined>;
   createFaucetWallet(wallet: InsertFaucetWallet): Promise<FaucetWallet>;
-  updateFaucetWallet(id: string, updates: Partial<FaucetWallet>): Promise<FaucetWallet | undefined>;
+  updateFaucetWallet(userId: string, currency: string, updates: Partial<FaucetWallet>): Promise<FaucetWallet | undefined>;
   canUserClaim(userId: string, currency: string): Promise<{ canClaim: boolean; nextClaimTime?: Date; secondsRemaining?: number }>;
   createFaucetClaim(claim: InsertFaucetClaim): Promise<FaucetClaim>;
   updateFaucetClaim(claimId: string, updates: Partial<FaucetClaim>): Promise<FaucetClaim | undefined>;
@@ -1351,6 +1351,17 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async getFaucetWalletsByUserId(userId: string): Promise<FaucetWallet[]> {
+    return await db
+      .select()
+      .from(faucetWallets)
+      .where(eq(faucetWallets.userId, userId));
+  }
+
+  async getFaucetWalletByUserCurrency(userId: string, currency: string): Promise<FaucetWallet | undefined> {
+    return await this.getFaucetWallet(userId, currency);
+  }
+
   async getFaucetClaims(userId?: string, currency?: string, limit: number = 50): Promise<FaucetClaim[]> {
     const conditions = [];
     if (userId) conditions.push(eq(faucetClaims.userId, userId));
@@ -1370,6 +1381,41 @@ export class DatabaseStorage implements IStorage {
       .from(faucetClaims)
       .orderBy(desc(faucetClaims.claimTime))
       .limit(limit);
+  }
+
+  async getRecentFaucetClaims(userId: string, hours: number): Promise<FaucetClaim[]> {
+    const cutoffTime = new Date(Date.now() - hours * 60 * 60 * 1000);
+    return await db
+      .select()
+      .from(faucetClaims)
+      .where(and(
+        eq(faucetClaims.userId, userId),
+        gte(faucetClaims.claimTime, cutoffTime)
+      ))
+      .orderBy(desc(faucetClaims.claimTime));
+  }
+
+  async getFaucetClaimsSince(userId: string, date: Date): Promise<FaucetClaim[]> {
+    return await db
+      .select()
+      .from(faucetClaims)
+      .where(and(
+        eq(faucetClaims.userId, userId),
+        gte(faucetClaims.claimTime, date)
+      ))
+      .orderBy(desc(faucetClaims.claimTime));
+  }
+
+  async getFaucetClaimsByIP(ipAddress: string, hours: number): Promise<FaucetClaim[]> {
+    const cutoffTime = new Date(Date.now() - hours * 60 * 60 * 1000);
+    return await db
+      .select()
+      .from(faucetClaims)
+      .where(and(
+        eq(faucetClaims.ipAddress, ipAddress),
+        gte(faucetClaims.claimTime, cutoffTime)
+      ))
+      .orderBy(desc(faucetClaims.claimTime));
   }
 
   async getFaucetRevenue(date?: string, currency?: string): Promise<FaucetRevenue[]> {
