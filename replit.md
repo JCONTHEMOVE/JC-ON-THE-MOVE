@@ -161,6 +161,45 @@ Preferred communication style: Simple, everyday language.
 - **Configuration**: `SENDGRID_API_KEY` environment variable
 - **Business Email**: `COMPANY_EMAIL` environment variable for notification routing
 
+### SendGrid API Key Setup Instructions
+**How to Obtain a SendGrid API Key:**
+
+1. **Sign Up/Login**
+   - Visit [app.sendgrid.com](https://app.sendgrid.com)
+   - Create a free account (100 emails/day free tier) or login to existing account
+
+2. **Navigate to API Keys**
+   - Click **Settings** in left sidebar → **API Keys**
+   - Or go directly to: https://app.sendgrid.com/settings/api_keys
+
+3. **Create New API Key**
+   - Click **"Create API Key"** button (top-right corner)
+   - Name it (e.g., "JC On The Move Production")
+   - Choose **"Full Access"** for permissions
+   - Click **"Create & View"**
+
+4. **Copy Key Immediately**
+   - ⚠️ **CRITICAL**: SendGrid shows the key **only once** - cannot retrieve later
+   - Key format: 69 characters starting with `SG.`
+   - Example: `SG.xxxxxxxxxx.yyyyyyyyyyyyyyyyyyyyyy`
+   - If you miss it, must create a new key
+
+5. **Add to Replit Project**
+   - Open **Secrets** tool in Replit (🔒 icon or Tools → Secrets)
+   - Add new secret:
+     - Key: `SENDGRID_API_KEY`
+     - Value: Paste your API key (starting with `SG.`)
+   - Save and restart application
+
+6. **Add Company Email**
+   - In Replit Secrets, add another secret:
+     - Key: `COMPANY_EMAIL`
+     - Value: Your business email address for notifications
+
+**Free Tier Limits**: 100 emails/day (sufficient for testing and small applications)
+
+**Security**: Never commit API keys to code - always use environment variables/secrets
+
 ## UI Components
 - **Radix UI**: Comprehensive primitive component library for accessibility
 - **Lucide React**: Icon library for consistent iconography
