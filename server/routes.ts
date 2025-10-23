@@ -2091,6 +2091,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Transfer JCMOVES tokens between wallets
+  app.post("/api/treasury/transfer", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { recipientAddress, amount } = req.body;
+
+      if (!recipientAddress || typeof recipientAddress !== 'string') {
+        return res.status(400).json({ error: "Recipient address is required" });
+      }
+
+      if (!amount || typeof amount !== 'number' || amount <= 0) {
+        return res.status(400).json({ error: "Valid amount is required" });
+      }
+
+      // Get current token balance
+      const liveBalance = await solanaMonitor.getLiveTokenBalance();
+      if (!liveBalance.success || liveBalance.balance < amount) {
+        return res.status(400).json({ 
+          error: `Insufficient balance. Available: ${liveBalance.balance} JCMOVES, Requested: ${amount} JCMOVES` 
+        });
+      }
+
+      // Record the transfer intent in database
+      const tokenPrice = await moonshotService.getTokenPrice();
+      const usdValue = amount * tokenPrice;
+      
+      // Deduct from treasury reserve (this tracks the withdrawal)
+      const transaction = await storage.deductFromReserve(
+        amount,
+        `Transfer to ${recipientAddress.slice(0, 8)}...${recipientAddress.slice(-6)}`,
+        tokenPrice,
+        'transfer',
+        recipientAddress
+      );
+
+      console.log(`[TRANSFER] Initiated: ${amount} JCMOVES to ${recipientAddress}, USD value: $${usdValue.toFixed(2)}`);
+
+      res.json({
+        success: true,
+        message: "Transfer recorded successfully",
+        transaction: {
+          id: transaction.id,
+          amount,
+          usdValue,
+          recipientAddress,
+          timestamp: transaction.createdAt
+        },
+        note: "Blockchain transfer execution requires manual signing via Solana wallet. This records the transfer intent in the treasury system."
+      });
+    } catch (error) {
+      console.error("Error processing transfer:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to process transfer" 
+      });
+    }
+  });
+
   // Convert USD to JCMOVES tokens at current price
   app.post("/api/treasury/crypto/convert-usd", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {

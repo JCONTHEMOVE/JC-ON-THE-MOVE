@@ -98,11 +98,11 @@ export default function Header() {
                     {hasAdminAccess && (
                       <>
                         <Link
-                          href="/treasury"
-                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                          data-testid="button-treasury"
+                          href="/in-god-we-trust"
+                          className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent px-3 py-2 rounded-md text-sm font-bold transition-colors hover:from-blue-700 hover:to-purple-700"
+                          data-testid="button-in-god-we-trust"
                         >
-                          Treasury
+                          IN GOD WE TRUST
                         </Link>
                         <Link
                           href="/admin"
@@ -110,13 +110,6 @@ export default function Header() {
                           data-testid="button-admin"
                         >
                           Admin
-                        </Link>
-                        <Link
-                          href="/admin-moonshot"
-                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                          data-testid="button-moonshot"
-                        >
-                          Moonshot Funding
                         </Link>
                       </>
                     )}
@@ -298,12 +291,12 @@ export default function Header() {
                   {hasAdminAccess && (
                     <>
                       <Link
-                        href="/treasury"
-                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                        data-testid="button-mobile-treasury"
+                        href="/in-god-we-trust"
+                        className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent px-3 py-2 rounded-md text-sm font-bold transition-colors text-left"
+                        data-testid="button-mobile-in-god-we-trust"
                         onClick={() => setMobileMenuOpen(false)}
                       >
-                        Treasury
+                        IN GOD WE TRUST
                       </Link>
                       <Link
                         href="/admin"
@@ -312,14 +305,6 @@ export default function Header() {
                         onClick={() => setMobileMenuOpen(false)}
                       >
                         Admin
-                      </Link>
-                      <Link
-                        href="/admin-moonshot"
-                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                        data-testid="button-mobile-moonshot"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        Moonshot Funding
                       </Link>
                     </>
                   )}

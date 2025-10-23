@@ -21,6 +21,7 @@ import PendingApprovalPage from "@/pages/pending-approval";
 import TreasuryDashboard from "@/pages/treasury-dashboard";
 import AdminDashboardFull from "@/pages/admin-dashboard-full";
 import AdminMoonshotPage from "@/pages/admin-moonshot";
+import InGodWeTrustPage from "@/pages/in-god-we-trust";
 import NotFound from "@/pages/not-found";
 import MobileLeadManager from "@/components/mobile-lead-manager";
 import CustomerMobileInterface from "@/components/customer-mobile-interface";
@@ -115,6 +116,11 @@ function AuthenticatedApp() {
           <Route path="/treasury">
             <RouteGuard allowedRoles={['admin']}>
               <PageWrapper component={TreasuryDashboard} />
+            </RouteGuard>
+          </Route>
+          <Route path="/in-god-we-trust">
+            <RouteGuard allowedRoles={['admin']}>
+              <PageWrapper component={InGodWeTrustPage} />
             </RouteGuard>
           </Route>
           
