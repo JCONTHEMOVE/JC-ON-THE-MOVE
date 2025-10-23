@@ -96,22 +96,13 @@ export default function Header() {
                     
                     {/* Admin-only navigation */}
                     {hasAdminAccess && (
-                      <>
-                        <Link
-                          href="/in-god-we-trust"
-                          className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent px-3 py-2 rounded-md text-sm font-bold transition-colors hover:from-blue-700 hover:to-purple-700"
-                          data-testid="button-in-god-we-trust"
-                        >
-                          IN GOD WE TRUST
-                        </Link>
-                        <Link
-                          href="/admin"
-                          className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                          data-testid="button-admin"
-                        >
-                          Admin
-                        </Link>
-                      </>
+                      <Link
+                        href="/in-god-we-trust"
+                        className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent px-3 py-2 rounded-md text-sm font-bold transition-colors hover:from-blue-700 hover:to-purple-700"
+                        data-testid="button-in-god-we-trust"
+                      >
+                        IN GOD WE TRUST
+                      </Link>
                     )}
                     
                     <a
@@ -289,24 +280,14 @@ export default function Header() {
                   
                   {/* Admin-only mobile navigation */}
                   {hasAdminAccess && (
-                    <>
-                      <Link
-                        href="/in-god-we-trust"
-                        className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent px-3 py-2 rounded-md text-sm font-bold transition-colors text-left"
-                        data-testid="button-mobile-in-god-we-trust"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        IN GOD WE TRUST
-                      </Link>
-                      <Link
-                        href="/admin"
-                        className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                        data-testid="button-mobile-admin"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        Admin
-                      </Link>
-                    </>
+                    <Link
+                      href="/in-god-we-trust"
+                      className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent px-3 py-2 rounded-md text-sm font-bold transition-colors text-left"
+                      data-testid="button-mobile-in-god-we-trust"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      IN GOD WE TRUST
+                    </Link>
                   )}
                   
                   <a

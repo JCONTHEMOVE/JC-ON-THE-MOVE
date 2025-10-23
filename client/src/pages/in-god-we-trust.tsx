@@ -90,7 +90,7 @@ export default function InGodWeTrustPage() {
   const depositMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/treasury/deposit", {
-        usdAmount: parseFloat(depositAmount),
+        amount: parseFloat(depositAmount),
         depositMethod: "manual",
         notes: "Manual deposit from IN GOD WE TRUST dashboard",
       });

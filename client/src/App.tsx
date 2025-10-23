@@ -113,11 +113,6 @@ function AuthenticatedApp() {
           <Route path="/pending-approval">
             <PendingApprovalPage />
           </Route>
-          <Route path="/treasury">
-            <RouteGuard allowedRoles={['admin']}>
-              <PageWrapper component={TreasuryDashboard} />
-            </RouteGuard>
-          </Route>
           <Route path="/in-god-we-trust">
             <RouteGuard allowedRoles={['admin']}>
               <PageWrapper component={InGodWeTrustPage} />
@@ -144,17 +139,7 @@ function AuthenticatedApp() {
             <ShopItemDetailPage />
           </Route>
           
-          {/* Admin routes */}
-          <Route path="/admin">
-            <RouteGuard allowedRoles={['admin']}>
-              <AdminDashboardFull />
-            </RouteGuard>
-          </Route>
-          <Route path="/admin-moonshot">
-            <RouteGuard allowedRoles={['admin']}>
-              <PageWrapper component={AdminMoonshotPage} />
-            </RouteGuard>
-          </Route>
+          {/* Legacy admin routes - redirect to unified dashboard */}
           
           {/* Job detail route */}
           <Route path="/job/:id">
