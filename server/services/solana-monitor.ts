@@ -253,13 +253,22 @@ export class SolanaMonitor {
     fromAddress: string
   ): Promise<boolean> {
     try {
+      // Get admin user for system deposits (required by foreign key constraint)
+      const allUsers = await storage.getAllUsers();
+      const adminUser = allUsers.find(u => u.role === 'admin');
+      
+      if (!adminUser) {
+        console.error('❌ No admin user found - cannot record deposit without valid depositedBy user ID');
+        return false;
+      }
+
       // Get current token price
       const tokenPrice = await moonshotService.getTokenPrice();
       const usdValue = tokenAmount * tokenPrice;
 
       // Use treasury service to record deposit
       const result = await treasuryService.depositTokensFromMoonshot(
-        'system', // System-initiated (auto-detected)
+        adminUser.id, // Use admin user ID (required by database foreign key)
         tokenAmount,
         transactionHash,
         fromAddress,
