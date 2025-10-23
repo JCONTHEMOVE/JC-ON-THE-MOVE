@@ -1,6 +1,6 @@
 # Overview
 
-This full-stack application provides a comprehensive moving and junk removal service platform. It enables customers to request quotes for residential moving, commercial moving, and junk removal services. The system features a business operations dashboard, automated email notifications, role-based authentication, and employee job assignment capabilities. Built with React, TypeScript, Express.js, and Drizzle ORM, it utilizes a modern, responsive design with shadcn/ui components. The project also integrates Solana blockchain for treasury management, including live token pricing, balance verification, and reconciliation of JCMOVES tokens.
+This full-stack application provides a comprehensive moving and junk removal service platform. It enables customers to request quotes for residential moving, commercial moving, and junk removal services. The system features a business operations dashboard, automated email notifications, role-based authentication, and employee job assignment capabilities. Built with React, TypeScript, Express.js, and Drizzle ORM, it utilizes a modern, responsive design with shadcn/ui components. The project integrates Solana blockchain for treasury management with the unified "IN GOD WE TRUST" dashboard consolidating all admin operations: token transfers, treasury deposits, live blockchain monitoring, and business analytics.
 
 # User Preferences
 
@@ -60,12 +60,17 @@ Preferred communication style: Simple, everyday language.
 - Unified mining dashboard displaying streak count and bonus previews.
 - Non-dismissible modal for age and TOS compliance.
 - "Add a Job" button for employees on mobile dashboard.
+- **"IN GOD WE TRUST" Dashboard**: Unified admin interface replacing separate Treasury, Admin, and Moonshot pages with tabbed navigation (Operations, Transfers, Deposits, Analytics).
+- **Gradient Navigation**: "IN GOD WE TRUST" link uses blue-to-purple gradient for visual prominence.
 
 ## Technical Implementations
 - Consolidated daily check-in and passive mining into a unified system with linear streak bonuses.
 - Implemented employee job creation with bonus rewards for creators.
 - Integrated Solana blockchain for treasury management, including real-time balance verification, reconciliation, and deposit recording.
 - Real-time JCMOVES token pricing via DexScreener API with fallback mechanism.
+- **Token Transfer System**: `/api/treasury/transfer` endpoint enables wallet-to-wallet JCMOVES transfers with validation, balance checks, and database tracking.
+- **Unified Admin Dashboard**: "IN GOD WE TRUST" page consolidates all admin features with tab-based navigation, live blockchain stats, and discrepancy alerts.
+- **Streamlined Navigation**: Removed legacy `/treasury`, `/admin`, and `/admin-moonshot` routes in favor of single unified entry point.
 
 # External Dependencies
 
