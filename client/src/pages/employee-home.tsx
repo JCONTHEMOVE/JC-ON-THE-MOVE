@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Calendar as CalendarIcon, BookOpen, Store, Star, Camera, MapPin, Phone, Mail } from "lucide-react";
+import { Calendar as CalendarIcon, BookOpen, Store, Star, Camera, MapPin, Phone, Mail, Plus } from "lucide-react";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
 
@@ -15,6 +15,11 @@ interface Lead {
   status: string;
   moveDate?: string;
   createdAt: string;
+  phone?: string;
+  email?: string;
+  fromAddress?: string;
+  toAddress?: string;
+  details?: string;
 }
 
 interface ShopItem {
@@ -88,7 +93,13 @@ export default function EmployeeHomePage() {
       return jobDate >= monthStart && jobDate <= monthEnd;
     })
     .reduce((acc, job) => {
-      const date = new Date(job.moveDate!).toDateString();
+      // Parse the ISO date string and extract year, month, day to avoid timezone issues
+      const moveDate = job.moveDate!;
+      const dateParts = moveDate.split('T')[0].split('-');
+      const year = parseInt(dateParts[0]);
+      const month = parseInt(dateParts[1]) - 1; // JS months are 0-indexed
+      const day = parseInt(dateParts[2]);
+      const date = new Date(year, month, day).toDateString();
       if (!acc[date]) acc[date] = [];
       acc[date].push(job);
       return acc;
@@ -236,6 +247,16 @@ export default function EmployeeHomePage() {
                 {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()} Jobs
               </CardTitle>
               <div className="flex gap-2">
+                <Link href="/employee/add-job">
+                  <Button
+                    size="sm"
+                    className="gap-1"
+                    data-testid="button-add-job"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Job
+                  </Button>
+                </Link>
                 <Button
                   variant="outline"
                   size="sm"
@@ -501,7 +522,7 @@ export default function EmployeeHomePage() {
                           </p>
                         )}
                         <div className="flex gap-2 mt-3">
-                          <Link href={`/dashboard`}>
+                          <Link href={`/lead/${job.id}`}>
                             <Button size="sm" data-testid={`button-view-job-${job.id}`}>
                               View Details
                             </Button>

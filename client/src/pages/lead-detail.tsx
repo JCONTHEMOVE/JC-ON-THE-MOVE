@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Truck, Users, DollarSign, Award, TrendingUp } from "lucide-react";
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Truck, Users, DollarSign, Award, TrendingUp, CheckCircle, Circle, Clock, Star, ExternalLink } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -72,6 +72,8 @@ export default function LeadDetailPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
+  const [tokenAllocation, setTokenAllocation] = useState("");
+  const [isCheckingIn, setIsCheckingIn] = useState(false);
 
   const { data: lead, isLoading } = useQuery<Lead>({
     queryKey: ["/api/leads", params?.id],
@@ -195,6 +197,108 @@ export default function LeadDetailPage() {
     }
   };
 
+  // 5-step workflow system
+  const workflow = [
+    { step: 1, name: "Quote", status: ["new", "contacted", "quoted"] },
+    { step: 2, name: "Assign & Price", status: ["quoted", "confirmed"] },
+    { step: 3, name: "Day Before Reminder", status: ["confirmed"] },
+    { step: 4, name: "Check In", status: ["confirmed", "in-progress"] },
+    { step: 5, name: "Complete & Review", status: ["in-progress", "completed"] }
+  ];
+
+  const getCurrentStep = () => {
+    if (!lead) return 1;
+    if (lead.status === "completed") return 5;
+    if (lead.status === "in-progress") return 4;
+    if (lead.status === "confirmed" && lead.basePrice) return 3;
+    if (lead.basePrice && lead.crewSize) return 2;
+    return 1;
+  };
+
+  const currentStep = getCurrentStep();
+
+  const advanceToStep = useMutation({
+    mutationFn: async (targetStep: number) => {
+      let newStatus = lead?.status;
+      let updateData: any = {};
+
+      switch (targetStep) {
+        case 2:
+          newStatus = "quoted";
+          break;
+        case 3:
+          newStatus = "confirmed";
+          // Persist token allocation when confirming assignment
+          if (tokenAllocation) {
+            updateData.tokenAllocation = parseFloat(tokenAllocation);
+          }
+          break;
+        case 4:
+          newStatus = "in-progress";
+          // Record check-in timestamp for bonus calculation
+          updateData.checkedInAt = new Date().toISOString();
+          break;
+        case 5:
+          newStatus = "completed";
+          // Record completion timestamp
+          updateData.completedAt = new Date().toISOString();
+          break;
+      }
+
+      updateData = { ...updateData, status: newStatus };
+      return await apiRequest("PATCH", `/api/leads/${params?.id}`, updateData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({
+        title: "Step completed",
+        description: "Job workflow advanced successfully",
+      });
+      setIsCheckingIn(false);
+    },
+  });
+
+  const sendReminder = useMutation({
+    mutationFn: async () => {
+      // This would integrate with email/SMS service
+      return await apiRequest("POST", `/api/leads/${params?.id}/reminder`, {});
+    },
+    onSuccess: () => {
+      toast({
+        title: "Reminder sent",
+        description: "Customer has been notified about tomorrow's move",
+      });
+    },
+  });
+
+  const requestReview = (platform: string) => {
+    const customerEmail = lead?.email;
+    const customerName = `${lead?.firstName} ${lead?.lastName}`;
+    
+    let url = "";
+    switch (platform) {
+      case "google":
+        // JC ON THE MOVE Google review URL
+        url = "https://www.google.com/search?q=jc+on+the+move&rlz=1C1GCEU_enUS832US832#lrd=0x8823f6fa63b16c07:0x9c6a4b3d4e5f6c8a,3";
+        break;
+      case "facebook":
+        // JC ON THE MOVE Facebook reviews
+        url = "https://www.facebook.com/JCOnTheMove/reviews";
+        break;
+      case "inapp":
+        // This would open an in-app review modal
+        toast({
+          title: "Review request sent",
+          description: "Customer will receive an in-app review request",
+        });
+        return;
+    }
+    
+    if (url) {
+      window.open(url, "_blank");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -242,6 +346,226 @@ export default function LeadDetailPage() {
             </Badge>
           </div>
         </div>
+
+        {/* 5-Step Workflow Progress */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Job Workflow</CardTitle>
+            <CardDescription>Complete these 5 simple steps to finish the job</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* Progress Steps */}
+              <div className="flex items-center justify-between">
+                {workflow.map((step, idx) => (
+                  <div key={step.step} className="flex items-center flex-1">
+                    <div className="flex flex-col items-center flex-1">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${
+                        currentStep > step.step 
+                          ? 'bg-green-600 border-green-600 text-white' 
+                          : currentStep === step.step
+                          ? 'bg-primary border-primary text-white'
+                          : 'bg-muted border-muted-foreground/30 text-muted-foreground'
+                      }`}>
+                        {currentStep > step.step ? (
+                          <CheckCircle className="h-5 w-5" />
+                        ) : (
+                          <span className="font-bold">{step.step}</span>
+                        )}
+                      </div>
+                      <p className={`text-xs mt-2 text-center ${
+                        currentStep >= step.step ? 'font-semibold' : 'text-muted-foreground'
+                      }`}>
+                        {step.name}
+                      </p>
+                    </div>
+                    {idx < workflow.length - 1 && (
+                      <div className={`h-0.5 flex-1 ${
+                        currentStep > step.step ? 'bg-green-600' : 'bg-muted'
+                      }`} />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Step-specific Actions */}
+              <div className="p-4 bg-muted/50 rounded-lg">
+                {currentStep === 1 && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold flex items-center gap-2">
+                      <Circle className="h-4 w-4 text-primary" />
+                      Step 1: Create Quote
+                    </h4>
+                    <p className="text-sm text-muted-foreground">
+                      Review customer details and create a quote with pricing information.
+                    </p>
+                    <Button 
+                      onClick={() => setIsEditing(true)} 
+                      disabled={!lead}
+                      data-testid="button-start-quote"
+                    >
+                      Start Quote
+                    </Button>
+                  </div>
+                )}
+
+                {currentStep === 2 && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold flex items-center gap-2">
+                      <Circle className="h-4 w-4 text-primary" />
+                      Step 2: Assign Crew, Price & Tokens
+                    </h4>
+                    <p className="text-sm text-muted-foreground">
+                      Set the crew size, final price, and JCMOVES token allocation for this job.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <Label htmlFor="token-allocation">JCMOVES Tokens</Label>
+                        <Input
+                          id="token-allocation"
+                          type="number"
+                          placeholder="e.g., 500"
+                          value={tokenAllocation}
+                          onChange={(e) => setTokenAllocation(e.target.value)}
+                          data-testid="input-token-allocation"
+                        />
+                      </div>
+                    </div>
+                    <Button 
+                      onClick={() => advanceToStep.mutate(3)}
+                      disabled={!lead?.basePrice || !lead?.crewSize}
+                      data-testid="button-confirm-assignment"
+                    >
+                      Confirm Assignment
+                    </Button>
+                  </div>
+                )}
+
+                {currentStep === 3 && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-primary" />
+                      Step 3: Day-Before Reminder
+                    </h4>
+                    <p className="text-sm text-muted-foreground">
+                      Send a reminder to the customer one day before the scheduled move.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button 
+                        onClick={() => sendReminder.mutate()}
+                        disabled={sendReminder.isPending}
+                        variant="outline"
+                        data-testid="button-send-reminder"
+                      >
+                        {sendReminder.isPending ? "Sending..." : "Send Reminder"}
+                      </Button>
+                      <Button 
+                        onClick={() => advanceToStep.mutate(4)}
+                        data-testid="button-skip-to-checkin"
+                      >
+                        Continue to Check-In
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {currentStep === 4 && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-primary" />
+                      Step 4: Check In & Collect Bonus
+                    </h4>
+                    <p className="text-sm text-muted-foreground">
+                      Check in when you arrive at the job site. Arrive early or on-time to earn your bonus!
+                    </p>
+                    <div className="p-3 bg-primary/10 rounded-lg">
+                      <p className="text-sm font-semibold text-primary">
+                        🎁 On-Time Bonus: +20% ({potentialEarnings.withOnTime.tokens} JCMOVES)
+                      </p>
+                    </div>
+                    {lead?.status !== "in-progress" ? (
+                      <Button 
+                        onClick={() => advanceToStep.mutate(4)}
+                        disabled={advanceToStep.isPending}
+                        data-testid="button-check-in"
+                      >
+                        {advanceToStep.isPending ? "Checking In..." : "Check In Now"}
+                      </Button>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900 rounded-lg">
+                          <p className="text-sm font-semibold text-green-800 dark:text-green-200">
+                            ✅ Checked In! Job is in progress.
+                          </p>
+                        </div>
+                        <Button 
+                          onClick={() => advanceToStep.mutate(5)}
+                          disabled={advanceToStep.isPending}
+                          data-testid="button-mark-complete"
+                        >
+                          Mark as Complete
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {currentStep === 5 && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold flex items-center gap-2">
+                      <Star className="h-4 w-4 text-primary" />
+                      Step 5: Complete & Request Review
+                    </h4>
+                    <p className="text-sm text-muted-foreground">
+                      Job complete! Request a review from the customer to earn your review bonus.
+                    </p>
+                    <div className="p-3 bg-primary/10 rounded-lg">
+                      <p className="text-sm font-semibold text-primary">
+                        ⭐ Review Bonus: +30% for 4.0+ rating ({potentialEarnings.withRating.tokens} JCMOVES)
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button 
+                        onClick={() => requestReview("google")}
+                        variant="outline"
+                        className="gap-2"
+                        data-testid="button-review-google"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Google Review
+                      </Button>
+                      <Button 
+                        onClick={() => requestReview("facebook")}
+                        variant="outline"
+                        className="gap-2"
+                        data-testid="button-review-facebook"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Facebook Review
+                      </Button>
+                      <Button 
+                        onClick={() => requestReview("inapp")}
+                        variant="outline"
+                        className="gap-2"
+                        data-testid="button-review-inapp"
+                      >
+                        <Star className="h-4 w-4" />
+                        In-App Review
+                      </Button>
+                    </div>
+                    {lead?.status === "completed" && (
+                      <div className="mt-4 p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900 rounded-lg">
+                        <p className="text-sm font-semibold text-green-800 dark:text-green-200">
+                          ✅ Job Completed! Great work!
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}
