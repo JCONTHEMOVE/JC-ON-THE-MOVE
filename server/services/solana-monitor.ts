@@ -16,7 +16,17 @@ export class SolanaMonitor {
   private jcmovesTokenAddress: string;
 
   constructor() {
-    const rpcUrl = process.env.VITE_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+    // Validate and get RPC URL with proper fallback
+    const envRpcUrl = process.env.VITE_SOLANA_RPC_URL?.trim();
+    const isValidUrl = envRpcUrl && (envRpcUrl.startsWith('http://') || envRpcUrl.startsWith('https://'));
+    const rpcUrl = isValidUrl ? envRpcUrl : 'https://api.mainnet-beta.solana.com';
+    
+    if (!isValidUrl && process.env.VITE_SOLANA_RPC_URL) {
+      console.warn('⚠️ Invalid VITE_SOLANA_RPC_URL (must start with http:// or https://). Using fallback: https://api.mainnet-beta.solana.com');
+    } else if (!envRpcUrl) {
+      console.warn('⚠️ VITE_SOLANA_RPC_URL not set. Using public Solana RPC endpoint (rate limited). Set VITE_SOLANA_RPC_URL in deployment secrets for better performance.');
+    }
+    
     this.connection = new Connection(rpcUrl, 'confirmed');
     this.jcmovesTokenAddress = process.env.MOONSHOT_TOKEN_ADDRESS || 'AY9NPebnvjcKSoUteYwNER3JHiJNPh6ptKmC8E4VGrxp';
   }
