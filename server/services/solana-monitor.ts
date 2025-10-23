@@ -245,12 +245,13 @@ export class SolanaMonitor {
 
   /**
    * Automatically record a detected deposit
+   * Returns true if deposit was successfully recorded, false otherwise
    */
   private async autoRecordDeposit(
     tokenAmount: number,
     transactionHash: string,
     fromAddress: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       // Get current token price
       const tokenPrice = await moonshotService.getTokenPrice();
@@ -268,11 +269,14 @@ export class SolanaMonitor {
       if (result.success && result.deposit) {
         console.log(`💰 Auto-recorded deposit: ${tokenAmount.toLocaleString()} JCMOVES ($${usdValue.toFixed(2)})`);
         console.log(`   Deposit ID: ${result.deposit.id}`);
+        return true;
       } else {
         console.error(`❌ Failed to auto-record deposit: ${result.error}`);
+        return false;
       }
     } catch (error) {
       console.error('Error auto-recording deposit:', error);
+      return false;
     }
   }
 
@@ -326,9 +330,13 @@ export class SolanaMonitor {
             results.push({ signature: sigInfo.signature, amount, status: 'already_recorded' });
           } else {
             // Auto-record the deposit
-            await this.autoRecordDeposit(amount, sigInfo.signature, fromAddress);
-            recorded++;
-            results.push({ signature: sigInfo.signature, amount, status: 'newly_recorded' });
+            const success = await this.autoRecordDeposit(amount, sigInfo.signature, fromAddress);
+            if (success) {
+              recorded++;
+              results.push({ signature: sigInfo.signature, amount, status: 'newly_recorded' });
+            } else {
+              results.push({ signature: sigInfo.signature, amount, status: 'failed_to_record' });
+            }
           }
         }
       } catch (error) {
