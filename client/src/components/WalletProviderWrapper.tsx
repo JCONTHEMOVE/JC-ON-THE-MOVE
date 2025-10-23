@@ -7,10 +7,10 @@ import { useToast } from '@/hooks/use-toast';
 import type { ReactNode } from 'react';
 import type { WalletError } from '@solana/wallet-adapter-base';
 
-const SOLANA_RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL;
+const SOLANA_RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
-if (!SOLANA_RPC_URL) {
-  throw new Error('VITE_SOLANA_RPC_URL environment variable is required for Solana blockchain integration');
+if (!import.meta.env.VITE_SOLANA_RPC_URL) {
+  console.warn('⚠️ VITE_SOLANA_RPC_URL not set. Using public Solana RPC endpoint (rate limited). Set VITE_SOLANA_RPC_URL in deployment secrets for better performance.');
 }
 
 export function WalletProviderWrapper({ children }: { children: ReactNode }) {
