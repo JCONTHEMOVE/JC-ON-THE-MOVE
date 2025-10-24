@@ -30,9 +30,11 @@ export default function LeadsPage() {
     { value: "junk", label: "Junk Removal", icon: Trash2 },
   ];
 
-  // Fetch all leads
+  // Fetch all leads (always fetch fresh to avoid showing deleted leads)
   const { data: leads = [], isLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads"],
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true,
   });
 
   // Fetch employees

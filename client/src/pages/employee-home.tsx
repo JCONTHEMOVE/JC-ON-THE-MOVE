@@ -75,10 +75,14 @@ export default function EmployeeHomePage() {
 
   const { data: allJobs = [] } = useQuery<Lead[]>({
     queryKey: ["/api/leads"],
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true,
   });
 
   const { data: shopItems = [] } = useQuery<ShopItem[]>({
     queryKey: ["/api/shop"],
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true,
   });
 
   // Get jobs for current month

@@ -78,10 +78,20 @@ export default function LeadDetailPage() {
   const [tokenAllocation, setTokenAllocation] = useState("");
   const [isCheckingIn, setIsCheckingIn] = useState(false);
 
-  const { data: lead, isLoading } = useQuery<Lead>({
+  const { data: lead, isLoading, isError, error } = useQuery<Lead>({
     queryKey: ["/api/leads", params?.id],
     enabled: !!params?.id,
+    retry: 1,
+    retryDelay: 1000,
+    staleTime: 0, // Always fetch fresh data
   });
+  
+  // If lead is not found, clear the leads cache so list updates
+  useEffect(() => {
+    if (isError || (lead === null && !isLoading)) {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+    }
+  }, [isError, lead, isLoading]);
 
   const { data: rewards = [] } = useQuery<Reward[]>({
     queryKey: ["/api/rewards"],
@@ -144,20 +154,61 @@ export default function LeadDetailPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <Card className="max-w-md w-full" data-testid="card-loading">
+          <CardContent className="pt-6">
+            <div className="flex flex-col items-center gap-4">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+              <p className="text-muted-foreground">Loading job details...</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  if (!lead) {
+  if (isError || !lead) {
+    const errorMessage = error?.message || "Lead not found";
+    const isNotFound = errorMessage.includes("404") || !lead;
+    
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Card className="max-w-md w-full">
-          <CardContent className="pt-6">
-            <p className="text-center text-muted-foreground">Lead not found</p>
-            <Button className="w-full mt-4" onClick={() => setLocation("/leads")}>
-              Back to Leads
-            </Button>
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="max-w-md w-full" data-testid="card-error">
+          <CardHeader>
+            <CardTitle className="text-center">
+              {isNotFound ? "Job Not Found" : "Error Loading Job"}
+            </CardTitle>
+            <CardDescription className="text-center">
+              {isNotFound 
+                ? "This job may have been deleted or doesn't exist."
+                : "We couldn't load this job. Please try again."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!isNotFound && (
+              <p className="text-sm text-muted-foreground text-center bg-muted p-3 rounded">
+                {errorMessage}
+              </p>
+            )}
+            <div className="flex flex-col gap-2">
+              <Button 
+                className="w-full" 
+                onClick={() => setLocation("/leads")}
+                data-testid="button-back-to-leads"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to All Jobs
+              </Button>
+              {!isNotFound && (
+                <Button 
+                  variant="outline" 
+                  className="w-full" 
+                  onClick={() => window.location.reload()}
+                  data-testid="button-retry"
+                >
+                  Try Again
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
