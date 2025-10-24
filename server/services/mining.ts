@@ -109,7 +109,8 @@ export class MiningService {
 
   /**
    * Calculate streak bonus for consecutive daily claims
-   * Linear scaling: 1% bonus per day, no cap (Day 1=1.0x, Day 2=1.01x, Day 3=1.02x, etc.)
+   * +1% multiplier per day that accumulates continuously
+   * Day 1: 1.00x (0% bonus), Day 2: 1.01x (1% bonus), Day 3: 1.02x (2% bonus), etc.
    */
   async calculateStreakBonus(session: any, baseTokens: number): Promise<{
     streakCount: number;
@@ -139,12 +140,11 @@ export class MiningService {
       streakCount = 1; // First claim ever
     }
     
-    // Calculate bonus: Linear 1% per day, no cap
-    // Day 1: 1.00x, Day 2: 1.01x, Day 3: 1.02x, Day N: 1.0 + (N-1)*0.01
-    const bonusMultiplier = 1.0 + (streakCount - 1) * 0.01;
-    
-    // Bonus is the additional tokens beyond base (e.g., 1.02x = 0.02x bonus)
-    const streakBonus = baseTokens * (bonusMultiplier - 1.0);
+    // Calculate bonus: +1% per day accumulates continuously
+    // Day 1: 0% bonus, Day 2: 1% bonus, Day 3: 2% bonus, etc.
+    // Bonus = baseTokens × (streakCount - 1) × 0.01
+    const bonusPercentage = (streakCount - 1) * 0.01; // 0%, 1%, 2%, 3%, etc.
+    const streakBonus = baseTokens * bonusPercentage;
     
     return { streakCount, streakBonus };
   }
