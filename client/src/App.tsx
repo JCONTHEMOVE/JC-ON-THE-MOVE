@@ -90,9 +90,7 @@ function AuthenticatedApp() {
             </RouteGuard>
           </Route>
           <Route path="/lead/:id">
-            <RouteGuard allowedRoles={['admin', 'employee']}>
-              <PageWrapper component={LeadDetailPage} />
-            </RouteGuard>
+            <PageWrapper component={LeadDetailPage} />
           </Route>
           <Route path="/pending-quotes">
             <RouteGuard allowedRoles={['admin', 'employee']}>
