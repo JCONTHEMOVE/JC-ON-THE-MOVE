@@ -549,6 +549,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update user role (business owner only)
+  app.patch('/api/users/:id/role', isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { role } = req.body;
+      
+      console.log(`🔄 Updating user ${id} role to: ${role}`);
+      
+      // Validate role
+      const validRoles = ['employee', 'customer', 'admin', 'business_owner'];
+      if (!role || !validRoles.includes(role)) {
+        return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
+      }
+      
+      const updatedUser = await storage.updateUserRole(id, role);
+      
+      if (!updatedUser) {
+        console.log(`❌ User ${id} not found for role update`);
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      console.log(`✅ User ${id} role updated to ${role}`);
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating user role:", error);
+      res.status(500).json({ error: "Failed to update user role" });
+    }
+  });
+
   // Manual login endpoint (temporary workaround for broken OAuth)
   app.post('/api/auth/manual-login', async (req: any, res) => {
     try {
