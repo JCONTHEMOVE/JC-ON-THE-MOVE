@@ -52,6 +52,9 @@ interface Lead {
   totalSpecialItemsFee?: string;
   quoteNotes?: string;
   lastQuoteUpdatedAt?: string;
+  tokenAllocation?: number;
+  checkedInAt?: string;
+  completedAt?: string;
   createdAt: string;
 }
 
