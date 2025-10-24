@@ -174,6 +174,16 @@ function Router() {
       {/* Terms of Service - accessible to all */}
       <Route path="/terms" component={TermsOfService} />
       
+      {/* Lead detail - accessible without authentication (temporary for debugging) */}
+      <Route path="/lead/:id">
+        <PageWrapper component={LeadDetailPage} />
+      </Route>
+      
+      {/* Leads list - accessible without authentication (temporary for debugging) */}
+      <Route path="/leads">
+        <PageWrapper component={LeadsPage} />
+      </Route>
+      
       {/* Authenticated vs unauthenticated routing */}
       <Route>
         {isAuthenticated ? <AuthenticatedApp /> : <LandingPage />}
