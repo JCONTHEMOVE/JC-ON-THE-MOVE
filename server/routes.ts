@@ -838,6 +838,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete lead (business owner only)
+  app.delete("/api/leads/:id", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      console.log(`🗑️ Deleting lead ${id}...`);
+      
+      const deleted = await storage.deleteLead(id);
+      
+      if (!deleted) {
+        console.log(`❌ Lead ${id} not found for deletion`);
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      console.log(`✅ Lead ${id} deleted successfully`);
+      res.json({ success: true, message: "Lead deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting lead:", error);
+      res.status(500).json({ error: "Failed to delete lead" });
+    }
+  });
+
   // Update lead quote and confirmation (business owner only)
   app.patch("/api/leads/:id/quote", isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {

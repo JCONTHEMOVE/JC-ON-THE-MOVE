@@ -11,6 +11,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { insertLeadSchema, type InsertLead, type Lead, type User } from "@shared/schema";
@@ -23,6 +33,7 @@ export default function LeadsPage() {
   const [selectedService, setSelectedService] = useState("");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
 
   const serviceOptions = [
     { value: "residential", label: "Residential Moving", icon: Home },
@@ -104,6 +115,28 @@ export default function LeadsPage() {
       toast({
         title: "Error",
         description: error.message || "Failed to save quote. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteLead = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("DELETE", `/api/leads/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Lead deleted",
+        description: "The lead has been permanently deleted.",
+      });
+      setLeadToDelete(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete lead. Please try again.",
         variant: "destructive",
       });
     },
@@ -195,6 +228,15 @@ export default function LeadsPage() {
               <Link href={`/lead/${lead.id}`}>
                 <Eye className="h-4 w-4" />
               </Link>
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => setLeadToDelete(lead)}
+              data-testid={`delete-button-${lead.id}`}
+              className="hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="sm" asChild data-testid={`email-button-${lead.id}`}>
               <a href={`mailto:${lead.email}`}>
@@ -462,6 +504,32 @@ export default function LeadsPage() {
         employees={employees}
         onSave={handleSaveQuote}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!leadToDelete} onOpenChange={(open) => !open && setLeadToDelete(null)}>
+        <AlertDialogContent data-testid="dialog-delete-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the lead for{" "}
+              <strong>{leadToDelete?.firstName} {leadToDelete?.lastName}</strong>.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => leadToDelete && deleteLead.mutate(leadToDelete.id)}
+              className="bg-destructive hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {deleteLead.isPending ? "Deleting..." : "Delete Lead"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
