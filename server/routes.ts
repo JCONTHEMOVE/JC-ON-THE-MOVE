@@ -527,6 +527,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete user (business owner only)
+  app.delete('/api/users/:id', isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      console.log(`🗑️ Deleting user ${id}...`);
+      
+      const deleted = await storage.deleteUser(id);
+      
+      if (!deleted) {
+        console.log(`❌ User ${id} not found for deletion`);
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      console.log(`✅ User ${id} deleted successfully`);
+      res.json({ success: true, message: "User deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      res.status(500).json({ error: "Failed to delete user" });
+    }
+  });
+
   // Manual login endpoint (temporary workaround for broken OAuth)
   app.post('/api/auth/manual-login', async (req: any, res) => {
     try {

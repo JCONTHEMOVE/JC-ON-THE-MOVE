@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { type User } from "@shared/schema";
@@ -7,11 +8,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Mail, Users } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { ArrowLeft, Mail, Users, Trash2 } from "lucide-react";
 
 export default function EmployeesPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
 
   const { data: employees = [], isLoading } = useQuery<User[]>({
     queryKey: ["/api/employees"],
@@ -33,6 +45,28 @@ export default function EmployeesPage() {
       toast({
         title: "Error",
         description: error.message || "Failed to update role. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("DELETE", `/api/users/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "User deleted",
+        description: "The user has been permanently deleted.",
+      });
+      setUserToDelete(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete user. Please try again.",
         variant: "destructive",
       });
     },
@@ -135,11 +169,22 @@ export default function EmployeesPage() {
                           {employee.createdAt ? new Date(employee.createdAt).toLocaleDateString() : 'Unknown'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <Button variant="ghost" size="sm" asChild data-testid={`email-employee-${employee.id}`}>
-                            <a href={`mailto:${employee.email}`}>
-                              <Mail className="h-4 w-4" />
-                            </a>
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button variant="ghost" size="sm" asChild data-testid={`email-employee-${employee.id}`}>
+                              <a href={`mailto:${employee.email}`}>
+                                <Mail className="h-4 w-4" />
+                              </a>
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => setUserToDelete(employee)}
+                              data-testid={`delete-employee-${employee.id}`}
+                              className="hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -160,6 +205,34 @@ export default function EmployeesPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!userToDelete} onOpenChange={(open) => !open && setUserToDelete(null)}>
+        <AlertDialogContent data-testid="dialog-delete-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete{" "}
+              <strong>{userToDelete?.firstName} {userToDelete?.lastName}</strong>
+              {" "}({userToDelete?.email}).
+              <br /><br />
+              All their data, including rewards, check-ins, and job history will be removed. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => userToDelete && deleteUserMutation.mutate(userToDelete.id)}
+              className="bg-destructive hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {deleteUserMutation.isPending ? "Deleting..." : "Delete User"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

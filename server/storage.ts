@@ -14,6 +14,7 @@ export interface IStorage {
   updateUserRole(userId: string, role: string): Promise<User | undefined>;
   getEmployees(): Promise<User[]>;
   getAllUsers(): Promise<User[]>;
+  deleteUser(userId: string): Promise<boolean>;
   
   // Employee approval management
   updateUserApproval(userId: string, isApproved: boolean): Promise<User | undefined>;
@@ -294,6 +295,11 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(users)
       .orderBy(desc(users.createdAt));
+  }
+
+  async deleteUser(userId: string): Promise<boolean> {
+    const result = await db.delete(users).where(eq(users.id, userId));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   // Employee approval management
