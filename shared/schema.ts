@@ -43,6 +43,7 @@ export const leads = pgTable("leads", {
   confirmedFromAddress: text("confirmed_from_address"), // Admin confirmed pickup address
   confirmedToAddress: text("confirmed_to_address"), // Admin confirmed delivery address
   basePrice: decimal("base_price", { precision: 10, scale: 2 }), // Base moving quote
+  tokenAllocation: decimal("token_allocation", { precision: 18, scale: 8 }), // JCMOVES tokens allocated for this job
   crewMembers: text("crew_members").array(), // Array of assigned employee IDs
   
   // Special moving items with weight tracking

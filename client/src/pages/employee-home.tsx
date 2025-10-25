@@ -26,8 +26,18 @@ interface Lead {
   toAddress?: string;
   details?: string;
   createdByUserId?: string;
-  tokenAllocation?: number;
+  tokenAllocation?: string;
   basePrice?: string;
+  crewMembers?: string[];
+}
+
+interface User {
+  id: string;
+  email: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  role: string;
 }
 
 interface ShopItem {
@@ -83,6 +93,7 @@ export default function EmployeeHomePage() {
   const [selectedJob, setSelectedJob] = useState<Lead | null>(null);
   const [tokenAllocation, setTokenAllocation] = useState("");
   const [basePrice, setBasePrice] = useState("");
+  const [selectedCrewMembers, setSelectedCrewMembers] = useState<string[]>([]);
   const scripture = getDailyScripture();
   const { toast } = useToast();
 
@@ -97,6 +108,14 @@ export default function EmployeeHomePage() {
     staleTime: 0, // Always fetch fresh data
     refetchOnMount: true,
   });
+
+  const { data: allUsers = [] } = useQuery<User[]>({
+    queryKey: ["/api/users"],
+    staleTime: 60000, // Cache for 1 minute
+  });
+
+  // Filter to get only employees for crew selection
+  const employees = allUsers.filter(u => u.role === 'employee' || u.role === 'admin');
 
   // Get jobs for current month
   const monthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
@@ -159,8 +178,9 @@ export default function EmployeeHomePage() {
   // Handle manage job click
   const handleManageJob = (job: Lead) => {
     setSelectedJob(job);
-    setTokenAllocation(job.tokenAllocation?.toString() || "");
+    setTokenAllocation(job.tokenAllocation || "");
     setBasePrice(job.basePrice || "");
+    setSelectedCrewMembers(job.crewMembers || []);
     setIsManageDialogOpen(true);
   };
 
@@ -171,10 +191,35 @@ export default function EmployeeHomePage() {
       jobId: selectedJob.id,
       updates: {
         status: newStatus,
-        tokenAllocation: tokenAllocation ? parseFloat(tokenAllocation) : undefined,
+        tokenAllocation: tokenAllocation || undefined,
         basePrice: basePrice || undefined,
+        crewMembers: selectedCrewMembers,
       },
     });
+  };
+
+  // Get creator display name
+  const getCreatorDisplayName = (userId?: string) => {
+    if (!userId) return "Unknown";
+    const creator = allUsers.find(u => u.id === userId);
+    if (!creator) return `User ID: ${userId}`;
+    return creator.username || creator.firstName || creator.email || `User ID: ${userId}`;
+  };
+
+  // Get user display name
+  const getUserDisplayName = (userId: string) => {
+    const user = allUsers.find(u => u.id === userId);
+    if (!user) return userId;
+    return user.username || user.firstName || user.email || userId;
+  };
+
+  // Toggle crew member selection
+  const toggleCrewMember = (userId: string) => {
+    setSelectedCrewMembers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
   };
 
   // Get jobs for selected date
@@ -698,7 +743,7 @@ export default function EmployeeHomePage() {
                       <User className="h-4 w-4 text-muted-foreground" />
                       <Label className="text-xs text-muted-foreground">Created By</Label>
                     </div>
-                    <p className="text-sm font-medium">User ID: {selectedJob.createdByUserId}</p>
+                    <p className="text-sm font-medium">{getCreatorDisplayName(selectedJob.createdByUserId)}</p>
                     <p className="text-xs text-muted-foreground">
                       Created on {new Date(selectedJob.createdAt).toLocaleDateString()}
                     </p>
@@ -745,6 +790,43 @@ export default function EmployeeHomePage() {
                     <p className="text-xs text-muted-foreground mt-1">
                       Employees will earn bonuses from this pool based on performance
                     </p>
+                  </div>
+
+                  {/* Crew Assignment */}
+                  <div className="space-y-3 mt-4">
+                    <Label className="font-semibold">Assign Workers to Job</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Selected workers will share the token rewards for this job
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded-lg">
+                      {employees.map(employee => (
+                        <label
+                          key={employee.id}
+                          className="flex items-center gap-2 p-2 rounded hover:bg-muted cursor-pointer"
+                          data-testid={`crew-option-${employee.id}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedCrewMembers.includes(employee.id)}
+                            onChange={() => toggleCrewMember(employee.id)}
+                            className="h-4 w-4"
+                          />
+                          <span className="text-sm">{getUserDisplayName(employee.id)}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {selectedCrewMembers.length > 0 && (
+                      <div className="p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900 rounded-lg">
+                        <p className="text-xs font-semibold text-green-800 dark:text-green-200">
+                          ✅ {selectedCrewMembers.length} worker{selectedCrewMembers.length > 1 ? 's' : ''} assigned
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Each worker will earn: {tokenAllocation && selectedCrewMembers.length > 0 
+                            ? (parseFloat(tokenAllocation) / selectedCrewMembers.length).toFixed(2) 
+                            : '0'} JCMOVES
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -822,8 +904,9 @@ export default function EmployeeHomePage() {
                       updateJobMutation.mutate({
                         jobId: selectedJob.id,
                         updates: {
-                          tokenAllocation: tokenAllocation ? parseFloat(tokenAllocation) : undefined,
+                          tokenAllocation: tokenAllocation || undefined,
                           basePrice: basePrice || undefined,
+                          crewMembers: selectedCrewMembers,
                         },
                       });
                     }}
