@@ -220,13 +220,13 @@ export default function LeadsPage() {
           </div>
           <div className="flex gap-2 ml-4">
             <Button 
-              variant="ghost" 
+              variant="default" 
               size="sm" 
               asChild
-              data-testid={`view-button-${lead.id}`}
+              data-testid={`manage-button-${lead.id}`}
             >
               <Link href={`/lead/${lead.id}`}>
-                <Eye className="h-4 w-4" />
+                Manage
               </Link>
             </Button>
             <Button 
