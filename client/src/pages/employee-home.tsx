@@ -1,11 +1,16 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Calendar as CalendarIcon, BookOpen, Store, Star, Camera, MapPin, Phone, Mail, Plus } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Calendar as CalendarIcon, BookOpen, Store, Star, Camera, MapPin, Phone, Mail, Plus, Settings, Award, User } from "lucide-react";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface Lead {
   id: string;
@@ -20,6 +25,9 @@ interface Lead {
   fromAddress?: string;
   toAddress?: string;
   details?: string;
+  createdByUserId?: string;
+  tokenAllocation?: number;
+  basePrice?: string;
 }
 
 interface ShopItem {
@@ -71,7 +79,12 @@ export default function EmployeeHomePage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isManageDialogOpen, setIsManageDialogOpen] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<Lead | null>(null);
+  const [tokenAllocation, setTokenAllocation] = useState("");
+  const [basePrice, setBasePrice] = useState("");
   const scripture = getDailyScripture();
+  const { toast } = useToast();
 
   const { data: allJobs = [] } = useQuery<Lead[]>({
     queryKey: ["/api/leads"],
@@ -115,10 +128,53 @@ export default function EmployeeHomePage() {
 
   const completedCount = allJobs.filter(j => j.status === 'completed').length;
 
+  // Update job mutation
+  const updateJobMutation = useMutation({
+    mutationFn: async (data: { jobId: string; updates: any }) => {
+      return await apiRequest("PATCH", `/api/leads/${data.jobId}`, data.updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({
+        title: "Success",
+        description: "Job updated successfully",
+      });
+      setIsManageDialogOpen(false);
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update job",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Handle date click
   const handleDateClick = (date: Date) => {
     setSelectedDate(date);
     setIsDialogOpen(true);
+  };
+
+  // Handle manage job click
+  const handleManageJob = (job: Lead) => {
+    setSelectedJob(job);
+    setTokenAllocation(job.tokenAllocation?.toString() || "");
+    setBasePrice(job.basePrice || "");
+    setIsManageDialogOpen(true);
+  };
+
+  // Update job status
+  const updateJobStatus = (newStatus: string) => {
+    if (!selectedJob) return;
+    updateJobMutation.mutate({
+      jobId: selectedJob.id,
+      updates: {
+        status: newStatus,
+        tokenAllocation: tokenAllocation ? parseFloat(tokenAllocation) : undefined,
+        basePrice: basePrice || undefined,
+      },
+    });
   };
 
   // Get jobs for selected date
@@ -526,11 +582,14 @@ export default function EmployeeHomePage() {
                           </p>
                         )}
                         <div className="flex gap-2 mt-3">
-                          <Link href={`/lead/${job.id}`}>
-                            <Button size="sm" data-testid={`button-view-job-${job.id}`}>
-                              View Details
-                            </Button>
-                          </Link>
+                          <Button 
+                            size="sm" 
+                            onClick={() => handleManageJob(job)}
+                            data-testid={`button-manage-job-${job.id}`}
+                          >
+                            <Settings className="h-4 w-4 mr-1" />
+                            Manage Job
+                          </Button>
                           <Button variant="outline" size="sm" asChild data-testid={`button-call-${job.id}`}>
                             <a href={`tel:${job.phone}`}>
                               <Phone className="h-4 w-4 mr-1" />
@@ -550,6 +609,233 @@ export default function EmployeeHomePage() {
                 ))
               )}
             </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Job Management Modal */}
+        <Dialog open={isManageDialogOpen} onOpenChange={setIsManageDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                Manage Job
+              </DialogTitle>
+              <DialogDescription>
+                Update job details, assign rewards, and change status
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedJob && (
+              <div className="space-y-6 mt-4">
+                {/* Customer Info */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-lg border-b pb-2">Customer Information</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Name</Label>
+                      <p className="text-sm mt-1">{selectedJob.firstName} {selectedJob.lastName}</p>
+                    </div>
+                    <div>
+                      <Label>Service Type</Label>
+                      <Badge className="mt-1">
+                        {selectedJob.serviceType === 'residential' ? 'Residential' : 
+                         selectedJob.serviceType === 'commercial' ? 'Commercial' : 
+                         'Junk Removal'}
+                      </Badge>
+                    </div>
+                    <div>
+                      <Label>Phone</Label>
+                      <p className="text-sm mt-1">
+                        <a href={`tel:${selectedJob.phone}`} className="hover:underline text-primary">
+                          {selectedJob.phone}
+                        </a>
+                      </p>
+                    </div>
+                    <div>
+                      <Label>Email</Label>
+                      <p className="text-sm mt-1">
+                        <a href={`mailto:${selectedJob.email}`} className="hover:underline text-primary">
+                          {selectedJob.email}
+                        </a>
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <Label>From Address</Label>
+                    <p className="text-sm mt-1">{selectedJob.fromAddress}</p>
+                  </div>
+                  {selectedJob.toAddress && (
+                    <div>
+                      <Label>To Address</Label>
+                      <p className="text-sm mt-1">{selectedJob.toAddress}</p>
+                    </div>
+                  )}
+                  {selectedJob.details && (
+                    <div>
+                      <Label>Details</Label>
+                      <p className="text-sm mt-1 p-2 bg-muted rounded">{selectedJob.details}</p>
+                    </div>
+                  )}
+                  {selectedJob.moveDate && (
+                    <div>
+                      <Label>Move Date</Label>
+                      <p className="text-sm mt-1">
+                        {new Date(selectedJob.moveDate).toLocaleDateString('en-US', { 
+                          weekday: 'long', 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Created By */}
+                {selectedJob.createdByUserId && (
+                  <div className="space-y-2 p-3 bg-muted/50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <Label className="text-xs text-muted-foreground">Created By</Label>
+                    </div>
+                    <p className="text-sm font-medium">User ID: {selectedJob.createdByUserId}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Created on {new Date(selectedJob.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                )}
+
+                {/* Job Management */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-lg border-b pb-2 flex items-center gap-2">
+                    <Award className="h-5 w-5" />
+                    Job Management
+                  </h3>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="base-price">Base Price ($)</Label>
+                      <Input
+                        id="base-price"
+                        type="number"
+                        placeholder="e.g., 500"
+                        value={basePrice}
+                        onChange={(e) => setBasePrice(e.target.value)}
+                        data-testid="input-base-price"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="token-allocation">JCMOVES Tokens</Label>
+                      <Input
+                        id="token-allocation"
+                        type="number"
+                        placeholder="e.g., 1000"
+                        value={tokenAllocation}
+                        onChange={(e) => setTokenAllocation(e.target.value)}
+                        data-testid="input-token-allocation"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-primary/10 rounded-lg">
+                    <p className="text-sm font-semibold text-primary flex items-center gap-2">
+                      <Award className="h-4 w-4" />
+                      Reward Pool: {tokenAllocation || '0'} JCMOVES tokens
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Employees will earn bonuses from this pool based on performance
+                    </p>
+                  </div>
+                </div>
+
+                {/* Status Workflow */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-lg border-b pb-2">Job Status</h3>
+                  
+                  <div className="flex items-center gap-2">
+                    <Label>Current Status:</Label>
+                    <Badge variant={selectedJob.status === 'completed' ? 'default' : 'secondary'}>
+                      {selectedJob.status.charAt(0).toUpperCase() + selectedJob.status.slice(1)}
+                    </Badge>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {selectedJob.status === 'new' && (
+                      <Button 
+                        onClick={() => updateJobStatus('quoted')}
+                        disabled={updateJobMutation.isPending}
+                        data-testid="button-mark-quoted"
+                      >
+                        Mark as Quoted
+                      </Button>
+                    )}
+                    
+                    {['new', 'quoted'].includes(selectedJob.status) && (
+                      <Button 
+                        onClick={() => updateJobStatus('accepted')}
+                        disabled={updateJobMutation.isPending}
+                        data-testid="button-mark-accepted"
+                      >
+                        Mark as Accepted
+                      </Button>
+                    )}
+                    
+                    {['accepted', 'confirmed', 'in-progress'].includes(selectedJob.status) && (
+                      <Button 
+                        onClick={() => updateJobStatus('completed')}
+                        disabled={updateJobMutation.isPending}
+                        variant="default"
+                        className="bg-green-600 hover:bg-green-700"
+                        data-testid="button-mark-completed"
+                      >
+                        Mark as Completed
+                      </Button>
+                    )}
+
+                    {selectedJob.status === 'completed' && (
+                      <div className="w-full p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900 rounded-lg">
+                        <p className="text-sm font-semibold text-green-800 dark:text-green-200">
+                          ✅ Job Completed Successfully!
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Workflow: New → Quoted → Accepted → Completed
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-2 pt-4 border-t">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setIsManageDialogOpen(false)}
+                    className="flex-1"
+                    data-testid="button-close-manage"
+                  >
+                    Close
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      if (!selectedJob) return;
+                      updateJobMutation.mutate({
+                        jobId: selectedJob.id,
+                        updates: {
+                          tokenAllocation: tokenAllocation ? parseFloat(tokenAllocation) : undefined,
+                          basePrice: basePrice || undefined,
+                        },
+                      });
+                    }}
+                    disabled={updateJobMutation.isPending}
+                    className="flex-1"
+                    data-testid="button-save-changes"
+                  >
+                    {updateJobMutation.isPending ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
       </div>
