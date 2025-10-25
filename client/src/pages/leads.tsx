@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
-import { ArrowLeft, Home, Building, Trash2, Eye, Mail, Phone, CircleDot, MessageCircle, FileText, CheckCircle, Clock, Play, Activity, CheckCheck } from "lucide-react";
+import { ArrowLeft, Home, Building, Trash2, Mail, Phone, CircleDot, MessageCircle, FileText, CheckCircle, Clock, Play, Activity, CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -222,12 +222,10 @@ export default function LeadsPage() {
             <Button 
               variant="default" 
               size="sm" 
-              asChild
+              onClick={() => handleViewLead(lead)}
               data-testid={`manage-button-${lead.id}`}
             >
-              <Link href={`/lead/${lead.id}`}>
-                Manage
-              </Link>
+              Manage
             </Button>
             <Button 
               variant="ghost" 
