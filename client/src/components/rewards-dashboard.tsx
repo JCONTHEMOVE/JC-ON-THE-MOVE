@@ -75,6 +75,7 @@ export default function RewardsDashboard() {
   const queryClient = useQueryClient();
   const [referralCodeInput, setReferralCodeInput] = useState('');
   const [accumulatedTokens, setAccumulatedTokens] = useState("0.00000000");
+  const [streakBonus, setStreakBonus] = useState("0.00000000");
   const [timeRemaining, setTimeRemaining] = useState(0);
 
   // Fetch wallet data
@@ -210,6 +211,12 @@ export default function RewardsDashboard() {
       const cappedTokens = Math.min(totalAccumulated, maxTokens);
       
       setAccumulatedTokens(cappedTokens.toFixed(8));
+
+      // Calculate streak bonus in real-time
+      const streakCount = miningStatus.streakCount || 0;
+      const bonusPercentage = (streakCount - 1) * 0.01; // Day 1: 0%, Day 2: 1%, Day 3: 2%, etc.
+      const calculatedBonus = cappedTokens * bonusPercentage;
+      setStreakBonus(calculatedBonus.toFixed(8));
     };
 
     updateAccumulated();
@@ -465,12 +472,12 @@ export default function RewardsDashboard() {
                               </span>
                             </div>
                             <span className="text-lg font-bold" data-testid="text-streak-bonus">
-                              +{parseFloat(miningStatus.nextStreakBonus || "0").toFixed(4)}
+                              +{parseFloat(streakBonus || "0").toFixed(4)}
                             </span>
                           </div>
                           <div className="mt-2 text-center">
                             <p className="text-sm font-semibold">
-                              Total: {(parseFloat(accumulatedTokens) + parseFloat(miningStatus.nextStreakBonus || "0")).toFixed(4)} JCMOVES
+                              Total: {(parseFloat(accumulatedTokens) + parseFloat(streakBonus || "0")).toFixed(4)} JCMOVES
                             </p>
                           </div>
                         </div>
