@@ -38,6 +38,7 @@ Preferred communication style: Simple, everyday language.
 
 ## Authentication & Security
 - **Replit Auth**: OIDC-based authentication.
+- **Session Duration**: 90 days (3 months) for extended user sessions.
 - **Role-Based Access Control**: Admin and employee roles with distinct permissions.
 - **Route Protection**: Role-specific middleware.
 - **Data Isolation**: Employees access available jobs and their own assignments.
