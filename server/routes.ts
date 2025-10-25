@@ -891,6 +891,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`📝 Updating lead ${id} with:`, updateData);
       
+      // Get the current lead status BEFORE updating to check for status change
+      const currentLead = await storage.getLead(id);
+      if (!currentLead) {
+        console.log(`❌ Lead ${id} not found for update`);
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      
       // Update last quote timestamp if quote-related fields are being updated
       if (updateData.basePrice || updateData.crewSize || updateData.confirmedDate) {
         updateData.lastQuoteUpdatedAt = new Date();
@@ -901,6 +908,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updatedLead) {
         console.log(`❌ Lead ${id} not found for update`);
         return res.status(404).json({ error: "Lead not found" });
+      }
+      
+      // IDEMPOTENCY CHECK: Only distribute tokens if rewards haven't been distributed yet
+      const isStatusChangingToCompleted = updateData.status === "completed" && currentLead.status !== "completed";
+      const rewardsAlreadyDistributed = currentLead.completionRewardedAt !== null && currentLead.completionRewardedAt !== undefined;
+      
+      if (isStatusChangingToCompleted && !rewardsAlreadyDistributed && updatedLead.tokenAllocation && updatedLead.crewMembers && updatedLead.crewMembers.length > 0) {
+        try {
+          const totalTokens = parseFloat(updatedLead.tokenAllocation);
+          
+          // Validate token allocation
+          if (isNaN(totalTokens) || totalTokens <= 0) {
+            console.log(`⚠️ Invalid token allocation for job ${id}: ${updatedLead.tokenAllocation}`);
+            return res.status(400).json({ error: "Invalid or missing token allocation. Please set a valid token amount before marking the job as completed." });
+          } else {
+            const tokensPerWorker = totalTokens / updatedLead.crewMembers.length;
+            
+            console.log(`💰 Admin completion: Distributing ${totalTokens} tokens to ${updatedLead.crewMembers.length} crew members (${tokensPerWorker} each)`);
+            
+            // Award tokens to each crew member using gamification service (includes creator bonus)
+            for (const crewMemberId of updatedLead.crewMembers) {
+              await gamificationService.awardJobCompletion(crewMemberId, id, tokensPerWorker.toFixed(8), {
+                onTime: true,
+                customerRating: 5
+              });
+              console.log(`✅ Awarded ${tokensPerWorker} tokens to crew member ${crewMemberId}`);
+            }
+            
+            // Mark rewards as distributed
+            await storage.updateLeadQuote(id, { completionRewardedAt: new Date() });
+            console.log(`✅ Marked job ${id} as rewarded at ${new Date().toISOString()}`);
+          }
+        } catch (tokenError) {
+          console.error("Error distributing tokens:", tokenError);
+          // Don't fail the request if token distribution fails - job is still completed
+        }
+      } else if (rewardsAlreadyDistributed) {
+        console.log(`ℹ️ Job ${id} rewards already distributed at ${currentLead.completionRewardedAt} - skipping`);
+      } else if (updateData.status === "completed" && currentLead.status === "completed") {
+        console.log(`ℹ️ Job ${id} already completed - skipping token distribution`);
       }
       
       console.log(`✅ Lead ${id} updated successfully`);
