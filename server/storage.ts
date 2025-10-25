@@ -127,6 +127,7 @@ export interface IStorage {
   getWalletAccount(userId: string): Promise<WalletAccount | undefined>;
   createWalletAccount(wallet: InsertWalletAccount): Promise<WalletAccount>;
   updateWalletAccount(userId: string, updates: Partial<WalletAccount>): Promise<void>;
+  awardJobCompletionTokens(userId: string, tokenAmount: number, jobId: string): Promise<void>;
   
   // Multi-currency wallet operations
   getSupportedCurrencies(): Promise<SupportedCurrency[]>;
@@ -1660,6 +1661,37 @@ export class DatabaseStorage implements IStorage {
         lastActivity: new Date()
       })
       .where(eq(walletAccounts.userId, userId));
+  }
+
+  async awardJobCompletionTokens(userId: string, tokenAmount: number, jobId: string): Promise<void> {
+    // Get or create user's wallet
+    let wallet = await this.getWalletAccount(userId);
+    if (!wallet) {
+      wallet = await this.createWalletAccount({ userId });
+    }
+
+    // Calculate new balances
+    const currentBalance = parseFloat(wallet.tokenBalance || "0");
+    const currentEarned = parseFloat(wallet.totalEarned || "0");
+    const newBalance = currentBalance + tokenAmount;
+    const newTotalEarned = currentEarned + tokenAmount;
+
+    // Update wallet balance
+    await this.updateWalletAccount(userId, {
+      tokenBalance: newBalance.toFixed(8),
+      totalEarned: newTotalEarned.toFixed(8),
+    });
+
+    // Create reward record for tracking
+    await db.insert(rewards).values({
+      userId,
+      rewardType: "job_completion",
+      tokenAmount: tokenAmount.toFixed(8),
+      cashValue: "0.00",
+      status: "confirmed",
+      earnedDate: new Date(),
+      metadata: { jobId },
+    });
   }
 
   // Multi-currency wallet operations

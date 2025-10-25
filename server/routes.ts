@@ -1387,6 +1387,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Failed to update job status" });
       }
 
+      // Distribute tokens to crew members if allocated
+      if (updatedLead.tokenAllocation && updatedLead.crewMembers && updatedLead.crewMembers.length > 0) {
+        try {
+          const totalTokens = parseFloat(updatedLead.tokenAllocation);
+          const tokensPerWorker = totalTokens / updatedLead.crewMembers.length;
+          
+          console.log(`💰 Distributing ${totalTokens} tokens to ${updatedLead.crewMembers.length} crew members (${tokensPerWorker} each)`);
+          
+          // Award tokens to each crew member
+          for (const crewMemberId of updatedLead.crewMembers) {
+            await storage.awardJobCompletionTokens(crewMemberId, tokensPerWorker, id);
+            console.log(`✅ Awarded ${tokensPerWorker} tokens to crew member ${crewMemberId}`);
+          }
+        } catch (tokenError) {
+          console.error("Error distributing tokens:", tokenError);
+          // Don't fail the request if token distribution fails - job is still completed
+        }
+      }
+
       res.json(updatedLead);
     } catch (error) {
       console.error("Error completing job:", error);
