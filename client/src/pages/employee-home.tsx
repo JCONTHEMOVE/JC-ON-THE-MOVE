@@ -125,7 +125,12 @@ export default function EmployeeHomePage() {
   const jobsByDate = allJobs
     .filter(job => {
       if (!job.moveDate) return false;
-      const jobDate = new Date(job.moveDate);
+      // Parse the ISO date string to avoid timezone issues
+      const dateParts = job.moveDate.split('T')[0].split('-');
+      const year = parseInt(dateParts[0]);
+      const month = parseInt(dateParts[1]) - 1; // JS months are 0-indexed
+      const day = parseInt(dateParts[2]);
+      const jobDate = new Date(year, month, day);
       return jobDate >= monthStart && jobDate <= monthEnd;
     })
     .reduce((acc, job) => {
