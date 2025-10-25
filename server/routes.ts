@@ -1395,9 +1395,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           console.log(`💰 Distributing ${totalTokens} tokens to ${updatedLead.crewMembers.length} crew members (${tokensPerWorker} each)`);
           
-          // Award tokens to each crew member
+          // Award tokens to each crew member using gamification service (includes creator bonus)
           for (const crewMemberId of updatedLead.crewMembers) {
-            await storage.awardJobCompletionTokens(crewMemberId, tokensPerWorker, id);
+            await gamificationService.awardJobCompletion(crewMemberId, id, tokensPerWorker.toFixed(8), {
+              onTime: true,
+              customerRating: 5
+            });
             console.log(`✅ Awarded ${tokensPerWorker} tokens to crew member ${crewMemberId}`);
           }
         } catch (tokenError) {
