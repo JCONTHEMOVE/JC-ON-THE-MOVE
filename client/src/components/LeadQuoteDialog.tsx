@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { X, Users } from "lucide-react";
+import { X, Users, Award } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,7 @@ const quoteFormSchema = z.object({
   confirmedFromAddress: z.string().min(1, "From address is required"),
   confirmedToAddress: z.string().min(1, "To address is required"),
   basePrice: z.string().min(1, "Base price is required"),
+  tokenAllocation: z.string().min(1, "Token allocation is required"),
   crewMembers: z.array(z.string()).min(1, "At least one crew member is required"),
   hasHotTub: z.boolean(),
   hotTubWeight: z.number().optional(),
@@ -56,6 +57,7 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
       confirmedFromAddress: "",
       confirmedToAddress: "",
       basePrice: "",
+      tokenAllocation: "",
       crewMembers: [],
       hasHotTub: false,
       hotTubWeight: undefined,
@@ -72,6 +74,8 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
   // Watch form values for calculations
   const watchedValues = quoteForm.watch();
   const basePrice = parseFloat(watchedValues.basePrice) || 0;
+  const tokenAllocation = parseFloat(watchedValues.tokenAllocation) || 0;
+  const tokensPerWorker = selectedCrewMembers.length > 0 ? tokenAllocation / selectedCrewMembers.length : 0;
 
   // Calculate heavy item fee: $200 base + $150 per 100 lbs (max 1000 lbs)
   const calculateHeavyItemFee = (weight: number | undefined): number => {
@@ -98,6 +102,7 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
         confirmedFromAddress: lead.confirmedFromAddress || lead.fromAddress,
         confirmedToAddress: lead.confirmedToAddress || lead.toAddress || "",
         basePrice: lead.basePrice?.toString() || "",
+        tokenAllocation: lead.tokenAllocation?.toString() || "",
         crewMembers: lead.crewMembers || [],
         hasHotTub: lead.hasHotTub || false,
         hotTubWeight: lead.hotTubWeight || undefined,
@@ -266,35 +271,57 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
 
             {/* Edit Quote Section */}
             <form onSubmit={onQuoteSubmit} className="space-y-6">
-              <h3 className="text-xl font-semibold mb-4" data-testid="text-edit-quote-title">Quote & Scheduling</h3>
-              <p className="text-sm text-muted-foreground -mt-2 mb-4">Configure pricing, crew, and schedule details</p>
-
+              <h3 className="text-xl font-semibold mb-4 flex items-center gap-2" data-testid="text-edit-quote-title">
+                <Award className="h-5 w-5" />
+                Job Management
+              </h3>
+              
               <div className="space-y-4">
-                <div>
-                  <Label htmlFor="basePrice" className="text-sm text-muted-foreground">Base Price</Label>
-                  <Input
-                    id="basePrice"
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    {...quoteForm.register("basePrice")}
-                    data-testid="input-base-price"
-                    className="mt-1"
-                  />
-                  {quoteForm.formState.errors.basePrice && (
-                    <p className="text-destructive text-sm mt-1" data-testid="error-base-price">
-                      {quoteForm.formState.errors.basePrice.message}
-                    </p>
-                  )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="basePrice">Base Price ($)</Label>
+                    <Input
+                      id="basePrice"
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      {...quoteForm.register("basePrice")}
+                      data-testid="input-base-price"
+                      className="mt-1"
+                    />
+                    {quoteForm.formState.errors.basePrice && (
+                      <p className="text-destructive text-sm mt-1" data-testid="error-base-price">
+                        {quoteForm.formState.errors.basePrice.message}
+                      </p>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="tokenAllocation">JCMOVES Tokens</Label>
+                    <Input
+                      id="tokenAllocation"
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      {...quoteForm.register("tokenAllocation")}
+                      data-testid="input-token-allocation"
+                      className="mt-1"
+                    />
+                    {quoteForm.formState.errors.tokenAllocation && (
+                      <p className="text-destructive text-sm mt-1" data-testid="error-token-allocation">
+                        {quoteForm.formState.errors.tokenAllocation.message}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
-                <div>
-                  <Label className="text-sm text-muted-foreground flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Crew Size
-                  </Label>
-                  <p className="text-base font-normal mt-1" data-testid="text-crew-size">
-                    {selectedCrewMembers.length}
+                <div className="p-3 bg-primary/10 rounded-lg">
+                  <p className="text-sm font-semibold text-primary flex items-center gap-2">
+                    <Award className="h-4 w-4" />
+                    Reward Pool: {tokenAllocation.toFixed(2) || '0.00'} JCMOVES tokens
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Employees will earn bonuses from this pool based on performance
                   </p>
                 </div>
 
@@ -395,6 +422,16 @@ export function LeadQuoteDialog({ open, onOpenChange, lead, employees, onSave }:
                   <p className="text-destructive text-sm mt-1" data-testid="error-crew-members">
                     {quoteForm.formState.errors.crewMembers.message}
                   </p>
+                )}
+                {selectedCrewMembers.length > 0 && (
+                  <div className="p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900 rounded-lg mt-2">
+                    <p className="text-xs font-semibold text-green-800 dark:text-green-200">
+                      ✅ {selectedCrewMembers.length} worker{selectedCrewMembers.length > 1 ? 's' : ''} assigned
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Each worker will earn: {tokensPerWorker.toFixed(2)} JCMOVES
+                    </p>
+                  </div>
                 )}
               </div>
 
