@@ -533,9 +533,15 @@ export default function EmployeeHomePage() {
         </Card>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Link href="/employee/dashboard">
+            <Button className="w-full h-20 text-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700" data-testid="button-my-dashboard">
+              <User className="h-5 w-5 mr-2" />
+              My Dashboard
+            </Button>
+          </Link>
           <Link href="/dashboard">
-            <Button className="w-full h-20 text-lg" data-testid="button-view-jobs">
+            <Button variant="outline" className="w-full h-20 text-lg" data-testid="button-view-jobs">
               View My Jobs
             </Button>
           </Link>
