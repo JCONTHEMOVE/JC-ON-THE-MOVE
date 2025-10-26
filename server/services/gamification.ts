@@ -339,6 +339,22 @@ export class GamificationService {
       userId
     );
 
+    // Create reward record for history tracking
+    const tokenPrice = 0.00000508432; // Default token price
+    await storage.createReward({
+      userId,
+      rewardType: 'job_completion',
+      tokenAmount,
+      cashValue: (parseFloat(tokenAmount) * tokenPrice).toFixed(4),
+      status: 'confirmed',
+      referenceId: jobId,
+      metadata: {
+        onTime: performance.onTime,
+        customerRating: performance.customerRating,
+        points
+      }
+    });
+
     // Add points transaction
     await storage.createPointTransaction({
       userId,
@@ -392,6 +408,20 @@ export class GamificationService {
         "job_creation_bonus",
         lead.createdByUserId
       );
+
+      // Create reward record for creator bonus
+      await storage.createReward({
+        userId: lead.createdByUserId,
+        rewardType: 'job_creation_bonus',
+        tokenAmount: creatorBonusTokens,
+        cashValue: (parseFloat(creatorBonusTokens) * tokenPrice).toFixed(4),
+        status: 'confirmed',
+        referenceId: jobId,
+        metadata: {
+          completedBy: userId,
+          points: creatorBonusPoints
+        }
+      });
 
       await storage.createPointTransaction({
         userId: lead.createdByUserId,

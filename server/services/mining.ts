@@ -249,6 +249,23 @@ export class MiningService {
         claimType,
       });
 
+      // Create reward record for history tracking
+      const { rewards } = await import("@shared/schema");
+      await db.insert(rewards).values({
+        userId,
+        rewardType: 'mining_claim',
+        tokenAmount: tokensToClaim.toFixed(8),
+        cashValue: (tokensToClaim * tokenPrice).toFixed(4),
+        status: 'confirmed',
+        metadata: {
+          sessionId: session.id,
+          claimType,
+          baseTokens: baseTokens.toFixed(8),
+          streakBonus: streakBonus.toFixed(8),
+          streakCount,
+        },
+      });
+
       // Update session for next 24-hour cycle with streak tracking
       const nextClaimAt = new Date(Date.now() + MINING_CONFIG.CYCLE_DURATION_MS);
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD

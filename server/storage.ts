@@ -118,6 +118,7 @@ export interface IStorage {
   getRecentCheckIn(userId: string, sinceDate: Date): Promise<DailyCheckin | undefined>;
   createDailyCheckIn(checkin: InsertDailyCheckin): Promise<DailyCheckin>;
   createPointTransaction(transaction: InsertPointTransaction): Promise<PointTransaction>;
+  createReward(reward: InsertReward): Promise<Reward>;
   getEmployeeAchievements(userId: string, limit?: number): Promise<(EmployeeAchievement & { achievementType: AchievementType })[]>;
   getUserAchievement(userId: string, achievementTypeId: string): Promise<EmployeeAchievement | undefined>;
   createEmployeeAchievement(achievement: InsertEmployeeAchievement): Promise<EmployeeAchievement>;
@@ -1541,6 +1542,14 @@ export class DatabaseStorage implements IStorage {
     const [created] = await db
       .insert(pointTransactions)
       .values(transaction)
+      .returning();
+    return created;
+  }
+
+  async createReward(reward: InsertReward): Promise<Reward> {
+    const [created] = await db
+      .insert(rewards)
+      .values(reward)
       .returning();
     return created;
   }
