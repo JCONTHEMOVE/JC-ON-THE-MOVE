@@ -1,0 +1,125 @@
+
+2025-10-26 18:12:28.24
+a462e2d4
+User
+User data retrieved: found - upmichiganstatemovers@gmail.com with role admin
+2025-10-26 18:12:28.24
+a462e2d4
+User
+📤 Returning user data for upmichiganstatemovers@gmail.com
+2025-10-26 18:12:28.37
+a462e2d4
+User
+11:12:28 PM [express] GET /api/auth/user 200 in 1005ms :: {"id":"47798367","email":"upmichiganstatemo…
+2025-10-26 18:21:50.51
+a462e2d4
+User
+[PASSPORT] Deserializing user: {
+2025-10-26 18:21:50.51
+a462e2d4
+User
+claims: {
+2025-10-26 18:21:50.51
+a462e2d4
+User
+aud: 'a462e2d4-3360-4164-980b-855398af5731',
+2025-10-26 18:21:50.51
+a462e2d4
+User
+exp: 1761523690,
+2025-10-26 18:21:50.51
+a462e2d4
+User
+iat: 1761520090,
+2025-10-26 18:21:50.51
+a462e2d4
+User
+iss: 'https://replit.com/oidc',
+2025-10-26 18:21:50.51
+a462e2d4
+User
+sub: '47798367',
+2025-10-26 18:21:50.51
+a462e2d4
+User
+email: 'upmichiganstatemovers@gmail.com',
+2025-10-26 18:21:50.51
+a462e2d4
+User
+at_hash: 'B3Z2Qhy6zITSXBQvYcFkGg',
+2025-10-26 18:21:50.51
+a462e2d4
+User
+username: 'upmichiganstate',
+2025-10-26 18:21:50.51
+a462e2d4
+User
+last_name: 'Jackson',
+2025-10-26 18:21:50.51
+a462e2d4
+User
+first_name: 'Darrell'
+2025-10-26 18:21:50.51
+a462e2d4
+User
+},
+2025-10-26 18:21:50.51
+a462e2d4
+User
+expires_at: 1761523690,
+2025-10-26 18:21:50.51
+a462e2d4
+User
+access_token: 'ZptSOxsQuYGL9D858rEmVrOAP-ggXzq4vySGUaOEXBX'
+2025-10-26 18:21:50.51
+a462e2d4
+User
+}
+2025-10-26 18:21:50.51
+a462e2d4
+User
+[AUTH CHECK] Path: /api/auth/user
+2025-10-26 18:21:50.51
+a462e2d4
+User
+[AUTH CHECK] Session ID: XAgqK8UvU-HyS8t-gNrVKi1oYsVxjkYI
+2025-10-26 18:21:50.51
+a462e2d4
+User
+[AUTH CHECK] req.isAuthenticated(): true
+2025-10-26 18:21:50.51
+a462e2d4
+User
+[AUTH CHECK] User object exists: true
+2025-10-26 18:21:50.51
+a462e2d4
+User
+[AUTH CHECK] User expires_at: 1761523690
+2025-10-26 18:21:50.51
+a462e2d4
+User
+[AUTH CHECK] Cookie header: Present
+2025-10-26 18:21:50.51
+a462e2d4
+User
+[AUTH CHECK] ✅ User is authenticated
+2025-10-26 18:21:50.51
+a462e2d4
+User
+[AUTH CHECK] ✅ Token is valid, proceeding
+2025-10-26 18:21:50.51
+a462e2d4
+User
+✅ Authentication successful - Fetching user data for userId: 47798367
+2025-10-26 18:21:51.25
+a462e2d4
+User
+User data retrieved: found - upmichiganstatemovers@gmail.com with role admin
+2025-10-26 18:21:51.25
+a462e2d4
+User
+📤 Returning user data for upmichiganstatemovers@gmail.com
+2025-10-26 18:21:51.38
+a462e2d4
+User
+11:21:51 PM [express] GET /api/auth/user 200 in 1601ms :: {"id":"47798367","email":"upmichiganstatemo…
