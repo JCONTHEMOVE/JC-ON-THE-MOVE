@@ -26,6 +26,17 @@ import { walletService } from "./services/wallet";
 import { solanaMonitor } from "./services/solana-monitor";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Public health check endpoint for deployment monitoring (MUST be before auth setup)
+  // This endpoint is used by Replit Autoscale Deployments to verify the service is healthy
+  app.get("/health", (req, res) => {
+    res.status(200).json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      service: "jc-on-the-move"
+    });
+  });
+
   // Auth middleware with graceful error handling
   try {
     await setupAuth(app);
