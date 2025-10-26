@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
-import { ArrowLeft, Home, Building, Trash2, Mail, Phone, CircleDot, MessageCircle, FileText, CheckCircle, Clock, Play, Activity, CheckCheck } from "lucide-react";
+import { ArrowLeft, Home, Building, Trash2, Mail, Phone, CircleDot, MessageCircle, FileText, CheckCircle, Clock, Play, Activity, CheckCheck, Settings, MapPin, Calendar as CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,7 +33,8 @@ export default function LeadsPage() {
   const queryClient = useQueryClient();
   const [selectedService, setSelectedService] = useState("");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
+  const [isManageDialogOpen, setIsManageDialogOpen] = useState(false);
   const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
 
   const serviceOptions = [
@@ -51,7 +53,7 @@ export default function LeadsPage() {
   // Fetch employees
   const { data: employees = [] } = useQuery<User[]>({
     queryKey: ["/api/employees"],
-    enabled: isDialogOpen,
+    enabled: isManageDialogOpen,
   });
 
   // Find created by user from employees list
@@ -107,7 +109,7 @@ export default function LeadsPage() {
         title: "Quote saved successfully!",
         description: "The quote has been updated for this lead.",
       });
-      setIsDialogOpen(false);
+      setIsManageDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads/status/quoted"] });
     },
@@ -185,7 +187,13 @@ export default function LeadsPage() {
 
   const handleViewLead = (lead: Lead) => {
     setSelectedLead(lead);
-    setIsDialogOpen(true);
+    setIsQuickViewOpen(true);
+  };
+
+  const handleManageJob = (lead: Lead) => {
+    setSelectedLead(lead);
+    setIsQuickViewOpen(false);
+    setIsManageDialogOpen(true);
   };
 
   const renderLeadCard = (lead: Lead) => (
@@ -494,10 +502,109 @@ export default function LeadsPage() {
         </Tabs>
       </div>
 
-      {/* Lead Detail and Quote Modal */}
+      {/* Quick View Dialog */}
+      <Dialog open={isQuickViewOpen} onOpenChange={setIsQuickViewOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Lead Details</DialogTitle>
+            <DialogDescription>
+              View lead information and take action
+            </DialogDescription>
+          </DialogHeader>
+          {selectedLead && (
+            <Card className="border" data-testid={`lead-quick-view-${selectedLead.id}`}>
+              <CardContent className="p-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-lg">
+                      {selectedLead.firstName} {selectedLead.lastName}
+                    </h3>
+                    <Badge
+                      variant={selectedLead.status === 'completed' ? 'default' : 'secondary'}
+                      className={selectedLead.status === 'completed' ? 'bg-green-600' : ''}
+                    >
+                      {selectedLead.status.charAt(0).toUpperCase() + selectedLead.status.slice(1).replace('_', ' ')}
+                    </Badge>
+                  </div>
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Badge className={
+                        selectedLead.serviceType === 'residential' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                        selectedLead.serviceType === 'commercial' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                        'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
+                      }>
+                        {selectedLead.serviceType === 'residential' ? 'Residential' : 
+                         selectedLead.serviceType === 'commercial' ? 'Commercial' : 
+                         'Junk Removal'}
+                      </Badge>
+                    </div>
+                    <p className="flex items-center gap-2">
+                      <Phone className="h-4 w-4" />
+                      <a href={`tel:${selectedLead.phone}`} className="hover:underline">
+                        {selectedLead.phone}
+                      </a>
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <Mail className="h-4 w-4" />
+                      <a href={`mailto:${selectedLead.email}`} className="hover:underline">
+                        {selectedLead.email}
+                      </a>
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4" />
+                      {selectedLead.fromAddress}
+                    </p>
+                    {selectedLead.toAddress && (
+                      <p className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4" />
+                        To: {selectedLead.toAddress}
+                      </p>
+                    )}
+                    {selectedLead.moveDate && (
+                      <p className="flex items-center gap-2">
+                        <CalendarIcon className="h-4 w-4" />
+                        Move Date: {new Date(selectedLead.moveDate).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+                  {selectedLead.details && (
+                    <p className="text-sm mt-2 p-2 bg-muted rounded">
+                      {selectedLead.details}
+                    </p>
+                  )}
+                  <div className="flex gap-2 mt-3">
+                    <Button 
+                      size="sm" 
+                      onClick={() => handleManageJob(selectedLead)}
+                      data-testid={`button-manage-job-${selectedLead.id}`}
+                    >
+                      <Settings className="h-4 w-4 mr-1" />
+                      Manage Job
+                    </Button>
+                    <Button variant="outline" size="sm" asChild data-testid={`button-call-${selectedLead.id}`}>
+                      <a href={`tel:${selectedLead.phone}`}>
+                        <Phone className="h-4 w-4 mr-1" />
+                        Call
+                      </a>
+                    </Button>
+                    <Button variant="outline" size="sm" asChild data-testid={`button-email-${selectedLead.id}`}>
+                      <a href={`mailto:${selectedLead.email}`}>
+                        <Mail className="h-4 w-4 mr-1" />
+                        Email
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Full Management Dialog */}
       <LeadQuoteDialog
-        open={isDialogOpen}
-        onOpenChange={setIsDialogOpen}
+        open={isManageDialogOpen}
+        onOpenChange={setIsManageDialogOpen}
         lead={selectedLead}
         employees={employees}
         onSave={handleSaveQuote}
