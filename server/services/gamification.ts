@@ -308,7 +308,154 @@ export class GamificationService {
   }
 
   /**
-   * Award points for job completion
+   * Award custom token amount for job completion (used when tokenAllocation is set on job)
+   */
+  async awardJobCompletion(userId: string, jobId: string, tokenAmount: string, performance: {
+    onTime: boolean;
+    customerRating?: number;
+  }): Promise<{ points: number; tokens: string; level: number }> {
+    let points = GAMIFICATION_REWARDS.JOB_COMPLETION.BASE_POINTS;
+
+    // Award bonus points based on performance
+    if (performance.onTime) {
+      points += Math.floor(points * GAMIFICATION_REWARDS.JOB_COMPLETION.ON_TIME_BONUS);
+    }
+
+    if (performance.customerRating && performance.customerRating >= 4.0) {
+      points += Math.floor(points * GAMIFICATION_REWARDS.JOB_COMPLETION.QUALITY_BONUS);
+    }
+
+    // Get current token price for accurate cash value calculation
+    const tokenPrice = await treasuryService.getCurrentTokenPrice();
+
+    // Distribute the specified token amount from Treasury
+    const distributionResult = await treasuryService.distributeTokens(
+      parseFloat(tokenAmount),
+      `Job completion reward - Job #${jobId}`,
+      "job_completion",
+      userId
+    );
+
+    // Check if distribution was successful
+    if (!distributionResult.success) {
+      throw new Error(`Token distribution failed: ${distributionResult.error || 'Unknown error'}`);
+    }
+
+    // Create reward record for history tracking (use actual cash value from distribution)
+    await storage.createReward({
+      userId,
+      rewardType: 'job_completion',
+      tokenAmount,
+      cashValue: distributionResult.cashValue.toFixed(4),
+      status: 'confirmed',
+      referenceId: jobId,
+      metadata: {
+        onTime: performance.onTime,
+        customerRating: performance.customerRating,
+        points
+      }
+    });
+
+    // Add points transaction
+    await storage.createPointTransaction({
+      userId,
+      points,
+      transactionType: "job_completion",
+      relatedEntityType: "lead",
+      relatedEntityId: jobId,
+      description: `Job completion reward - Job #${jobId}`,
+      metadata: {
+        onTime: performance.onTime,
+        customerRating: performance.customerRating,
+        tokenAmount
+      }
+    });
+
+    // Update employee stats
+    const stats = await storage.getEmployeeStats(userId);
+    if (stats) {
+      const newTotalPoints = (stats.totalPoints || 0) + points;
+      const newLevel = this.calculateLevel(newTotalPoints);
+      
+      await storage.updateEmployeeStats(userId, {
+        totalPoints: newTotalPoints,
+        currentLevel: newLevel,
+        jobsCompleted: (stats.jobsCompleted || 0) + 1,
+        onTimeCompletions: (stats.onTimeCompletions || 0) + (performance.onTime ? 1 : 0),
+        totalEarnedTokens: (parseFloat(stats.totalEarnedTokens || "0") + parseFloat(tokenAmount)).toFixed(8),
+        lastActivityDate: new Date()
+      });
+
+      // Check for achievements
+      await this.checkAndAwardAchievements(userId, {
+        type: 'job_completion',
+        totalJobs: stats.jobsCompleted + 1,
+        onTimeCompletions: stats.onTimeCompletions + (performance.onTime ? 1 : 0),
+        newLevel,
+        customerRating: performance.customerRating
+      });
+    }
+
+    // Check if this job was created by an employee and reward them too
+    const lead = await storage.getLead(jobId);
+    if (lead && lead.createdByUserId && lead.createdByUserId !== userId) {
+      // Award bonus to employee who created the job (10% of completion reward)
+      const creatorBonusTokens = (parseFloat(tokenAmount) * 0.1).toFixed(8);
+      const creatorBonusPoints = Math.floor(points * 0.1);
+
+      const creatorDistributionResult = await treasuryService.distributeTokens(
+        parseFloat(creatorBonusTokens),
+        `Job creation bonus - Job #${jobId} completed`,
+        "job_creation_bonus",
+        lead.createdByUserId
+      );
+
+      // Only create reward record if distribution was successful
+      if (creatorDistributionResult.success) {
+        // Create reward record for creator bonus
+        await storage.createReward({
+          userId: lead.createdByUserId,
+          rewardType: 'job_creation_bonus',
+          tokenAmount: creatorBonusTokens,
+          cashValue: creatorDistributionResult.cashValue.toFixed(4),
+          status: 'confirmed',
+          referenceId: jobId,
+          metadata: {
+            completedBy: userId,
+            points: creatorBonusPoints
+          }
+        });
+
+        await storage.createPointTransaction({
+          userId: lead.createdByUserId,
+          points: creatorBonusPoints,
+          transactionType: "job_creation_bonus",
+          relatedEntityType: "lead",
+          relatedEntityId: jobId,
+          description: `Job creation bonus - Job #${jobId} completed`,
+          metadata: {
+            completedBy: userId,
+            tokenAmount: creatorBonusTokens
+          }
+        });
+
+        // Update creator's stats
+        const creatorStats = await storage.getEmployeeStats(lead.createdByUserId);
+        if (creatorStats) {
+          await storage.updateEmployeeStats(lead.createdByUserId, {
+            totalPoints: (creatorStats.totalPoints || 0) + creatorBonusPoints,
+            totalEarnedTokens: (parseFloat(creatorStats.totalEarnedTokens || "0") + parseFloat(creatorBonusTokens)).toFixed(8),
+            lastActivityDate: new Date()
+          });
+        }
+      }
+    }
+
+    return { points, tokens: tokenAmount, level: stats ? this.calculateLevel((stats.totalPoints || 0) + points) : 1 };
+  }
+
+  /**
+   * Award points for job completion (calculates token amount from base rewards)
    */
   async awardJobCompletionPoints(userId: string, jobId: string, performance: {
     onTime: boolean;
