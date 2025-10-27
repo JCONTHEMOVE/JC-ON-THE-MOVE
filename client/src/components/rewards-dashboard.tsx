@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 import { 
   Gift, 
   Coins, 
@@ -21,7 +24,10 @@ import {
   Copy,
   Loader2,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Wallet,
+  History,
+  ChevronRight
 } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
@@ -85,6 +91,7 @@ export default function RewardsDashboard() {
   const [accumulatedTokens, setAccumulatedTokens] = useState("0.00000000");
   const [streakBonus, setStreakBonus] = useState("0.00000000");
   const [timeRemaining, setTimeRemaining] = useState(0);
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
 
   // Fetch wallet data
   const { data: wallet, isLoading: walletLoading } = useQuery<WalletAccount>({
@@ -392,7 +399,11 @@ export default function RewardsDashboard() {
 
       {/* Wallet Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <Card>
+        <Card 
+          className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
+          onClick={() => setWalletModalOpen(true)}
+          data-testid="card-wallet-balance"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Token Balance</CardTitle>
             <Coins className="h-4 w-4 text-muted-foreground" />
@@ -401,8 +412,9 @@ export default function RewardsDashboard() {
             <div className="text-xl md:text-2xl font-bold" data-testid="token-balance">
               {tokenBalance.toFixed(2)} {tokenInfo?.symbol || 'JCMOVES'}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground flex items-center">
               ≈ ${cashValue.toFixed(2)} USD
+              <ChevronRight className="h-3 w-3 ml-1" />
             </p>
           </CardContent>
         </Card>
@@ -765,6 +777,99 @@ export default function RewardsDashboard() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Wallet Details Modal */}
+      <Dialog open={walletModalOpen} onOpenChange={setWalletModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wallet className="h-5 w-5" />
+              My Wallet
+            </DialogTitle>
+            <DialogDescription>
+              View your token balance and transaction history
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Wallet Balance Summary */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Balance Overview</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Token Balance</span>
+                  <span className="text-2xl font-bold">
+                    {tokenBalance.toFixed(2)} {tokenInfo?.symbol || 'JCMOVES'}
+                  </span>
+                </div>
+                <Separator />
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">USD Value</span>
+                  <span className="text-xl font-bold text-green-600 dark:text-green-400">
+                    ${cashValue.toFixed(2)}
+                  </span>
+                </div>
+                <Separator />
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Total Earned</span>
+                  <span className="font-medium">
+                    {parseFloat(wallet?.totalEarned || '0').toFixed(2)} {tokenInfo?.symbol || 'JCMOVES'}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Recent Transactions */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <History className="h-4 w-4" />
+                  Recent Activity
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="h-[300px] pr-4">
+                  {rewardsHistory && rewardsHistory.length > 0 ? (
+                    <div className="space-y-3">
+                      {rewardsHistory.slice(0, 15).map((reward) => (
+                        <div key={reward.id} className="flex items-start justify-between p-3 bg-muted rounded-lg">
+                          <div className="flex items-start gap-3">
+                            {getRewardTypeIcon(reward.rewardType)}
+                            <div>
+                              <p className="font-medium text-sm">{getRewardTypeLabel(reward.rewardType)}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(reward.earnedDate).toLocaleDateString()} {new Date(reward.earnedDate).toLocaleTimeString()}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-sm text-green-600 dark:text-green-400">
+                              +{parseFloat(reward.tokenAmount).toFixed(4)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              ${parseFloat(reward.cashValue).toFixed(4)}
+                            </p>
+                            <Badge variant="outline" className={`mt-1 text-xs ${getStatusColor(reward.status)}`}>
+                              {reward.status}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <History className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">No transactions yet</p>
+                    </div>
+                  )}
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
