@@ -141,20 +141,20 @@ export default function AdminUsersPage() {
   // Transfer tokens mutation
   const transferMutation = useMutation({
     mutationFn: async () => {
-      const result = await apiRequest({
-        url: `/api/admin/wallet/${selectedUser}/transfer`,
-        method: "POST",
-        data: {
+      const response = await apiRequest(
+        "POST",
+        `/api/admin/wallet/${selectedUser}/transfer`,
+        {
           tokenAmount: parseFloat(transferAmount),
           description: transferDescription || "Admin transfer"
         }
-      });
-      return result;
+      );
+      return await response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast({
         title: "Transfer Successful",
-        description: data.message
+        description: data.message || "Tokens transferred successfully"
       });
       setTransferAmount("");
       setTransferDescription("");

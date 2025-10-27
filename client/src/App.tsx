@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -150,6 +150,12 @@ function AuthenticatedApp() {
           </Route>
           
           {/* Legacy admin routes - redirect to unified dashboard */}
+          <Route path="/treasury">
+            <Redirect to="/in-god-we-trust" />
+          </Route>
+          <Route path="/admin-moonshot">
+            <Redirect to="/in-god-we-trust" />
+          </Route>
           
           {/* Job detail route */}
           <Route path="/job/:id">
