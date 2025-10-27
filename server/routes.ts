@@ -24,6 +24,7 @@ import { getAdvertisingService } from "./services/advertising";
 import { FAUCET_CONFIG } from "./constants";
 import { walletService } from "./services/wallet";
 import { solanaMonitor } from "./services/solana-monitor";
+import { crewSuggestionService } from "./services/crew-suggestions";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Public health check endpoint for deployment monitoring (MUST be before auth setup)
@@ -1270,6 +1271,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating lead quote:", error);
       res.status(500).json({ error: "Failed to update lead quote" });
+    }
+  });
+
+  // Get crew assignment suggestions for a job (business owner only)
+  app.get("/api/leads/:id/crew-suggestions", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const suggestions = await crewSuggestionService.suggestCrewForJob(id);
+      
+      if (!suggestions) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      
+      res.json(suggestions);
+    } catch (error) {
+      console.error("Error generating crew suggestions:", error);
+      res.status(500).json({ error: "Failed to generate crew suggestions" });
     }
   });
 
