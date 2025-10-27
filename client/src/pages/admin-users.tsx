@@ -1,15 +1,18 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { 
   Users, 
   UserCog, 
@@ -21,7 +24,10 @@ import {
   Briefcase,
   Clock,
   Shield,
-  ChevronRight
+  ChevronRight,
+  Send,
+  ArrowRightLeft,
+  History
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -90,9 +96,13 @@ interface UserDetails {
 export default function AdminUsersPage() {
   const { user, hasAdminAccess, isLoading: authLoading } = useAuth();
   const isMobile = useIsMobile();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [detailsTab, setDetailsTab] = useState("overview");
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [transferAmount, setTransferAmount] = useState("");
+  const [transferDescription, setTransferDescription] = useState("");
 
   // Check if user has admin or business_owner role
   const hasAccess = hasAdminAccess || user?.role === 'business_owner';
@@ -107,6 +117,58 @@ export default function AdminUsersPage() {
   const { data: userDetails, isLoading: detailsLoading } = useQuery<UserDetails>({
     queryKey: ["/api/admin/users", selectedUser, "details"],
     enabled: !!selectedUser,
+  });
+
+  // Fetch user wallet transaction history
+  const { data: walletHistory, isLoading: historyLoading } = useQuery<{
+    success: boolean;
+    transactions: Array<{
+      id: string;
+      type: string;
+      tokenAmount: string;
+      cashValue: string;
+      status: string;
+      date: string;
+      referenceId?: string;
+      metadata?: any;
+    }>;
+    totalCount: number;
+  }>({
+    queryKey: ["/api/admin/wallet", selectedUser, "history"],
+    enabled: !!selectedUser && walletModalOpen,
+  });
+
+  // Transfer tokens mutation
+  const transferMutation = useMutation({
+    mutationFn: async () => {
+      const result = await apiRequest({
+        url: `/api/admin/wallet/${selectedUser}/transfer`,
+        method: "POST",
+        data: {
+          tokenAmount: parseFloat(transferAmount),
+          description: transferDescription || "Admin transfer"
+        }
+      });
+      return result;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Transfer Successful",
+        description: data.message
+      });
+      setTransferAmount("");
+      setTransferDescription("");
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users", selectedUser, "details"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/wallet", selectedUser, "history"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Transfer Failed",
+        description: error.message || "Failed to transfer tokens",
+        variant: "destructive"
+      });
+    }
   });
 
   if (authLoading) {
@@ -388,13 +450,28 @@ export default function AdminUsersPage() {
                     {/* Wallet Info */}
                     <Card>
                       <CardHeader className="pb-3">
-                        <CardTitle className="text-base flex items-center">
-                          <Wallet className="h-4 w-4 mr-2" />
-                          Wallet Balance
-                        </CardTitle>
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-base flex items-center">
+                            <Wallet className="h-4 w-4 mr-2" />
+                            Wallet Balance
+                          </CardTitle>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => setWalletModalOpen(true)}
+                            data-testid="button-manage-wallet"
+                          >
+                            <ArrowRightLeft className="h-4 w-4 mr-2" />
+                            Manage
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent className="space-y-2">
-                        <div className="flex justify-between items-center">
+                        <div 
+                          className="flex justify-between items-center cursor-pointer hover:bg-muted p-2 rounded transition-colors"
+                          onClick={() => setWalletModalOpen(true)}
+                          data-testid="button-view-wallet"
+                        >
                           <span className="text-muted-foreground">Token Balance</span>
                           <span className="font-bold" data-testid="text-token-balance">
                             {parseFloat(userDetails.wallet.tokenBalance).toLocaleString()} JCMOVES
@@ -586,6 +663,162 @@ export default function AdminUsersPage() {
               </ScrollArea>
             </>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* Wallet Management Modal */}
+      <Dialog open={walletModalOpen} onOpenChange={setWalletModalOpen}>
+        <DialogContent className={`${isMobile ? 'max-w-[95vw] h-[90vh]' : 'max-w-2xl max-h-[85vh]'} overflow-hidden flex flex-col`}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <Wallet className="h-5 w-5 mr-2" />
+              Wallet Management - {userDetails?.user.firstName} {userDetails?.user.lastName}
+            </DialogTitle>
+            <DialogDescription>
+              Transfer tokens, view balance, and transaction history
+            </DialogDescription>
+          </DialogHeader>
+
+          <ScrollArea className="flex-1 pr-4">
+            <Tabs defaultValue="transfer" className="mt-4">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="transfer" data-testid="tab-wallet-transfer">
+                  <Send className="h-4 w-4 mr-2" />
+                  Transfer
+                </TabsTrigger>
+                <TabsTrigger value="history" data-testid="tab-wallet-history">
+                  <History className="h-4 w-4 mr-2" />
+                  History
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="transfer" className="space-y-4 mt-4">
+                {/* Current Balance */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Current Balance</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-center py-4">
+                      <p className="text-3xl font-bold text-primary">
+                        {userDetails && parseFloat(userDetails.wallet.tokenBalance).toLocaleString()} JCMOVES
+                      </p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Total Earnings: ${userDetails && parseFloat(userDetails.wallet.totalEarnings).toFixed(2)}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Transfer Form */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Transfer Tokens</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="transfer-amount">Amount (JCMOVES)</Label>
+                      <Input
+                        id="transfer-amount"
+                        type="number"
+                        placeholder="0.00"
+                        value={transferAmount}
+                        onChange={(e) => setTransferAmount(e.target.value)}
+                        data-testid="input-transfer-amount"
+                        min="0"
+                        step="0.01"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="transfer-description">Description (Optional)</Label>
+                      <Input
+                        id="transfer-description"
+                        placeholder="e.g., Bonus reward, Adjustment, etc."
+                        value={transferDescription}
+                        onChange={(e) => setTransferDescription(e.target.value)}
+                        data-testid="input-transfer-description"
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={() => transferMutation.mutate()}
+                      disabled={!transferAmount || parseFloat(transferAmount) <= 0 || transferMutation.isPending}
+                      data-testid="button-execute-transfer"
+                    >
+                      {transferMutation.isPending ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Transferring...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="h-4 w-4 mr-2" />
+                          Transfer Tokens
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="history" className="space-y-4 mt-4">
+                {historyLoading ? (
+                  <Card>
+                    <CardContent className="py-12 text-center">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                      <p className="text-muted-foreground">Loading transaction history...</p>
+                    </CardContent>
+                  </Card>
+                ) : walletHistory && walletHistory.transactions.length > 0 ? (
+                  <div className="space-y-2">
+                    {walletHistory.transactions.map(tx => (
+                      <Card key={tx.id}>
+                        <CardContent className="py-3">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <p className="font-medium text-sm capitalize">
+                                {tx.type.replace(/_/g, ' ')}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(tx.date).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </p>
+                              {tx.referenceId && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Ref: {tx.referenceId.slice(0, 8)}...
+                                </p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <p className="font-bold text-sm">
+                                +{parseFloat(tx.tokenAmount).toLocaleString()} JCMOVES
+                              </p>
+                              <p className="text-xs text-green-600 dark:text-green-400">
+                                ${parseFloat(tx.cashValue).toFixed(4)}
+                              </p>
+                              <Badge variant="outline" className="mt-1">{tx.status}</Badge>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <Card>
+                    <CardContent className="py-12 text-center">
+                      <History className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">No transaction history</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+            </Tabs>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </div>
