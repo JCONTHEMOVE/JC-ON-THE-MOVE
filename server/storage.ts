@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type TreasuryWallet, type InsertTreasuryWallet, type WalletTransaction, type InsertWalletTransaction, type ShopItem, type InsertShopItem, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, priceHistory, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, treasuryWallets, walletTransactions, shopItems } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type TreasuryWallet, type InsertTreasuryWallet, type WalletTransaction, type InsertWalletTransaction, type ShopItem, type InsertShopItem, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, priceHistory, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, treasuryWallets, walletTransactions, shopItems, cashoutRequests, fraudLogs, helpRequests, miningSessions, miningClaims, treasuryWithdrawals } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, isNull, and, isNotNull, sql, gt, gte } from "drizzle-orm";
+import { eq, desc, isNull, and, isNotNull, sql, gt, gte, inArray } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
 import { cryptoService } from "./services/crypto";
 
@@ -300,8 +300,120 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteUser(userId: string): Promise<boolean> {
-    const result = await db.delete(users).where(eq(users.id, userId));
-    return result.rowCount !== null && result.rowCount > 0;
+    try {
+      // Cascade delete all related records first to avoid foreign key constraint violations
+      console.log(`🗑️ Starting cascade delete for user ${userId}...`);
+      
+      // Get user's mining session IDs first (for deleting mining claims)
+      const miningSess = await db.select({ id: miningSessions.id })
+        .from(miningSessions)
+        .where(eq(miningSessions.userId, userId));
+      const miningSessionIds = miningSess.map(s => s.id);
+      
+      // Delete mining claims for user's sessions
+      if (miningSessionIds.length > 0) {
+        await db.delete(miningClaims).where(
+          inArray(miningClaims.sessionId, miningSessionIds)
+        );
+        console.log(`  ✓ Deleted mining claims for user ${userId}`);
+      }
+      
+      // Delete mining sessions
+      await db.delete(miningSessions).where(eq(miningSessions.userId, userId));
+      console.log(`  ✓ Deleted mining sessions for user ${userId}`);
+      
+      // Get user's wallet IDs first (for deleting wallet transactions)
+      const userWalletList = await db.select({ id: userWallets.id })
+        .from(userWallets)
+        .where(eq(userWallets.userId, userId));
+      const userWalletIds = userWalletList.map(w => w.id);
+      
+      // Delete wallet transactions for user's wallets
+      if (userWalletIds.length > 0) {
+        await db.delete(walletTransactions).where(
+          inArray(walletTransactions.userWalletId, userWalletIds)
+        );
+        console.log(`  ✓ Deleted wallet transactions for user ${userId}`);
+      }
+      
+      // Delete user wallets
+      await db.delete(userWallets).where(eq(userWallets.userId, userId));
+      console.log(`  ✓ Deleted user wallets for user ${userId}`);
+      
+      // Delete cashout requests
+      await db.delete(cashoutRequests).where(eq(cashoutRequests.userId, userId));
+      console.log(`  ✓ Deleted cashout requests for user ${userId}`);
+      
+      // Delete help requests
+      await db.delete(helpRequests).where(eq(helpRequests.userId, userId));
+      console.log(`  ✓ Deleted help requests for user ${userId}`);
+      
+      // Delete shop items posted by user
+      await db.delete(shopItems).where(eq(shopItems.postedBy, userId));
+      console.log(`  ✓ Deleted shop items for user ${userId}`);
+      
+      // Delete treasury withdrawals requested by user
+      await db.delete(treasuryWithdrawals).where(eq(treasuryWithdrawals.requestedBy, userId));
+      console.log(`  ✓ Deleted treasury withdrawals for user ${userId}`);
+      
+      // Nullify managedByUserId in treasury wallets (optional field)
+      await db.update(treasuryWallets).set({ managedByUserId: null }).where(eq(treasuryWallets.managedByUserId, userId));
+      console.log(`  ✓ Nullified treasury wallet manager references for user ${userId}`);
+      
+      // Nullify depositedBy in funding deposits (keep deposit history)
+      await db.update(fundingDeposits).set({ depositedBy: null }).where(eq(fundingDeposits.depositedBy, userId));
+      console.log(`  ✓ Nullified funding deposit references for user ${userId}`);
+      
+      // Nullify userId in fraud logs (keep fraud history but anonymize)
+      await db.update(fraudLogs).set({ userId: null }).where(eq(fraudLogs.userId, userId));
+      console.log(`  ✓ Anonymized fraud logs for user ${userId}`);
+      
+      // Delete notifications
+      await db.delete(notifications).where(eq(notifications.userId, userId));
+      console.log(`  ✓ Deleted notifications for user ${userId}`);
+      
+      // Delete rewards
+      await db.delete(rewards).where(eq(rewards.userId, userId));
+      console.log(`  ✓ Deleted rewards for user ${userId}`);
+      
+      // Delete wallet account (legacy JCMOVES wallet)
+      await db.delete(walletAccounts).where(eq(walletAccounts.userId, userId));
+      console.log(`  ✓ Deleted wallet account for user ${userId}`);
+      
+      // Delete daily check-ins
+      await db.delete(dailyCheckins).where(eq(dailyCheckins.userId, userId));
+      console.log(`  ✓ Deleted daily check-ins for user ${userId}`);
+      
+      // Delete employee stats
+      await db.delete(employeeStats).where(eq(employeeStats.userId, userId));
+      console.log(`  ✓ Deleted employee stats for user ${userId}`);
+      
+      // Delete employee achievements
+      await db.delete(employeeAchievements).where(eq(employeeAchievements.userId, userId));
+      console.log(`  ✓ Deleted employee achievements for user ${userId}`);
+      
+      // Delete point transactions
+      await db.delete(pointTransactions).where(eq(pointTransactions.userId, userId));
+      console.log(`  ✓ Deleted point transactions for user ${userId}`);
+      
+      // Unassign user from leads (set assignedToUserId to null)
+      await db.update(leads).set({ assignedToUserId: null }).where(eq(leads.assignedToUserId, userId));
+      console.log(`  ✓ Unassigned leads for user ${userId}`);
+      
+      // Set createdByUserId to null for leads created by this user
+      await db.update(leads).set({ createdByUserId: null }).where(eq(leads.createdByUserId, userId));
+      console.log(`  ✓ Nullified created-by reference for leads by user ${userId}`);
+      
+      // Finally, delete the user
+      const result = await db.delete(users).where(eq(users.id, userId));
+      console.log(`  ✓ Deleted user ${userId}`);
+      
+      console.log(`✅ Cascade delete completed for user ${userId}`);
+      return result.rowCount !== null && result.rowCount > 0;
+    } catch (error) {
+      console.error(`❌ Error during cascade delete for user ${userId}:`, error);
+      throw error;
+    }
   }
 
   // Employee approval management
