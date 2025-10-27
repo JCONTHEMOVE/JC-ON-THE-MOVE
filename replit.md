@@ -55,6 +55,7 @@ Preferred communication style: Simple, everyday language.
 - **Production Configuration**: `NODE_ENV=production` for optimized builds.
 - **Domain Configuration**: `REPLIT_DOMAINS` for multi-domain authentication.
 - **Health Check Endpoint**: `/health` endpoint for Autoscale Deployment monitoring.
+- **Media Asset Storage**: Large media files (>50MB) stored in Replit Object Storage to bypass deployment file size limits. Files uploaded to the `public` directory are served at `/public/<filename>` in both development and production.
 
 ### Required Environment Variables for Deployment
 - **SENDGRID_API_KEY**: Must be a valid SendGrid API key starting with `SG.` (e.g., `SG.xxxxxxxxxxxxx`). If not provided or invalid, email notifications will be disabled but the app will continue to function.
