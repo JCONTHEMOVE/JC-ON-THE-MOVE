@@ -57,12 +57,17 @@ export default function HomePage() {
               </div>
             </div>
             <div className="relative">
-              <img
-                src="/attached_assets/FB_IMG_5937718007297288444_1758496258755.jpg"
-                alt="JC ON THE MOVE LLC promotional image - Moving Soon? Special offer: Save 10% Today"
+              <video
+                src="/attached_assets/2025-10-27-161342201_1761600071522.mp4"
+                autoPlay
+                loop
+                muted
+                playsInline
                 className="rounded-xl shadow-2xl w-full h-auto"
-                data-testid="image-hero"
-              />
+                data-testid="video-hero"
+              >
+                Your browser does not support the video tag.
+              </video>
             </div>
           </div>
         </div>
