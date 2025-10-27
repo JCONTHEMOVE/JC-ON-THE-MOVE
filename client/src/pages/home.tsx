@@ -59,10 +59,12 @@ export default function HomePage() {
             <div className="relative">
               <video
                 src="/attached_assets/2025-10-27-161342201_1761600071522.mp4"
+                poster="/attached_assets/FB_IMG_5937718007297288444_1758496258755.jpg"
                 autoPlay
                 loop
                 muted
                 playsInline
+                preload="auto"
                 className="rounded-xl shadow-2xl w-full h-auto"
                 data-testid="video-hero"
               >
