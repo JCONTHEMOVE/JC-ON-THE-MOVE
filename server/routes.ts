@@ -18,7 +18,7 @@ import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
 import { eq, desc, sql, and, gte } from 'drizzle-orm';
 import { db } from './db';
-import { rewards, walletAccounts, cashoutRequests, fundingDeposits, reserveTransactions, users } from '@shared/schema';
+import { rewards, walletAccounts, cashoutRequests, fundingDeposits, reserveTransactions, users, leads } from '@shared/schema';
 import { getFaucetPayService } from "./services/faucetpay";
 import { getAdvertisingService } from "./services/advertising";
 import { FAUCET_CONFIG } from "./constants";
@@ -608,6 +608,136 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating user role:", error);
       res.status(500).json({ error: "Failed to update user role" });
+    }
+  });
+
+  // Get detailed user information for admin (balance, rewards, transactions, jobs)
+  app.get('/api/admin/users/:id/details', isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Get basic user info
+      const user = await storage.getUser(id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Get wallet and balance information
+      const wallet = await storage.getWalletAccount(id);
+      const tokenBalance = wallet ? parseFloat(wallet.tokenBalance || "0") : 0;
+      
+      // Get employee stats if user is employee or admin
+      let employeeStats = null;
+      if (user.role === 'employee' || user.role === 'admin') {
+        employeeStats = await storage.getEmployeeStats(id);
+      }
+      
+      // Get recent rewards (last 10)
+      const recentRewards = await db
+        .select()
+        .from(rewards)
+        .where(eq(rewards.userId, id))
+        .orderBy(desc(rewards.earnedDate))
+        .limit(10);
+      
+      // Get pending cashout requests
+      const pendingCashouts = await db
+        .select()
+        .from(cashoutRequests)
+        .where(and(
+          eq(cashoutRequests.userId, id),
+          eq(cashoutRequests.status, 'pending')
+        ))
+        .orderBy(desc(cashoutRequests.createdAt));
+      
+      // Get assigned/created leads if employee (use targeted queries instead of filtering all leads)
+      let assignedJobs = [];
+      let createdJobs = [];
+      if (user.role === 'employee' || user.role === 'admin') {
+        // Query only leads where user is in crew (more efficient than loading all leads)
+        const [allLeadsForUser, allCreatedLeads] = await Promise.all([
+          db.select()
+            .from(leads)
+            .where(sql`${id} = ANY(${leads.crewMemberIds})`)
+            .orderBy(desc(leads.createdAt))
+            .limit(10),
+          db.select()
+            .from(leads)
+            .where(eq(leads.createdByUserId, id))
+            .orderBy(desc(leads.createdAt))
+            .limit(10)
+        ]);
+        assignedJobs = allLeadsForUser;
+        createdJobs = allCreatedLeads;
+      }
+      
+      // Calculate total earnings
+      const totalEarnings = recentRewards.reduce((sum, reward) => 
+        sum + parseFloat(reward.cashValue || "0"), 0
+      );
+      
+      res.json({
+        user: {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+          createdAt: user.createdAt,
+          referralCount: user.referralCount
+        },
+        wallet: {
+          tokenBalance: tokenBalance.toFixed(8),
+          totalEarnings: totalEarnings.toFixed(4)
+        },
+        employeeStats: employeeStats ? {
+          totalPoints: employeeStats.totalPoints,
+          currentLevel: employeeStats.currentLevel,
+          totalEarnedTokens: employeeStats.totalEarnedTokens,
+          jobsCompleted: employeeStats.jobsCompleted,
+          streakCount: employeeStats.streakCount,
+          lastActivityDate: employeeStats.lastActivityDate
+        } : null,
+        recentRewards: recentRewards.map(reward => ({
+          id: reward.id,
+          rewardType: reward.rewardType,
+          tokenAmount: reward.tokenAmount,
+          cashValue: reward.cashValue,
+          status: reward.status,
+          earnedDate: reward.earnedDate,
+          referenceId: reward.referenceId
+        })),
+        pendingRequests: {
+          cashouts: pendingCashouts.length,
+          cashoutDetails: pendingCashouts.map(cashout => ({
+            id: cashout.id,
+            tokenAmount: cashout.tokenAmount,
+            usdValue: cashout.usdValue,
+            status: cashout.status,
+            createdAt: cashout.createdAt
+          }))
+        },
+        jobs: {
+          assignedCount: assignedJobs.length,
+          createdCount: createdJobs.length,
+          recentAssigned: assignedJobs.slice(0, 5).map(job => ({
+            id: job.id,
+            serviceType: job.serviceType,
+            status: job.status,
+            createdAt: job.createdAt
+          })),
+          recentCreated: createdJobs.slice(0, 5).map(job => ({
+            id: job.id,
+            serviceType: job.serviceType,
+            status: job.status,
+            createdAt: job.createdAt
+          }))
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching user details:", error);
+      res.status(500).json({ error: "Failed to fetch user details" });
     }
   });
 

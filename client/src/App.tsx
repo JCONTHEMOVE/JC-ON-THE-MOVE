@@ -23,6 +23,7 @@ import TreasuryDashboard from "@/pages/treasury-dashboard";
 import AdminDashboardFull from "@/pages/admin-dashboard-full";
 import AdminMoonshotPage from "@/pages/admin-moonshot";
 import InGodWeTrustPage from "@/pages/in-god-we-trust";
+import AdminUsersPage from "@/pages/admin-users";
 import NotFound from "@/pages/not-found";
 import MobileLeadManager from "@/components/mobile-lead-manager";
 import CustomerMobileInterface from "@/components/customer-mobile-interface";
@@ -120,6 +121,11 @@ function AuthenticatedApp() {
           <Route path="/in-god-we-trust">
             <RouteGuard allowedRoles={['admin']}>
               <PageWrapper component={InGodWeTrustPage} />
+            </RouteGuard>
+          </Route>
+          <Route path="/admin/users">
+            <RouteGuard allowedRoles={['admin', 'business_owner']}>
+              <PageWrapper component={AdminUsersPage} />
             </RouteGuard>
           </Route>
           
