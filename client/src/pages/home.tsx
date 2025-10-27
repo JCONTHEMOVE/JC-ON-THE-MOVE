@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Phone, Mail, MapPin, Clock, Shield, Users, DollarSign, Home, Building, Trash2, CheckCircle } from "lucide-react";
@@ -14,6 +15,54 @@ import customerReviews from "@assets/customer_reviews.jpg";
 import happyFamily2 from "@assets/stock_images/happy_family_in_new__32e2c8cf.jpg";
 
 export default function HomePage() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    // Ensure video plays on mount
+    const video = videoRef.current;
+    if (!video) return;
+
+    let hasPlayed = false;
+
+    const playVideo = async () => {
+      if (hasPlayed) return;
+      try {
+        await video.play();
+        hasPlayed = true;
+        // Remove fallback listeners once video is playing
+        document.removeEventListener('click', handleUserInteraction);
+        document.removeEventListener('touchstart', handleUserInteraction);
+      } catch (error) {
+        console.log("Video play attempt failed, will retry on interaction or when ready");
+      }
+    };
+
+    // Try to play when video can play
+    const handleCanPlay = () => {
+      playVideo();
+    };
+
+    // Fallback: play on user interaction (keeps trying until success)
+    const handleUserInteraction = () => {
+      playVideo();
+    };
+
+    video.addEventListener('canplay', handleCanPlay);
+    
+    // Keep listening for user interactions until video plays
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('touchstart', handleUserInteraction);
+
+    // Try to play immediately
+    playVideo();
+
+    return () => {
+      video.removeEventListener('canplay', handleCanPlay);
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+  }, []);
+
   const scrollToQuote = () => {
     const element = document.getElementById("quote");
     if (element) {
@@ -58,6 +107,7 @@ export default function HomePage() {
             </div>
             <div className="relative">
               <video
+                ref={videoRef}
                 src="/attached_assets/2025-10-27-161342201_1761600071522.mp4"
                 poster="/attached_assets/FB_IMG_5937718007297288444_1758496258755.jpg"
                 autoPlay
