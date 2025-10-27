@@ -1867,15 +1867,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get token price and info
   app.get("/api/rewards/token-info", isAuthenticated, async (req, res) => {
     try {
-      const tokenData = await moonshotService.getTokenData();
-      const price = await moonshotService.getTokenPrice();
+      const enrichedData = await moonshotService.getEnrichedTokenData();
       
-      res.json({
-        price,
-        tokenData,
-        symbol: tokenData?.baseToken?.symbol || 'JCMOVE',
-        name: tokenData?.baseToken?.name || 'JC ON THE MOVE Token'
-      });
+      if (enrichedData) {
+        res.json({
+          price: enrichedData.price,
+          symbol: enrichedData.symbol || 'JCMOVES',
+          name: enrichedData.name || 'JC ON THE MOVE Token',
+          priceChange24h: enrichedData.priceChange24h,
+          volume24h: enrichedData.volume24h,
+          marketCap: enrichedData.marketCap,
+          fdv: enrichedData.fdv
+        });
+      } else {
+        // Fallback to basic data
+        const tokenData = await moonshotService.getTokenData();
+        const price = await moonshotService.getTokenPrice();
+        
+        res.json({
+          price,
+          symbol: tokenData?.baseToken?.symbol || 'JCMOVES',
+          name: tokenData?.baseToken?.name || 'JC ON THE MOVE Token',
+          priceChange24h: tokenData?.priceChange?.h24 || 0,
+          volume24h: tokenData?.volume?.h24?.total || 0,
+          marketCap: 0,
+          fdv: 0
+        });
+      }
     } catch (error) {
       console.error("Error getting token info:", error);
       res.status(500).json({ error: "Failed to get token information" });

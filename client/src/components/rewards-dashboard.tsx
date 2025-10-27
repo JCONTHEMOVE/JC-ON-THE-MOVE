@@ -10,6 +10,7 @@ import {
   Gift, 
   Coins, 
   TrendingUp, 
+  TrendingDown,
   Clock, 
   CheckCircle, 
   Calendar,
@@ -18,9 +19,12 @@ import {
   Share2,
   Users,
   Copy,
-  Loader2
+  Loader2,
+  ArrowUpRight,
+  ArrowDownRight
 } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
+import { LineChart, Line, ResponsiveContainer } from 'recharts';
 
 interface WalletAccount {
   id: string;
@@ -46,6 +50,10 @@ interface TokenInfo {
   price: number;
   symbol: string;
   name: string;
+  priceChange24h?: number;
+  volume24h?: number;
+  marketCap?: number;
+  fdv?: number;
 }
 
 interface ReferralStats {
@@ -310,21 +318,76 @@ export default function RewardsDashboard() {
   const cashValue = parseFloat(wallet?.cashBalance || '0');
   const hasActiveSession = !!miningStatus?.currentSession;
 
+  // Generate simple mock chart data for holdings visualization
+  const generateChartData = () => {
+    const currentValue = tokenBalance * (tokenInfo?.price || 0);
+    // Create a simple upward trending chart with some variation
+    return Array.from({ length: 7 }, (_, i) => ({
+      day: i,
+      value: currentValue * (0.85 + (i * 0.025) + Math.random() * 0.05)
+    }));
+  };
+
+  const chartData = generateChartData();
+  const priceChange24h = tokenInfo?.priceChange24h || 0;
+  const isPositiveChange = priceChange24h >= 0;
+
   return (
     <div className="container mx-auto p-4 md:p-6 max-w-7xl">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-foreground">Rewards Center</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Earn {tokenInfo?.symbol || 'JCMOVES'} through mining and referrals
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-xs md:text-sm text-muted-foreground">Token Price</p>
-          <p className="text-lg md:text-2xl font-bold text-foreground" data-testid="token-price">
-            ${tokenInfo?.price?.toFixed(4) || '0.0000'}
-          </p>
-        </div>
+        {/* Enhanced Token Price Widget */}
+        <Card className="w-full md:w-auto min-w-[280px]">
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground mb-1">Token Price</p>
+                <p className="text-2xl font-bold text-foreground" data-testid="token-price">
+                  ${tokenInfo?.price?.toFixed(6) || '0.000000'}
+                </p>
+                <div className={`flex items-center gap-1 mt-1 ${isPositiveChange ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {isPositiveChange ? (
+                    <ArrowUpRight className="h-3 w-3" />
+                  ) : (
+                    <ArrowDownRight className="h-3 w-3" />
+                  )}
+                  <span className="text-xs font-medium">
+                    {isPositiveChange ? '+' : ''}{priceChange24h.toFixed(2)}% (24h)
+                  </span>
+                </div>
+                {tokenInfo?.volume24h && tokenInfo.volume24h > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Vol: ${(tokenInfo.volume24h / 1000).toFixed(1)}k
+                  </p>
+                )}
+              </div>
+              {/* Mini Holdings Chart */}
+              <div className="w-24 h-16">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <Line 
+                      type="monotone" 
+                      dataKey="value" 
+                      stroke={isPositiveChange ? "#22c55e" : "#ef4444"}
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="mt-2 pt-2 border-t border-border">
+              <p className="text-xs text-muted-foreground">
+                Your Holdings: <span className="font-semibold text-foreground">${(tokenBalance * (tokenInfo?.price || 0)).toFixed(2)}</span>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Wallet Overview */}

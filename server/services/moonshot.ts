@@ -71,15 +71,64 @@ export class MoonshotService {
         throw new Error('Moonshot token address not configured');
       }
 
+      // Use DexScreener API directly for price (more reliable)
+      const tokenData = await this.getTokenData();
+      if (tokenData && tokenData.priceUsd) {
+        return parseFloat(tokenData.priceUsd);
+      }
+
+      // Fallback to older endpoint if DexScreener fails
       const response = await axios.get<TokenData>(
         `${MOONSHOT_API_BASE}/token/v1/solana/${this.tokenAddress}`
       );
 
       return parseFloat(response.data.priceUsd);
     } catch (error) {
-      console.error('Error fetching Moonshot token price:', error);
+      console.error('Error fetching token price:', error);
       // Return fallback price if API fails - use current JCMOVES market price
       return 0.00000508432; // JCMOVES price from Moonshot wallet
+    }
+  }
+
+  // Get enriched token data for UI with price changes and volume
+  async getEnrichedTokenData(): Promise<{
+    price: number;
+    priceChange24h: number;
+    volume24h: number;
+    symbol: string;
+    name: string;
+    marketCap: number;
+    fdv: number;
+  } | null> {
+    try {
+      const tokenData = await this.getTokenData();
+      if (!tokenData) {
+        return null;
+      }
+
+      // Use DexScreener API to get more detailed data including market cap
+      const response = await axios.get(
+        `https://api.dexscreener.com/latest/dex/tokens/${this.tokenAddress}`
+      );
+
+      if (!response.data || !response.data.pairs || response.data.pairs.length === 0) {
+        return null;
+      }
+
+      const mainPair = response.data.pairs[0];
+
+      return {
+        price: parseFloat(tokenData.priceUsd),
+        priceChange24h: tokenData.priceChange.h24 || 0,
+        volume24h: tokenData.volume.h24.total || 0,
+        symbol: tokenData.baseToken.symbol,
+        name: tokenData.baseToken.name,
+        marketCap: mainPair.marketCap || 0,
+        fdv: mainPair.fdv || 0
+      };
+    } catch (error) {
+      console.error('Error fetching enriched token data:', error);
+      return null;
     }
   }
 
