@@ -741,6 +741,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin transfer tokens to user wallet
+  app.post('/api/admin/wallet/:userId/transfer', isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { tokenAmount, description } = req.body;
+      
+      if (!tokenAmount || tokenAmount <= 0) {
+        return res.status(400).json({ error: "Valid token amount is required" });
+      }
+      
+      // Get user to verify exists
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Distribute tokens from treasury to user
+      const distributionResult = await treasuryService.distributeTokens(
+        parseFloat(tokenAmount),
+        description || `Admin transfer to ${targetUser.email}`,
+        'admin_transfer',
+        userId
+      );
+      
+      if (!distributionResult.success) {
+        return res.status(400).json({ error: distributionResult.error });
+      }
+      
+      // Add tokens to user wallet
+      await storage.addTokens(
+        userId,
+        parseFloat(tokenAmount),
+        distributionResult.cashValue,
+        'admin_transfer',
+        description
+      );
+      
+      // Get updated balance
+      const updatedBalance = await storage.getTokenBalance(userId);
+      
+      res.json({
+        success: true,
+        message: `Successfully transferred ${tokenAmount} JCMOVES to ${targetUser.email}`,
+        newBalance: updatedBalance.toFixed(8),
+        cashValue: distributionResult.cashValue
+      });
+    } catch (error) {
+      console.error("Error transferring tokens:", error);
+      res.status(500).json({ error: "Failed to transfer tokens" });
+    }
+  });
+
+  // Get user wallet transaction history
+  app.get('/api/admin/wallet/:userId/history', isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      
+      // Get user to verify exists
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Get all rewards/transactions for this user
+      const allRewards = await db
+        .select()
+        .from(rewards)
+        .where(eq(rewards.userId, userId))
+        .orderBy(desc(rewards.earnedDate))
+        .limit(limit);
+      
+      // Format transaction history
+      const transactions = allRewards.map(reward => ({
+        id: reward.id,
+        type: reward.rewardType,
+        tokenAmount: reward.tokenAmount,
+        cashValue: reward.cashValue,
+        status: reward.status,
+        date: reward.earnedDate,
+        referenceId: reward.referenceId,
+        metadata: reward.metadata
+      }));
+      
+      res.json({
+        success: true,
+        transactions,
+        totalCount: transactions.length
+      });
+    } catch (error) {
+      console.error("Error fetching transaction history:", error);
+      res.status(500).json({ error: "Failed to fetch transaction history" });
+    }
+  });
+
   // Manual login endpoint (temporary workaround for broken OAuth)
   app.post('/api/auth/manual-login', async (req: any, res) => {
     try {
