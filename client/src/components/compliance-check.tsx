@@ -78,10 +78,12 @@ export function ComplianceCheck({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Dialog open={showComplianceModal} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-[425px]" data-testid="dialog-compliance">
-          <DialogHeader>
-            <DialogTitle data-testid="text-compliance-title">Age Verification & Terms of Service</DialogTitle>
-            <DialogDescription data-testid="text-compliance-description">
+        <DialogContent className="max-w-[95vw] sm:max-w-[425px] max-h-[90vh] overflow-y-auto" data-testid="dialog-compliance">
+          <DialogHeader className="text-left">
+            <DialogTitle className="text-lg sm:text-xl break-words" data-testid="text-compliance-title">
+              Age Verification & Terms of Service
+            </DialogTitle>
+            <DialogDescription className="text-sm break-words" data-testid="text-compliance-description">
               To comply with USA federal and state laws, we need to verify your age and obtain your agreement to our Terms of Service.
             </DialogDescription>
           </DialogHeader>
@@ -100,7 +102,7 @@ export function ComplianceCheck({ children }: { children: React.ReactNode }) {
                   required
                   data-testid="input-dob"
                 />
-                <p className="text-sm text-muted-foreground" data-testid="text-age-requirement">
+                <p className="text-sm text-muted-foreground break-words" data-testid="text-age-requirement">
                   You must be 18 years or older to use this service.
                 </p>
               </div>
@@ -112,11 +114,12 @@ export function ComplianceCheck({ children }: { children: React.ReactNode }) {
                   onCheckedChange={(checked) => setTosAccepted(checked as boolean)}
                   required
                   data-testid="checkbox-tos"
+                  className="mt-1 flex-shrink-0"
                 />
-                <div className="space-y-1 leading-none">
+                <div className="space-y-1 leading-none flex-1 min-w-0">
                   <Label
                     htmlFor="tos"
-                    className="text-sm font-normal cursor-pointer"
+                    className="text-sm font-normal cursor-pointer break-words"
                     data-testid="label-tos"
                   >
                     I am 18 years of age or older and agree to the{" "}
@@ -134,17 +137,18 @@ export function ComplianceCheck({ children }: { children: React.ReactNode }) {
               </div>
 
               <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 rounded-md border border-amber-200 dark:border-amber-800" data-testid="alert-legal-notice">
-                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-500 mt-0.5" />
-                <p className="text-sm text-amber-800 dark:text-amber-300">
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-500 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-amber-800 dark:text-amber-300 break-words flex-1">
                   This verification is required by federal and state laws across all 50 states.
                 </p>
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="flex-col sm:flex-row gap-2">
               <Button
                 type="submit"
                 disabled={complianceMutation.isPending}
                 data-testid="button-submit-compliance"
+                className="w-full sm:w-auto"
               >
                 {complianceMutation.isPending ? "Verifying..." : "Verify & Continue"}
               </Button>
