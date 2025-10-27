@@ -276,18 +276,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Role-based access control middleware
   const requireBusinessOwner = async (req: any, res: any, next: any) => {
     try {
-      // TEMPORARY BYPASS: Check for dev mode bypass header
-      const bypassAuth = req.headers['x-dev-bypass'] === 'darrell';
-      if (bypassAuth) {
-        console.log('⚠️ DEV BYPASS: Using hardcoded admin user');
-        const adminUser = await storage.getUser('47798367');
-        if (adminUser) {
-          req.currentUser = adminUser;
-          req.user = { claims: { sub: '47798367', email: adminUser.email } };
-          return next();
-        }
-      }
-
       const userId = req.user?.claims?.sub;
       if (!userId) {
         return res.status(401).json({ message: "Not authenticated" });
