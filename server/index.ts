@@ -57,8 +57,21 @@ app.use((req, res, next) => {
     server = await registerRoutes(app);
     console.log('Application routes registered successfully');
 
-    // Serve static files from attached_assets directory
-    app.use('/attached_assets', express.static(path.resolve(process.cwd(), 'attached_assets')));
+    // Serve static files from attached_assets directory with proper video support
+    app.use('/attached_assets', express.static(path.resolve(process.cwd(), 'attached_assets'), {
+      setHeaders: (res, filePath) => {
+        // Set proper MIME types and caching for video files
+        if (filePath.endsWith('.mp4')) {
+          res.setHeader('Content-Type', 'video/mp4');
+          res.setHeader('Accept-Ranges', 'bytes');
+          res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+        } else if (filePath.endsWith('.webm')) {
+          res.setHeader('Content-Type', 'video/webm');
+          res.setHeader('Accept-Ranges', 'bytes');
+          res.setHeader('Cache-Control', 'public, max-age=31536000');
+        }
+      }
+    }));
 
     // Setup Vite for development or serve static files for production
     if (app.get("env") === "development") {
