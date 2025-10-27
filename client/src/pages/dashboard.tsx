@@ -25,19 +25,20 @@ function BusinessOwnerDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <div className="flex justify-between items-center">
-            <h1 className="text-3xl font-bold text-foreground">Business Owner Dashboard</h1>
-            <Link href="/" data-testid="link-back-to-site">
-              <Button variant="outline" className="flex items-center gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Back to Site
-              </Button>
-            </Link>
-          </div>
-          <p className="text-muted-foreground mt-2">Quick access to all business operations</p>
+    <div className="min-h-screen bg-gradient-to-br from-blue-500 to-cyan-600 dark:from-blue-900 dark:to-cyan-900">
+      <div className="min-h-screen bg-white/10 dark:bg-black/20 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="mb-8">
+            <div className="flex justify-between items-center flex-wrap gap-4">
+              <h1 className="text-4xl font-bold text-white drop-shadow-lg">Business Owner Dashboard</h1>
+              <Link href="/" data-testid="link-back-to-site">
+                <Button variant="outline" className="flex items-center gap-2 bg-white/90 hover:bg-white">
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to Site
+                </Button>
+              </Link>
+            </div>
+            <p className="text-white/90 mt-2 text-lg">Quick access to all business operations</p>
         </div>
 
         {/* Navigation Cards */}
@@ -45,7 +46,7 @@ function BusinessOwnerDashboard() {
           <Link href="/leads">
             <Card 
               data-testid="stat-all-leads" 
-              className="cursor-pointer hover:shadow-lg transition-all hover:scale-105"
+              className="cursor-pointer hover:shadow-lg transition-all hover:scale-105 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm"
             >
               <CardContent className="p-6">
                 <div className="flex items-center">
@@ -64,7 +65,7 @@ function BusinessOwnerDashboard() {
           <Link href="/pending-quotes">
             <Card 
               data-testid="stat-pending-quotes"
-              className="cursor-pointer hover:shadow-lg transition-all hover:scale-105"
+              className="cursor-pointer hover:shadow-lg transition-all hover:scale-105 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm"
             >
               <CardContent className="p-6">
                 <div className="flex items-center">
@@ -83,7 +84,7 @@ function BusinessOwnerDashboard() {
           <Link href="/leads">
             <Card 
               data-testid="stat-confirmed-jobs"
-              className="cursor-pointer hover:shadow-lg transition-all hover:scale-105"
+              className="cursor-pointer hover:shadow-lg transition-all hover:scale-105 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm"
             >
               <CardContent className="p-6">
                 <div className="flex items-center">
@@ -102,7 +103,7 @@ function BusinessOwnerDashboard() {
           <Link href="/employees">
             <Card 
               data-testid="stat-employees"
-              className="cursor-pointer hover:shadow-lg transition-all hover:scale-105"
+              className="cursor-pointer hover:shadow-lg transition-all hover:scale-105 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm"
             >
               <CardContent className="p-6">
                 <div className="flex items-center">
@@ -122,7 +123,7 @@ function BusinessOwnerDashboard() {
         {/* Additional Navigation Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Link href="/treasury">
-            <Card className="cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+            <Card className="cursor-pointer hover:shadow-lg transition-all hover:scale-105 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
@@ -142,7 +143,7 @@ function BusinessOwnerDashboard() {
         </div>
 
         {/* Quick Stats Summary */}
-        <Card className="mt-8">
+        <Card className="mt-8 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm">
           <CardContent className="p-6">
             <h3 className="text-lg font-semibold mb-4">Quick Overview</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
@@ -165,6 +166,7 @@ function BusinessOwnerDashboard() {
             </div>
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   );
