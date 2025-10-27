@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import { Package, Star, Camera, MapPin, Phone, Mail, Calendar, Truck } from "lucide-react";
+import { ReviewDialog } from "@/components/review-dialog";
+import { useState } from "react";
 
 interface Lead {
   id: string;
@@ -19,6 +21,13 @@ interface Lead {
   details?: string;
   status: string;
   createdAt: string;
+}
+
+interface Review {
+  id: string;
+  leadId: string;
+  rating: number;
+  comment: string | null;
 }
 
 interface ShopItem {
@@ -75,6 +84,9 @@ const googlePhotos = [
 ];
 
 export default function CustomerPortal() {
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<Lead | null>(null);
+
   // Fetch only current customer's job requests
   const { data: myJobs = [], isLoading: jobsLoading } = useQuery<Lead[]>({
     queryKey: ["/api/leads/my-requests"],
@@ -84,7 +96,21 @@ export default function CustomerPortal() {
     queryKey: ["/api/shop"],
   });
 
+  // Fetch user's reviews to check which jobs have been reviewed
+  const { data: myReviews = [] } = useQuery<Review[]>({
+    queryKey: ["/api/reviews/my-reviews"],
+  });
+
   const activeShopItems = shopItems.filter(item => item.status === 'active');
+
+  const hasReviewed = (jobId: string) => {
+    return myReviews.some(review => review.leadId === jobId);
+  };
+
+  const handleReviewClick = (job: Lead) => {
+    setSelectedJob(job);
+    setReviewDialogOpen(true);
+  };
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -176,6 +202,29 @@ export default function CustomerPortal() {
                     {job.details && (
                       <div className="mt-3 pt-3 border-t border-border">
                         <p className="text-sm text-muted-foreground">{job.details}</p>
+                      </div>
+                    )}
+
+                    {/* Review button for completed jobs */}
+                    {job.status === 'completed' && (
+                      <div className="mt-3 pt-3 border-t border-border">
+                        {hasReviewed(job.id) ? (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                            <span>You've reviewed this service</span>
+                          </div>
+                        ) : (
+                          <Button
+                            onClick={() => handleReviewClick(job)}
+                            variant="outline"
+                            size="sm"
+                            className="w-full sm:w-auto"
+                            data-testid={`button-review-${job.id}`}
+                          >
+                            <Star className="h-4 w-4 mr-2" />
+                            Leave a Review
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -306,6 +355,16 @@ export default function CustomerPortal() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Review Dialog */}
+      {selectedJob && (
+        <ReviewDialog
+          open={reviewDialogOpen}
+          onOpenChange={setReviewDialogOpen}
+          jobId={selectedJob.id}
+          jobServiceType={selectedJob.serviceType}
+        />
+      )}
     </div>
   );
 }

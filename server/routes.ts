@@ -1333,6 +1333,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Can only review completed jobs" });
       }
 
+      // Verify lead ownership: Check if this user's ID matches the lead's userId
+      // (Only users who created the lead can review it)
+      if (lead.userId && lead.userId !== userId) {
+        return res.status(403).json({ error: "You can only review your own jobs" });
+      }
+
       // Check if user already reviewed this job
       const existingReview = await storage.getReviewByLeadAndUser(reviewData.leadId, userId);
       if (existingReview) {
@@ -1398,6 +1404,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(reviews);
     } catch (error) {
       console.error("Error fetching reviews:", error);
+      res.status(500).json({ error: "Failed to fetch reviews" });
+    }
+  });
+
+  // Get current user's reviews (authenticated)
+  app.get("/api/reviews/my-reviews", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const reviews = await storage.getReviews({ userId });
+      res.json(reviews);
+    } catch (error) {
+      console.error("Error fetching user reviews:", error);
       res.status(500).json({ error: "Failed to fetch reviews" });
     }
   });
