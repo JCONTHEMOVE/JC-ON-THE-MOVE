@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema } from "@shared/schema";
+import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema, insertReviewSchema } from "@shared/schema";
 import { sendEmail, generateLeadNotificationEmail, generateContactNotificationEmail } from "./services/email";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 // REMOVED: Daily check-in service replaced by unified mining system with streaks
@@ -1306,6 +1306,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching contacts:", error);
       res.status(500).json({ error: "Failed to fetch contacts" });
+    }
+  });
+
+  // Review Routes
+  // Submit a review for a completed job (authenticated customers only)
+  app.post("/api/reviews", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const reviewData = insertReviewSchema.parse({
+        ...req.body,
+        userId, // Always use authenticated user's ID
+      });
+
+      // Verify the lead exists and is completed
+      const lead = await storage.getLead(reviewData.leadId);
+      if (!lead) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      if (lead.status !== 'completed') {
+        return res.status(400).json({ error: "Can only review completed jobs" });
+      }
+
+      // Check if user already reviewed this job
+      const existingReview = await storage.getReviewByLeadAndUser(reviewData.leadId, userId);
+      if (existingReview) {
+        return res.status(400).json({ error: "You have already reviewed this job" });
+      }
+
+      // Set employeeId from the lead's assignment
+      const employeeId = lead.assignedToUserId;
+      if (!employeeId) {
+        return res.status(400).json({ error: "No employee assigned to this job" });
+      }
+
+      const review = await storage.createReview({
+        ...reviewData,
+        employeeId,
+      });
+
+      // Update employee stats with new review
+      const stats = await storage.getEmployeeReviewStats(employeeId);
+      await storage.updateEmployeeStats(employeeId, {
+        averageRating: stats.averageRating.toString(),
+        totalRatings: stats.totalReviews,
+      });
+
+      // Award bonus tokens for high ratings (4 or 5 stars)
+      if (review.rating >= 4 && !review.rewardedAt) {
+        const bonusAmount = review.rating === 5 ? 50 : 25; // 50 tokens for 5 stars, 25 for 4 stars
+        await gamificationService.awardHighRatingBonus(employeeId, review.id, review.rating);
+        await storage.markReviewAsRewarded(review.id);
+      }
+
+      res.json({ success: true, review });
+    } catch (error) {
+      console.error("Error creating review:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid review data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create review" });
+    }
+  });
+
+  // Get reviews with optional filters (public for employee reviews, authenticated for customer reviews)
+  app.get("/api/reviews", async (req: any, res) => {
+    try {
+      const { leadId, employeeId, userId, limit } = req.query;
+      
+      const filters: { leadId?: string; employeeId?: string; userId?: string } = {};
+      if (leadId) filters.leadId = leadId as string;
+      if (employeeId) filters.employeeId = employeeId as string;
+      
+      // Only allow fetching own reviews unless admin
+      if (userId) {
+        const requestingUserId = req.user?.claims?.sub;
+        const user = requestingUserId ? await storage.getUser(requestingUserId) : null;
+        
+        if (user?.role !== 'admin' && requestingUserId !== userId) {
+          return res.status(403).json({ error: "Can only view your own reviews" });
+        }
+        filters.userId = userId as string;
+      }
+
+      const reviews = await storage.getReviews(filters, limit ? parseInt(limit as string) : undefined);
+      res.json(reviews);
+    } catch (error) {
+      console.error("Error fetching reviews:", error);
+      res.status(500).json({ error: "Failed to fetch reviews" });
+    }
+  });
+
+  // Get employee review statistics (public)
+  app.get("/api/reviews/employee/:employeeId/stats", async (req, res) => {
+    try {
+      const { employeeId } = req.params;
+      const stats = await storage.getEmployeeReviewStats(employeeId);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching employee review stats:", error);
+      res.status(500).json({ error: "Failed to fetch review statistics" });
+    }
+  });
+
+  // Get a single review (public for display, but limited info)
+  app.get("/api/reviews/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const review = await storage.getReview(id);
+      
+      if (!review) {
+        return res.status(404).json({ error: "Review not found" });
+      }
+
+      res.json(review);
+    } catch (error) {
+      console.error("Error fetching review:", error);
+      res.status(500).json({ error: "Failed to fetch review" });
     }
   });
 

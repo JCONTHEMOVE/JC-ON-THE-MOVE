@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type TreasuryWallet, type InsertTreasuryWallet, type WalletTransaction, type InsertWalletTransaction, type ShopItem, type InsertShopItem, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, priceHistory, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, treasuryWallets, walletTransactions, shopItems, cashoutRequests, fraudLogs, helpRequests, miningSessions, miningClaims, treasuryWithdrawals } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Lead, type InsertLead, type Contact, type InsertContact, type Notification, type InsertNotification, type TreasuryAccount, type InsertTreasuryAccount, type FundingDeposit, type InsertFundingDeposit, type ReserveTransaction, type InsertReserveTransaction, type FaucetConfig, type InsertFaucetConfig, type FaucetClaim, type InsertFaucetClaim, type FaucetWallet, type InsertFaucetWallet, type FaucetRevenue, type InsertFaucetRevenue, type EmployeeStats, type InsertEmployeeStats, type AchievementType, type EmployeeAchievement, type InsertEmployeeAchievement, type PointTransaction, type InsertPointTransaction, type WeeklyLeaderboard, type DailyCheckin, type InsertDailyCheckin, type WalletAccount, type InsertWalletAccount, type SupportedCurrency, type InsertSupportedCurrency, type UserWallet, type InsertUserWallet, type TreasuryWallet, type InsertTreasuryWallet, type WalletTransaction, type InsertWalletTransaction, type ShopItem, type InsertShopItem, type Review, type InsertReview, leads, contacts, users, notifications, walletAccounts, rewards, treasuryAccounts, fundingDeposits, reserveTransactions, priceHistory, faucetConfig, faucetClaims, faucetWallets, faucetRevenue, employeeStats, achievementTypes, employeeAchievements, pointTransactions, weeklyLeaderboards, dailyCheckins, supportedCurrencies, userWallets, treasuryWallets, walletTransactions, shopItems, cashoutRequests, fraudLogs, helpRequests, miningSessions, miningClaims, treasuryWithdrawals, reviews } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, isNull, and, isNotNull, sql, gt, gte, inArray } from "drizzle-orm";
 import { TREASURY_CONFIG } from "./constants";
@@ -151,6 +151,14 @@ export interface IStorage {
   addPricePoint(priceUsd: string, source: string, marketData?: any): Promise<void>;
   getPriceHistory(hours?: number): Promise<Array<{ timestamp: Date; price: number; source: string }>>;
   cleanOldPriceData(daysToKeep: number): Promise<void>;
+  
+  // Review operations
+  createReview(review: InsertReview): Promise<Review>;
+  getReviews(filters?: { leadId?: string; employeeId?: string; userId?: string }, limit?: number): Promise<Review[]>;
+  getReview(id: string): Promise<Review | undefined>;
+  getReviewByLeadAndUser(leadId: string, userId: string): Promise<Review | undefined>;
+  getEmployeeReviewStats(employeeId: string): Promise<{ averageRating: number; totalReviews: number; ratings: { 1: number; 2: number; 3: number; 4: number; 5: number } }>;
+  markReviewAsRewarded(reviewId: string): Promise<Review | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1968,6 +1976,98 @@ export class DatabaseStorage implements IStorage {
       DELETE FROM price_history
       WHERE created_at < ${cutoffDate.toISOString()}
     `);
+  }
+
+  // Review operations
+  async createReview(review: InsertReview): Promise<Review> {
+    const [newReview] = await db.insert(reviews).values(review).returning();
+    return newReview;
+  }
+
+  async getReviews(
+    filters?: { leadId?: string; employeeId?: string; userId?: string },
+    limit: number = 100
+  ): Promise<Review[]> {
+    let query = db.select().from(reviews);
+    
+    const conditions = [];
+    if (filters?.leadId) {
+      conditions.push(eq(reviews.leadId, filters.leadId));
+    }
+    if (filters?.employeeId) {
+      conditions.push(eq(reviews.employeeId, filters.employeeId));
+    }
+    if (filters?.userId) {
+      conditions.push(eq(reviews.userId, filters.userId));
+    }
+    
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+    
+    const results = await query
+      .orderBy(desc(reviews.createdAt))
+      .limit(limit);
+    
+    return results;
+  }
+
+  async getReview(id: string): Promise<Review | undefined> {
+    const [review] = await db.select().from(reviews).where(eq(reviews.id, id));
+    return review || undefined;
+  }
+
+  async getReviewByLeadAndUser(leadId: string, userId: string): Promise<Review | undefined> {
+    const [review] = await db
+      .select()
+      .from(reviews)
+      .where(and(eq(reviews.leadId, leadId), eq(reviews.userId, userId)));
+    return review || undefined;
+  }
+
+  async getEmployeeReviewStats(employeeId: string): Promise<{
+    averageRating: number;
+    totalReviews: number;
+    ratings: { 1: number; 2: number; 3: number; 4: number; 5: number };
+  }> {
+    const employeeReviews = await db
+      .select()
+      .from(reviews)
+      .where(eq(reviews.employeeId, employeeId));
+
+    const totalReviews = employeeReviews.length;
+    
+    if (totalReviews === 0) {
+      return {
+        averageRating: 0,
+        totalReviews: 0,
+        ratings: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+      };
+    }
+
+    const ratings = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    let totalRating = 0;
+
+    employeeReviews.forEach((review) => {
+      const rating = review.rating as 1 | 2 | 3 | 4 | 5;
+      ratings[rating]++;
+      totalRating += rating;
+    });
+
+    return {
+      averageRating: parseFloat((totalRating / totalReviews).toFixed(2)),
+      totalReviews,
+      ratings
+    };
+  }
+
+  async markReviewAsRewarded(reviewId: string): Promise<Review | undefined> {
+    const [review] = await db
+      .update(reviews)
+      .set({ rewardedAt: new Date() })
+      .where(eq(reviews.id, reviewId))
+      .returning();
+    return review || undefined;
   }
 }
 
