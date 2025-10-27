@@ -741,6 +741,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete user (admin only)
+  app.delete('/api/admin/users/:id', isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      console.log(`🗑️ Admin deleting user ${id}...`);
+      
+      // Get user to check role (prevent deleting admins/owners)
+      const user = await storage.getUser(id);
+      if (!user) {
+        console.log(`❌ User ${id} not found for deletion`);
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Prevent deleting admins and business owners
+      if (user.role === 'admin' || user.role === 'business_owner') {
+        console.log(`❌ Cannot delete user ${id} with role ${user.role}`);
+        return res.status(403).json({ error: `Cannot delete users with ${user.role} role` });
+      }
+      
+      const deleted = await storage.deleteUser(id);
+      
+      if (!deleted) {
+        console.log(`❌ Failed to delete user ${id}`);
+        return res.status(500).json({ error: "Failed to delete user" });
+      }
+      
+      console.log(`✅ User ${id} deleted successfully`);
+      res.json({ success: true, message: "User deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      res.status(500).json({ error: "Failed to delete user" });
+    }
+  });
+
   // Admin transfer tokens to user wallet
   app.post('/api/admin/wallet/:userId/transfer', isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {

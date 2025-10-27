@@ -171,6 +171,34 @@ export default function AdminUsersPage() {
     }
   });
 
+  // Delete user mutation
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const response = await apiRequest(
+        "DELETE",
+        `/api/admin/users/${userId}`
+      );
+      return await response.json();
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "User Deleted",
+        description: data.message || "User successfully deleted"
+      });
+      setSelectedUser(null);
+      setWalletModalOpen(false);
+      // Refresh user list
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Delete Failed",
+        description: error.message || "Failed to delete user",
+        variant: "destructive"
+      });
+    }
+  });
+
   if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -430,11 +458,19 @@ export default function AdminUsersPage() {
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
             </div>
-          ) : userDetails ? (
+          ) : !userDetails ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Users className="h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">Unable to load user details</p>
+              <Button variant="outline" className="mt-4" onClick={() => setSelectedUser(null)}>
+                Close
+              </Button>
+            </div>
+          ) : (
             <>
               <DialogHeader>
                 <div className="flex items-start justify-between">
-                  <div>
+                  <div className="flex-1">
                     <DialogTitle className="text-xl md:text-2xl" data-testid="heading-user-details">
                       {userDetails.user.firstName} {userDetails.user.lastName}
                     </DialogTitle>
@@ -442,7 +478,24 @@ export default function AdminUsersPage() {
                       {userDetails.user.email}
                     </DialogDescription>
                   </div>
-                  {getRoleBadge(userDetails.user.role)}
+                  <div className="flex items-center gap-2">
+                    {getRoleBadge(userDetails.user.role)}
+                    {userDetails.user.role === 'customer' && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => {
+                          if (window.confirm(`Are you sure you want to delete ${userDetails.user.firstName} ${userDetails.user.lastName}? This action cannot be undone.`)) {
+                            deleteUserMutation.mutate(userDetails.user.id);
+                          }
+                        }}
+                        disabled={deleteUserMutation.isPending}
+                        data-testid="button-delete-user"
+                      >
+                        <span className="text-xs">Delete</span>
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </DialogHeader>
 
@@ -670,7 +723,7 @@ export default function AdminUsersPage() {
                 </Tabs>
               </ScrollArea>
             </>
-          ) : null}
+          )}
         </DialogContent>
       </Dialog>
 
