@@ -1365,7 +1365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Award bonus tokens for high ratings (4 or 5 stars)
       if (review.rating >= 4 && !review.rewardedAt) {
-        const bonusAmount = review.rating === 5 ? 50 : 25; // 50 tokens for 5 stars, 25 for 4 stars
+        const bonusAmount = review.rating === 5 ? 500 : 250; // 500 tokens for 5 stars, 250 for 4 stars
         await gamificationService.awardHighRatingBonus(employeeId, review.id, review.rating);
         await storage.markReviewAsRewarded(review.id);
       }

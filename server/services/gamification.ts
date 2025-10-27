@@ -603,7 +603,7 @@ export class GamificationService {
   async awardHighRatingBonus(userId: string, reviewId: string, rating: number): Promise<{ success: boolean; tokensAwarded: string; points: number; error?: string }> {
     try {
       // Calculate bonus based on rating
-      const tokenAmount = rating === 5 ? "50.0" : "25.0"; // 50 tokens for 5 stars, 25 for 4 stars
+      const tokenAmount = rating === 5 ? "500.0" : "250.0"; // 500 tokens for 5 stars, 250 for 4 stars
       const points = rating === 5 ? 100 : 50; // Bonus points
 
       // Get current token price for accurate cash value calculation
