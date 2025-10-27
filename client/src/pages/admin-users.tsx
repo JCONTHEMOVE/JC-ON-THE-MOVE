@@ -332,6 +332,10 @@ export default function AdminUsersPage() {
                         variant="outline" 
                         size="sm" 
                         className="w-full mt-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedUser(user.id);
+                        }}
                         data-testid={`button-view-details-${user.id}`}
                       >
                         <Eye className="h-4 w-4 mr-2" />
@@ -401,6 +405,10 @@ export default function AdminUsersPage() {
                         variant="outline" 
                         size="sm" 
                         className="w-full mt-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedUser(user.id);
+                        }}
                         data-testid={`button-view-details-${user.id}`}
                       >
                         <Eye className="h-4 w-4 mr-2" />

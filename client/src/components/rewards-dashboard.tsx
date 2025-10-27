@@ -340,7 +340,8 @@ export default function RewardsDashboard() {
   const isPositiveChange = priceChange24h >= 0;
 
   return (
-    <div className="container mx-auto p-4 md:p-6 max-w-7xl">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100 dark:from-gray-900 dark:via-blue-950 dark:to-gray-900">
+      <div className="container mx-auto p-4 md:p-6 max-w-7xl">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-foreground">Rewards Center</h1>
@@ -870,6 +871,7 @@ export default function RewardsDashboard() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
     </div>
   );
 }
