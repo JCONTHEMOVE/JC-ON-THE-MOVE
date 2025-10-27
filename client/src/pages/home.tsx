@@ -73,14 +73,14 @@ export default function HomePage() {
   return (
     <div>
       {/* Hero Section */}
-      <section id="home" className="hero-gradient text-primary-foreground">
+      <section id="home" className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 text-foreground">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
               <h1 className="text-4xl md:text-6xl font-bold mb-6">
                 Professional Moving & Junk Removal
               </h1>
-              <p className="text-xl md:text-2xl mb-8 text-primary-foreground/90">
+              <p className="text-xl md:text-2xl mb-8 text-muted-foreground">
                 Reliable, efficient, and stress-free moving services for your home or business. 
                 Licensed, insured, and locally owned with offices in Ironwood Michigan, Iron River Michigan, and Green Bay Wisconsin.
               </p>
