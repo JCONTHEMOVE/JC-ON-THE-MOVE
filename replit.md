@@ -81,6 +81,7 @@ Preferred communication style: Simple, everyday language.
 - **Token Transfer System**: `/api/treasury/transfer` endpoint enables wallet-to-wallet JCMOVES transfers with validation, balance checks, and database tracking.
 - **Unified Admin Dashboard**: "IN GOD WE TRUST" page consolidates all admin features with tab-based navigation, live blockchain stats, and discrepancy alerts.
 - **Streamlined Navigation**: Removed legacy `/treasury`, `/admin`, and `/admin-moonshot` routes in favor of single unified entry point.
+- **AI Crew Assignment Assistant**: Intelligent algorithm suggests optimal crew assignments based on employee workload, performance ratings, experience, and job requirements. Scoring system considers active jobs (-15 pts each), ratings (+20 max), experience (+30 max), and special items handling (+10).
 
 # External Dependencies
 

@@ -8,11 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Truck, Users, DollarSign, Award, TrendingUp, CheckCircle, Circle, Clock, Star, ExternalLink } from "lucide-react";
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Truck, Users, DollarSign, Award, TrendingUp, CheckCircle, Circle, Clock, Star, ExternalLink, Sparkles } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { CrewSuggestionsDialog } from "@/components/crew-suggestions-dialog";
 
 interface Lead {
   id: string;
@@ -77,6 +78,7 @@ export default function LeadDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [tokenAllocation, setTokenAllocation] = useState("");
   const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [showCrewSuggestions, setShowCrewSuggestions] = useState(false);
 
   const { data: lead, isLoading, isError, error } = useQuery<Lead>({
     queryKey: ["/api/leads", params?.id],
@@ -369,6 +371,17 @@ export default function LeadDetailPage() {
               Back to Leads
             </Button>
             <div className="flex gap-2">
+              {!isEditing && (
+                <Button 
+                  variant="outline"
+                  onClick={() => setShowCrewSuggestions(true)} 
+                  data-testid="button-crew-suggestions"
+                  className="flex items-center gap-2"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Crew Suggestions
+                </Button>
+              )}
               {!isEditing ? (
                 <Button onClick={() => setIsEditing(true)} data-testid="button-edit">
                   Edit Quote
@@ -906,6 +919,14 @@ export default function LeadDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Crew Suggestions Dialog */}
+      <CrewSuggestionsDialog
+        jobId={lead.id}
+        jobTitle={`${lead.firstName} ${lead.lastName} - ${lead.serviceType}`}
+        open={showCrewSuggestions}
+        onOpenChange={setShowCrewSuggestions}
+      />
     </div>
   );
 }
