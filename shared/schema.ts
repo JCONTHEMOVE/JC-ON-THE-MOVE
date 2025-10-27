@@ -823,6 +823,30 @@ export const employeeAchievements = pgTable("employee_achievements", {
   unique("unique_user_achievement").on(table.userId, table.achievementTypeId),
 ]);
 
+// Customer reviews and ratings for completed jobs
+export const reviews = pgTable("reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").notNull().references(() => leads.id), // The job being reviewed
+  userId: varchar("user_id").notNull().references(() => users.id), // Customer who submitted review
+  employeeId: varchar("employee_id").notNull().references(() => users.id), // Employee being reviewed
+  rating: integer("rating").notNull(), // 1-5 stars
+  comment: text("comment"), // Optional written feedback
+  serviceQuality: integer("service_quality"), // Optional: 1-5 rating for service quality
+  communication: integer("communication"), // Optional: 1-5 rating for communication
+  timeliness: integer("timeliness"), // Optional: 1-5 rating for timeliness
+  professionalism: integer("professionalism"), // Optional: 1-5 rating for professionalism
+  wouldRecommend: boolean("would_recommend").default(true), // Would recommend this service
+  isHelpful: boolean("is_helpful").default(true), // Review marked as helpful
+  isPublic: boolean("is_public").default(true), // Display publicly on site
+  rewardedAt: timestamp("rewarded_at"), // Timestamp when employee received bonus tokens for this review
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_reviews_lead").on(table.leadId),
+  index("idx_reviews_employee").on(table.employeeId),
+  index("idx_reviews_rating").on(table.rating),
+  unique("unique_review_per_lead").on(table.leadId, table.userId), // One review per customer per job
+]);
+
 export const pointTransactions = pgTable("point_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
@@ -895,6 +919,18 @@ export const insertEmployeeAchievementSchema = createInsertSchema(employeeAchiev
   celebrationShown: true,
 });
 
+export const insertReviewSchema = createInsertSchema(reviews).omit({
+  id: true,
+  rewardedAt: true,
+  createdAt: true,
+}).extend({
+  rating: z.number().int().min(1).max(5),
+  serviceQuality: z.number().int().min(1).max(5).optional(),
+  communication: z.number().int().min(1).max(5).optional(),
+  timeliness: z.number().int().min(1).max(5).optional(),
+  professionalism: z.number().int().min(1).max(5).optional(),
+});
+
 export const insertPointTransactionSchema = createInsertSchema(pointTransactions).omit({
   id: true,
   createdAt: true,
@@ -919,6 +955,8 @@ export type InsertAchievementType = z.infer<typeof insertAchievementTypeSchema>;
 export type AchievementType = typeof achievementTypes.$inferSelect;
 export type InsertEmployeeAchievement = z.infer<typeof insertEmployeeAchievementSchema>;
 export type EmployeeAchievement = typeof employeeAchievements.$inferSelect;
+export type InsertReview = z.infer<typeof insertReviewSchema>;
+export type Review = typeof reviews.$inferSelect;
 export type InsertPointTransaction = z.infer<typeof insertPointTransactionSchema>;
 export type PointTransaction = typeof pointTransactions.$inferSelect;
 export type InsertWeeklyLeaderboard = z.infer<typeof insertWeeklyLeaderboardSchema>;
