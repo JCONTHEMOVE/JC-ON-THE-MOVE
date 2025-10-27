@@ -31,7 +31,7 @@ export function EmployeeReviews({ employeeId, limit = 10, showStats = true }: Em
     totalReviews: number;
     ratingDistribution: Record<string, number>;
   }>({
-    queryKey: ["/api/reviews/employee", employeeId, "stats"],
+    queryKey: [`/api/reviews/employee/${employeeId}/stats`],
     enabled: showStats,
   });
 

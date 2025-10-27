@@ -19,6 +19,7 @@ import {
 import { Link } from "wouter";
 import { useState } from "react";
 import { format } from "date-fns";
+import { EmployeeReviews } from "@/components/employee-reviews";
 
 interface GamificationStats {
   points: number;
@@ -60,6 +61,12 @@ export default function EmployeeDashboard() {
     showUpcomingJobs: true,
     showPerformance: true,
     showStreaks: true,
+    showReviews: true,
+  });
+
+  // Get current user
+  const { data: user } = useQuery<{ id: string; email: string; role: string }>({
+    queryKey: ["/api/auth/user"],
   });
 
   const { data: gamificationStats, isLoading: statsLoading } = useQuery<GamificationStats>({
@@ -156,6 +163,15 @@ export default function EmployeeDashboard() {
               >
                 {dashboardSettings.showStreaks ? <Eye className="h-4 w-4 mr-1" /> : <EyeOff className="h-4 w-4 mr-1" />}
                 Streaks & Level
+              </Button>
+              <Button
+                variant={dashboardSettings.showReviews ? "default" : "outline"}
+                size="sm"
+                onClick={() => toggleSetting('showReviews')}
+                data-testid="toggle-reviews"
+              >
+                {dashboardSettings.showReviews ? <Eye className="h-4 w-4 mr-1" /> : <EyeOff className="h-4 w-4 mr-1" />}
+                Customer Reviews
               </Button>
             </div>
           </CardContent>
@@ -385,6 +401,11 @@ export default function EmployeeDashboard() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* Customer Reviews */}
+        {dashboardSettings.showReviews && user?.id && (
+          <EmployeeReviews employeeId={user.id} limit={5} showStats={true} />
         )}
 
         {/* Upcoming Jobs List */}
