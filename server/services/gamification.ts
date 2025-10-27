@@ -598,6 +598,90 @@ export class GamificationService {
   }
 
   /**
+   * Award bonus tokens for high customer ratings (4 or 5 stars)
+   */
+  async awardHighRatingBonus(userId: string, reviewId: string, rating: number): Promise<{ success: boolean; tokensAwarded: string; points: number; error?: string }> {
+    try {
+      // Calculate bonus based on rating
+      const tokenAmount = rating === 5 ? "50.0" : "25.0"; // 50 tokens for 5 stars, 25 for 4 stars
+      const points = rating === 5 ? 100 : 50; // Bonus points
+
+      // Get current token price for accurate cash value calculation
+      const tokenPrice = await treasuryService.getCurrentTokenPrice();
+
+      // Distribute tokens from Treasury
+      const distributionResult = await treasuryService.distributeTokens(
+        parseFloat(tokenAmount),
+        `High rating bonus - ${rating} stars (Review #${reviewId})`,
+        "customer_rating_bonus",
+        userId
+      );
+
+      // Check if distribution was successful
+      if (!distributionResult.success) {
+        return {
+          success: false,
+          tokensAwarded: "0",
+          points: 0,
+          error: distributionResult.error || 'Token distribution failed'
+        };
+      }
+
+      // Create reward record for history tracking
+      await storage.createReward({
+        userId,
+        rewardType: 'customer_rating_bonus',
+        tokenAmount,
+        cashValue: distributionResult.cashValue.toFixed(4),
+        status: 'confirmed',
+        referenceId: reviewId,
+        metadata: {
+          rating,
+          points
+        }
+      });
+
+      // Add points transaction
+      await storage.createPointTransaction({
+        userId,
+        points,
+        transactionType: "customer_rating_bonus",
+        relatedEntityType: "review",
+        relatedEntityId: reviewId,
+        description: `High rating bonus - ${rating} stars`,
+        metadata: {
+          rating,
+          tokenAmount
+        }
+      });
+
+      // Update employee stats
+      const stats = await storage.getEmployeeStats(userId);
+      if (stats) {
+        await storage.updateEmployeeStats(userId, {
+          totalPoints: (stats.totalPoints || 0) + points,
+          totalEarnedTokens: (parseFloat(stats.totalEarnedTokens || "0") + parseFloat(tokenAmount)).toFixed(8),
+          lastActivityDate: new Date()
+        });
+      }
+
+      return {
+        success: true,
+        tokensAwarded: tokenAmount,
+        points
+      };
+    } catch (error) {
+      console.error('High rating bonus error:', error);
+      return {
+        success: false,
+        tokensAwarded: "0",
+        points: 0,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
    * Get weekly leaderboard
    */
   async getWeeklyLeaderboard(): Promise<WeeklyLeaderboard[]> {
