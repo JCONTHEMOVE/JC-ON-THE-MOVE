@@ -511,7 +511,8 @@ export function ShopPage() {
   });
 
   return (
-    <div className="space-y-4 p-4 pb-20">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
+      <div className="space-y-4 p-4 pb-20">
       {/* Header with View Toggle */}
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Shop</h1>
@@ -576,6 +577,7 @@ export function ShopPage() {
       ) : (
         <CreateItemForm onSuccess={() => setView("browse")} />
       )}
+      </div>
     </div>
   );
 }

@@ -268,7 +268,8 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-6 md:py-8 max-w-7xl">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
+      <div className="container mx-auto px-4 py-6 md:py-8 max-w-7xl">
       {/* Header */}
       <div className="mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-2" data-testid="heading-admin-users">
@@ -882,6 +883,7 @@ export default function AdminUsersPage() {
           </ScrollArea>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }
