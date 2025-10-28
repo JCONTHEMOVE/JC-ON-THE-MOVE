@@ -73,6 +73,15 @@ app.use((req, res, next) => {
       }
     }));
 
+    // Serve video files from workspace root with proper MIME types
+    app.get('/*.mp4', (req, res) => {
+      const videoPath = path.resolve(process.cwd(), req.path.substring(1));
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      res.sendFile(videoPath);
+    });
+
     // Setup Vite for development or serve static files for production
     if (app.get("env") === "development") {
       console.log('Setting up Vite development server...');
