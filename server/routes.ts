@@ -628,14 +628,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(desc(cashoutRequests.createdAt));
       
       // Get assigned/created leads if employee (use targeted queries instead of filtering all leads)
-      let assignedJobs = [];
-      let createdJobs = [];
+      let assignedJobs: any[] = [];
+      let createdJobs: any[] = [];
       if (user.role === 'employee' || user.role === 'admin') {
         // Query only leads where user is in crew (more efficient than loading all leads)
         const [allLeadsForUser, allCreatedLeads] = await Promise.all([
           db.select()
             .from(leads)
-            .where(sql`${id} = ANY(${leads.crewMemberIds})`)
+            .where(sql`${id} = ANY(${leads.crewMembers})`)
             .orderBy(desc(leads.createdAt))
             .limit(10),
           db.select()
@@ -673,7 +673,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           currentLevel: employeeStats.currentLevel,
           totalEarnedTokens: employeeStats.totalEarnedTokens,
           jobsCompleted: employeeStats.jobsCompleted,
-          streakCount: employeeStats.streakCount,
+          streakCount: employeeStats.currentStreak,
           lastActivityDate: employeeStats.lastActivityDate
         } : null,
         recentRewards: recentRewards.map(reward => ({
@@ -690,7 +690,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           cashoutDetails: pendingCashouts.map(cashout => ({
             id: cashout.id,
             tokenAmount: cashout.tokenAmount,
-            usdValue: cashout.usdValue,
+            usdValue: cashout.cashAmount,
             status: cashout.status,
             createdAt: cashout.createdAt
           }))
