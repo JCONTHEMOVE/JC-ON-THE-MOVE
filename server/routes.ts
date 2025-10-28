@@ -617,6 +617,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(desc(rewards.earnedDate))
         .limit(10);
       
+      // Calculate total earnings from ALL rewards (not just recent 10)
+      const allRewards = await db
+        .select({ cashValue: rewards.cashValue })
+        .from(rewards)
+        .where(eq(rewards.userId, id));
+      
+      const totalEarnings = allRewards.reduce((sum, reward) => 
+        sum + parseFloat(reward.cashValue || "0"), 0
+      );
+      
       // Get pending cashout requests
       const pendingCashouts = await db
         .select()
@@ -647,11 +657,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         assignedJobs = allLeadsForUser;
         createdJobs = allCreatedLeads;
       }
-      
-      // Calculate total earnings
-      const totalEarnings = recentRewards.reduce((sum, reward) => 
-        sum + parseFloat(reward.cashValue || "0"), 0
-      );
       
       res.json({
         user: {
