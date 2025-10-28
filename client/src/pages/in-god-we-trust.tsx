@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -166,14 +167,16 @@ export default function InGodWeTrustPage() {
             <div className="text-sm opacity-80 mt-1">Market Value (USD)</div>
           </Card>
 
-          <Card className="p-6 bg-gradient-to-br from-orange-500 to-orange-600 text-white">
-            <div className="flex items-center justify-between mb-2">
-              <Users className="h-8 w-8 opacity-80" />
-              <span className="text-sm opacity-80">System</span>
-            </div>
-            <div className="text-3xl font-bold">{adminStats?.totalUsers || 0}</div>
-            <div className="text-sm opacity-80 mt-1">Total Users</div>
-          </Card>
+          <Link href="/admin/users" className="block">
+            <Card className="p-6 bg-gradient-to-br from-orange-500 to-orange-600 text-white cursor-pointer hover:from-orange-600 hover:to-orange-700 transition-all duration-200 transform hover:scale-105">
+              <div className="flex items-center justify-between mb-2">
+                <Users className="h-8 w-8 opacity-80" />
+                <span className="text-sm opacity-80">System</span>
+              </div>
+              <div className="text-3xl font-bold">{adminStats?.totalUsers || 0}</div>
+              <div className="text-sm opacity-80 mt-1">Total Users</div>
+            </Card>
+          </Link>
         </div>
 
         {/* Balance Discrepancy Alert */}
