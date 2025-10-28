@@ -448,11 +448,12 @@ export default function TreasuryDashboard() {
 
         {/* Main Dashboard Tabs */}
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
             <TabsTrigger value="deposits" data-testid="tab-deposits">Deposits</TabsTrigger>
             <TabsTrigger value="transactions" data-testid="tab-transactions">Transactions</TabsTrigger>
             <TabsTrigger value="analytics" data-testid="tab-analytics">Analytics</TabsTrigger>
+            <TabsTrigger value="reconcile" data-testid="tab-reconcile">Reconcile</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -848,6 +849,129 @@ export default function TreasuryDashboard() {
                 <p className="text-muted-foreground">Analytics data unavailable</p>
               </div>
             )}
+          </TabsContent>
+
+          {/* Reconcile Tab */}
+          <TabsContent value="reconcile" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  Blockchain Reconciliation
+                </CardTitle>
+                <CardDescription>
+                  Scan the Solana blockchain to sync treasury deposits and resolve balance discrepancies
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Balance Comparison */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+                    <div className="text-sm text-blue-600 dark:text-blue-400 font-medium mb-1">Blockchain Balance</div>
+                    {loadingBalance ? (
+                      <Skeleton className="h-8 w-32" />
+                    ) : (
+                      <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">
+                        {(liveBalance?.balance || 0).toLocaleString()} JCMOVES
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="bg-green-50 dark:bg-green-950/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
+                    <div className="text-sm text-green-600 dark:text-green-400 font-medium mb-1">Database Balance</div>
+                    {summaryLoading ? (
+                      <Skeleton className="h-8 w-32" />
+                    ) : (
+                      <div className="text-2xl font-bold text-green-900 dark:text-green-100">
+                        {(treasurySummary?.stats?.tokenReserve || 0).toLocaleString()} JCMOVES
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className={`rounded-lg p-4 border ${
+                    Math.abs((liveBalance?.balance || 0) - (treasurySummary?.stats?.tokenReserve || 0)) > 0.01
+                      ? 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800'
+                      : 'bg-gray-50 dark:bg-gray-950/20 border-gray-200 dark:border-gray-800'
+                  }`}>
+                    <div className={`text-sm font-medium mb-1 ${
+                      Math.abs((liveBalance?.balance || 0) - (treasurySummary?.stats?.tokenReserve || 0)) > 0.01
+                        ? 'text-yellow-600 dark:text-yellow-400'
+                        : 'text-gray-600 dark:text-gray-400'
+                    }`}>
+                      Discrepancy
+                    </div>
+                    <div className={`text-2xl font-bold ${
+                      Math.abs((liveBalance?.balance || 0) - (treasurySummary?.stats?.tokenReserve || 0)) > 0.01
+                        ? 'text-yellow-900 dark:text-yellow-100'
+                        : 'text-gray-900 dark:text-gray-100'
+                    }`}>
+                      {Math.abs((liveBalance?.balance || 0) - (treasurySummary?.stats?.tokenReserve || 0)).toLocaleString()} JCMOVES
+                    </div>
+                  </div>
+                </div>
+
+                {/* Reconciliation Action */}
+                <div className="space-y-4">
+                  <div className="bg-muted/50 rounded-lg p-4 border">
+                    <h4 className="font-semibold mb-2">How Reconciliation Works</h4>
+                    <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                      <li>Scans the last 100 blockchain transactions for JCMOVES deposits</li>
+                      <li>Identifies deposits that exist on-chain but are missing from the database</li>
+                      <li>Automatically adds missing deposits to sync the database with reality</li>
+                      <li>Updates the treasury balance to match the blockchain</li>
+                    </ol>
+                  </div>
+
+                  {Math.abs((liveBalance?.balance || 0) - (treasurySummary?.stats?.tokenReserve || 0)) > 0.01 && (
+                    <div className="bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="font-medium text-yellow-900 dark:text-yellow-100">Balance Discrepancy Detected</p>
+                          <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+                            The blockchain shows {Math.abs((liveBalance?.balance || 0) - (treasurySummary?.stats?.tokenReserve || 0)).toLocaleString()} more JCMOVES 
+                            than the database. Click the button below to reconcile.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <Button
+                    onClick={() => scanHistoryMutation.mutate()}
+                    disabled={scanHistoryMutation.isPending}
+                    className="w-full"
+                    size="lg"
+                    data-testid="button-reconcile-blockchain"
+                  >
+                    {scanHistoryMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                        Scanning Blockchain History...
+                      </>
+                    ) : (
+                      <>
+                        <Activity className="h-5 w-5 mr-2" />
+                        Scan & Reconcile Blockchain
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Wallet Information */}
+                <div className="bg-muted/30 rounded-lg p-4 border">
+                  <div className="flex items-start gap-3">
+                    <Wallet className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium mb-1">Treasury Wallet Address</p>
+                      <code className="text-xs bg-background px-2 py-1 rounded border break-all">
+                        {liveBalance?.walletAddress || 'Loading...'}
+                      </code>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
