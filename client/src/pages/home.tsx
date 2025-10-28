@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Phone, Mail, MapPin, Clock, Shield, Users, DollarSign, Home, Building, Trash2, CheckCircle } from "lucide-react";
+import { Phone, Mail, MapPin, Clock, Shield, Users, DollarSign, Home, Building, Trash2, CheckCircle, Volume2, VolumeX } from "lucide-react";
 import QuoteForm from "@/components/quote-form";
 import ContactForm from "@/components/contact-form";
 import CompanySlideshow from "@/components/company-slideshow";
@@ -16,6 +16,14 @@ import happyFamily2 from "@assets/stock_images/happy_family_in_new__32e2c8cf.jpg
 
 export default function HomePage() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [isMuted, setIsMuted] = useState(true);
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
 
   useEffect(() => {
     // Ensure video plays on mount
@@ -120,6 +128,20 @@ export default function HomePage() {
               >
                 Your browser does not support the video tag.
               </video>
+              
+              {/* Unmute Button Overlay */}
+              <button
+                onClick={toggleMute}
+                className="absolute bottom-4 right-4 bg-black/60 hover:bg-black/80 text-white p-3 rounded-full transition-all duration-200 backdrop-blur-sm shadow-lg hover:scale-110"
+                aria-label={isMuted ? "Unmute video" : "Mute video"}
+                data-testid="button-toggle-mute"
+              >
+                {isMuted ? (
+                  <VolumeX className="h-6 w-6" />
+                ) : (
+                  <Volume2 className="h-6 w-6" />
+                )}
+              </button>
             </div>
           </div>
         </div>
