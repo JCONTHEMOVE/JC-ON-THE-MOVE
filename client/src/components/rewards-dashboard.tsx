@@ -442,9 +442,9 @@ export default function RewardsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-xl md:text-2xl font-bold" data-testid="streak-count">
-              {miningStatus?.streakCount || 0} days {miningStatus?.streakCount ? (
+              {miningStatus?.streakCount || 0} days {miningStatus?.streakCount && miningStatus.streakCount > 1 ? (
                 <span className="text-sm text-muted-foreground">
-                  ({(1 + ((miningStatus.streakCount - 1) * 0.01)).toFixed(2)}x)
+                  (+{((miningStatus.streakCount - 1) * 1)}%)
                 </span>
               ) : null}
             </div>
