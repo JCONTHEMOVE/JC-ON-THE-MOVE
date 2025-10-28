@@ -108,7 +108,7 @@ export default function HomePage() {
             <div className="relative">
               <video
                 ref={videoRef}
-                src="/2025-10-27-161342201_1761600071522.mp4"
+                src="/VID_20251024_134521828 (1).mp4"
                 poster="/attached_assets/FB_IMG_5937718007297288444_1758496258755.jpg"
                 autoPlay
                 loop
