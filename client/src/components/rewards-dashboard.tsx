@@ -398,23 +398,23 @@ export default function RewardsDashboard() {
         </Card>
       </div>
 
-      {/* Wallet Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      {/* Wallet Overview - Condensed to 2 Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <Card 
           className="cursor-pointer hover:shadow-lg transition-all hover:scale-[1.02]"
           onClick={() => setWalletModalOpen(true)}
           data-testid="card-wallet-balance"
         >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Token Balance</CardTitle>
-            <Coins className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Balance & Holdings</CardTitle>
+            <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-xl md:text-2xl font-bold" data-testid="token-balance">
+            <div className="text-2xl font-bold" data-testid="token-balance">
               {tokenBalance.toFixed(2)} {tokenInfo?.symbol || 'JCMOVES'}
             </div>
-            <p className="text-xs text-muted-foreground flex items-center">
-              ≈ ${cashValue.toFixed(2)} USD
+            <p className="text-xs text-muted-foreground mt-1 flex items-center">
+              Portfolio Value: <span className="font-semibold text-foreground ml-1">${(tokenBalance * (tokenInfo?.price || 0)).toFixed(2)}</span>
               <ChevronRight className="h-3 w-3 ml-1" />
             </p>
           </CardContent>
@@ -422,34 +422,22 @@ export default function RewardsDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Earned</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl md:text-2xl font-bold" data-testid="total-earned">
-              {parseFloat(wallet?.totalEarned || '0').toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              All-time earnings
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Mining Streak</CardTitle>
+            <CardTitle className="text-sm font-medium">Streak & Earnings</CardTitle>
             <Zap className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-xl md:text-2xl font-bold" data-testid="streak-count">
-              {miningStatus?.streakCount || 0} days {miningStatus?.streakCount && miningStatus.streakCount > 1 ? (
-                <span className="text-sm text-muted-foreground">
-                  (+{((miningStatus.streakCount - 1) * 1)}%)
-                </span>
-              ) : null}
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold" data-testid="streak-count">
+                {miningStatus?.streakCount || 0} days
+              </span>
+              {miningStatus?.streakCount && miningStatus.streakCount > 1 && (
+                <Badge variant="secondary" className="text-xs">
+                  +{((miningStatus.streakCount - 1) * 1)}% bonus
+                </Badge>
+              )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Claim daily for bonus rewards
+            <p className="text-xs text-muted-foreground mt-1">
+              Total Earned: <span className="font-semibold text-foreground" data-testid="total-earned">{parseFloat(wallet?.totalEarned || '0').toFixed(2)}</span>
             </p>
           </CardContent>
         </Card>
