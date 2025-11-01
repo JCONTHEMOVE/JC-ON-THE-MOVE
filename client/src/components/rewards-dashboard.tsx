@@ -92,6 +92,7 @@ export default function RewardsDashboard() {
   const [streakBonus, setStreakBonus] = useState("0.00000000");
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [emberDialogOpen, setEmberDialogOpen] = useState(false);
 
   // Fetch wallet data
   const { data: wallet, isLoading: walletLoading } = useQuery<WalletAccount>({
@@ -652,6 +653,67 @@ export default function RewardsDashboard() {
                 </p>
               </div>
             </Card>
+
+            {/* EMBER App Widget */}
+            <Card className="p-6 bg-gradient-to-br from-orange-500 via-orange-600 to-red-600 text-white border-0 shadow-xl">
+              <div className="text-center space-y-4">
+                <div className="flex justify-center">
+                  <div className="text-6xl">₿</div>
+                </div>
+                <h3 className="text-2xl font-bold">EMBER - Earn Bitcoin</h3>
+                <p className="text-sm opacity-90">
+                  Earn Satoshis (Bitcoin) every hour! Play games, make predictions, and join tournaments.
+                </p>
+                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 space-y-2">
+                  <p className="text-xs opacity-75">Referral Code</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-black/30 px-3 py-2 rounded font-mono text-sm">
+                      MNG-POKER-LPG
+                    </code>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText('MNG-POKER-LPG');
+                        toast({
+                          title: "Copied!",
+                          description: "EMBER referral code copied to clipboard",
+                        });
+                      }}
+                      data-testid="button-copy-ember-code"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => setEmberDialogOpen(true)}
+                  data-testid="button-ember-details"
+                >
+                  <ChevronRight className="mr-2 h-4 w-4" />
+                  See More Details
+                </Button>
+                <Button
+                  asChild
+                  className="w-full bg-white text-orange-600 hover:bg-gray-100 font-semibold"
+                  data-testid="button-ember-signup"
+                >
+                  <a
+                    href="https://emberfund.onelink.me/ljTI/l4g18zii?mining_referrer_id=MNG-POKER-LPG"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ArrowUpRight className="mr-2 h-4 w-4" />
+                    Sign Up with Referral Link
+                  </a>
+                </Button>
+                <p className="text-xs opacity-75">
+                  Use our referral link to support JCMOVES and earn more Satoshis!
+                </p>
+              </div>
+            </Card>
           </div>
         </TabsContent>
 
@@ -910,6 +972,107 @@ export default function RewardsDashboard() {
                     </div>
                   )}
                 </ScrollArea>
+              </CardContent>
+            </Card>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* EMBER App Details Dialog */}
+      <Dialog open={emberDialogOpen} onOpenChange={setEmberDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl flex items-center gap-2">
+              <span className="text-3xl">₿</span>
+              EMBER - Earn Bitcoin Every Hour
+            </DialogTitle>
+            <DialogDescription>
+              Download EMBER to earn Satoshis (Bitcoin) through games, predictions, and tournaments
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Home Screen */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Your Earnings Dashboard</h3>
+              <div className="rounded-lg overflow-hidden border">
+                <img 
+                  src="/attached_assets/Screenshot_20251101-185111.Ember_1762041207489.png" 
+                  alt="EMBER Home Screen - Earnings Dashboard showing 10,864 Satoshis"
+                  className="w-full"
+                />
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">
+                Track your Satoshi earnings in real-time. Boost +10 Sat/hr with each active referral!
+              </p>
+            </div>
+
+            {/* Predictions */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Make Predictions on Sports</h3>
+              <div className="rounded-lg overflow-hidden border">
+                <img 
+                  src="/attached_assets/Screenshot_20251101-185121.Ember_1762041207519.png" 
+                  alt="EMBER Predictions - Sports betting with multipliers"
+                  className="w-full"
+                />
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">
+                Predict NBA, NFL, NHL, and more. Earn Bitcoin from your predictions with up to 4x multipliers!
+              </p>
+            </div>
+
+            {/* Games */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Play Games & Microtasks</h3>
+              <div className="rounded-lg overflow-hidden border">
+                <img 
+                  src="/attached_assets/Screenshot_20251101-185127.Ember_1762041207531.png" 
+                  alt="EMBER Games - Blackjack, Mines, Spinner, Dice, and more"
+                  className="w-full"
+                />
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">
+                Play Blackjack, Mines, Spinner, and more. All games are provably fair!
+              </p>
+            </div>
+
+            {/* Tournaments */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Join Free Tournaments</h3>
+              <div className="rounded-lg overflow-hidden border">
+                <img 
+                  src="/attached_assets/Screenshot_20251101-185130.Ember_1762041207545.png" 
+                  alt="EMBER Tournaments - Free entry tournaments with prizes"
+                  className="w-full"
+                />
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">
+                Enter free tournaments with thousands of tickets available. Win Bitcoin prizes!
+              </p>
+            </div>
+
+            {/* Referral Info */}
+            <Card className="bg-gradient-to-br from-orange-500 to-red-600 text-white border-0">
+              <CardContent className="p-6 text-center space-y-4">
+                <h3 className="text-xl font-bold">Ready to Start Earning?</h3>
+                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+                  <p className="text-sm opacity-90 mb-2">Use Referral Code:</p>
+                  <code className="text-lg font-mono font-bold">MNG-POKER-LPG</code>
+                </div>
+                <Button
+                  asChild
+                  className="w-full bg-white text-orange-600 hover:bg-gray-100 font-semibold"
+                >
+                  <a
+                    href="https://emberfund.onelink.me/ljTI/l4g18zii?mining_referrer_id=MNG-POKER-LPG"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ArrowUpRight className="mr-2 h-4 w-4" />
+                    Download EMBER & Start Earning
+                  </a>
+                </Button>
               </CardContent>
             </Card>
           </div>
