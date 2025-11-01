@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -38,6 +39,7 @@ interface User {
   lastName: string;
   username?: string;
   role: string;
+  status: 'pending' | 'approved' | 'removed';
   createdAt: string;
   referralCount: number;
 }
@@ -103,6 +105,8 @@ export default function AdminUsersPage() {
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [transferAmount, setTransferAmount] = useState("");
   const [transferDescription, setTransferDescription] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
 
   // Check if user has admin or business_owner role
   const hasAccess = hasAdminAccess || user?.role === 'business_owner';
@@ -171,6 +175,35 @@ export default function AdminUsersPage() {
     }
   });
 
+  // Update user status mutation
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ userId, status }: { userId: string; status: 'pending' | 'approved' | 'removed' }) => {
+      const response = await apiRequest(
+        "PATCH",
+        `/api/admin/users/${userId}/status`,
+        { status }
+      );
+      return await response.json();
+    },
+    onSuccess: (data: any, variables) => {
+      const statusLabels = { pending: 'Pending', approved: 'Approved', removed: 'Removed' };
+      toast({
+        title: "Status Updated",
+        description: `User status changed to ${statusLabels[variables.status]}`
+      });
+      // Refresh user list
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users", variables.userId, "details"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update Failed",
+        description: error.message || "Failed to update user status",
+        variant: "destructive"
+      });
+    }
+  });
+
   // Delete user mutation
   const deleteUserMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -187,6 +220,8 @@ export default function AdminUsersPage() {
       });
       setSelectedUser(null);
       setWalletModalOpen(false);
+      setDeleteConfirmOpen(false);
+      setUserToDelete(null);
       // Refresh user list
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
     },
@@ -257,6 +292,16 @@ export default function AdminUsersPage() {
     };
     const config = variants[role] || variants.customer;
     return <Badge variant={config.variant} data-testid={`badge-role-${role}`}>{config.label}</Badge>;
+  };
+
+  const getStatusBadge = (status: 'pending' | 'approved' | 'removed') => {
+    const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline", label: string, className?: string }> = {
+      pending: { variant: "outline", label: "Pending", className: "border-yellow-500 text-yellow-600 dark:text-yellow-400" },
+      approved: { variant: "outline", label: "Approved", className: "border-green-500 text-green-600 dark:text-green-400" },
+      removed: { variant: "outline", label: "Removed", className: "border-red-500 text-red-600 dark:text-red-400" }
+    };
+    const config = variants[status] || variants.pending;
+    return <Badge variant={config.variant} className={config.className} data-testid={`badge-status-${status}`}>{config.label}</Badge>;
   };
 
   const formatDate = (dateString: string) => {
@@ -343,7 +388,10 @@ export default function AdminUsersPage() {
                           {user.email}
                         </CardDescription>
                       </div>
-                      {getRoleBadge(user.role)}
+                      <div className="flex flex-col gap-1">
+                        {getRoleBadge(user.role)}
+                        {getStatusBadge(user.status)}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -357,6 +405,68 @@ export default function AdminUsersPage() {
                         <span className="text-muted-foreground">Joined</span>
                         <span className="font-medium">{formatDate(user.createdAt)}</span>
                       </div>
+                      
+                      {/* Status Actions */}
+                      <div className="flex gap-2 mt-3">
+                        {user.status === 'pending' && (
+                          <Button 
+                              variant="default" 
+                              size="sm" 
+                              className="flex-1 bg-green-600 hover:bg-green-700"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateStatusMutation.mutate({ userId: user.id, status: 'approved' });
+                              }}
+                              data-testid={`button-approve-${user.id}`}
+                            >
+                              Approve
+                            </Button>
+                          )}
+                          {user.status === 'approved' && (
+                            <Button 
+                              variant="destructive" 
+                              size="sm" 
+                              className="flex-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateStatusMutation.mutate({ userId: user.id, status: 'removed' });
+                              }}
+                              data-testid={`button-remove-${user.id}`}
+                            >
+                              Remove Access
+                            </Button>
+                          )}
+                          {user.status === 'removed' && (
+                            <Button 
+                              variant="default" 
+                              size="sm" 
+                              className="flex-1 bg-blue-600 hover:bg-blue-700"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateStatusMutation.mutate({ userId: user.id, status: 'approved' });
+                              }}
+                              data-testid={`button-restore-${user.id}`}
+                            >
+                              Restore
+                            </Button>
+                          )}
+                          {(user.status === 'pending' || user.status === 'removed') && (
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="flex-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setUserToDelete(user);
+                                setDeleteConfirmOpen(true);
+                              }}
+                              data-testid={`button-delete-${user.id}`}
+                            >
+                              Delete
+                            </Button>
+                          )}
+                        </div>
+                      
                       <Button 
                         variant="outline" 
                         size="sm" 
@@ -412,7 +522,10 @@ export default function AdminUsersPage() {
                           {user.email}
                         </CardDescription>
                       </div>
-                      {getRoleBadge(user.role)}
+                      <div className="flex flex-col gap-1">
+                        {getRoleBadge(user.role)}
+                        {getStatusBadge(user.status)}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -430,6 +543,68 @@ export default function AdminUsersPage() {
                         <span className="text-muted-foreground">Referrals</span>
                         <Badge variant="outline">{user.referralCount || 0}</Badge>
                       </div>
+                      
+                      {/* Status Actions */}
+                      <div className="flex gap-2 mt-3">
+                        {user.status === 'pending' && (
+                          <Button 
+                            variant="default" 
+                            size="sm" 
+                            className="flex-1 bg-green-600 hover:bg-green-700"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateStatusMutation.mutate({ userId: user.id, status: 'approved' });
+                            }}
+                            data-testid={`button-approve-${user.id}`}
+                          >
+                            Approve
+                          </Button>
+                        )}
+                        {user.status === 'approved' && (
+                          <Button 
+                            variant="destructive" 
+                            size="sm" 
+                            className="flex-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateStatusMutation.mutate({ userId: user.id, status: 'removed' });
+                            }}
+                            data-testid={`button-remove-${user.id}`}
+                          >
+                            Remove Access
+                          </Button>
+                        )}
+                        {user.status === 'removed' && (
+                          <Button 
+                            variant="default" 
+                            size="sm" 
+                            className="flex-1 bg-blue-600 hover:bg-blue-700"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateStatusMutation.mutate({ userId: user.id, status: 'approved' });
+                            }}
+                            data-testid={`button-restore-${user.id}`}
+                          >
+                            Restore
+                          </Button>
+                        )}
+                        {(user.status === 'pending' || user.status === 'removed') && (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setUserToDelete(user);
+                              setDeleteConfirmOpen(true);
+                            }}
+                            data-testid={`button-delete-${user.id}`}
+                          >
+                            Delete
+                          </Button>
+                        )}
+                      </div>
+                      
                       <Button 
                         variant="outline" 
                         size="sm" 
@@ -883,6 +1058,45 @@ export default function AdminUsersPage() {
           </ScrollArea>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User Account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {userToDelete && (
+                <div className="space-y-2">
+                  <p>
+                    You are about to permanently delete the account for{" "}
+                    <span className="font-semibold">{userToDelete.firstName} {userToDelete.lastName}</span>{" "}
+                    ({userToDelete.email}).
+                  </p>
+                  <p className="text-destructive font-medium">
+                    This action cannot be undone. All user data, including wallet balances, will be transferred to treasury and the account will be permanently removed.
+                  </p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setUserToDelete(null)} data-testid="button-cancel-delete">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (userToDelete) {
+                  deleteUserMutation.mutate(userToDelete.id);
+                }
+              }}
+              className="bg-destructive hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {deleteUserMutation.isPending ? "Deleting..." : "Delete Account"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       </div>
     </div>
   );
