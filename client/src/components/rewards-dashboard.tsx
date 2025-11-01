@@ -152,7 +152,7 @@ export default function RewardsDashboard() {
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/mining/status"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rewards/wallet"] });
       
       const streakInfo = data.streakCount > 0 
         ? ` (${data.streakCount}-day streak bonus: +${parseFloat(data.streakBonus || 0).toFixed(2)})` 
