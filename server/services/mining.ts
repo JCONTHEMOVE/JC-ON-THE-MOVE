@@ -360,15 +360,16 @@ export class MiningService {
         streakCount,
         streakBonus: streakBonus.toFixed(8),
       };
-    } catch (error) {
-      console.error("Error claiming mining tokens:", error);
-      return {
-        success: false,
-        tokensClaimed: "0",
-        newBalance: "0",
-        error: error instanceof Error ? error.message : "Failed to claim tokens",
-      };
-    }
+      } catch (error) {
+        console.error("Error claiming mining tokens:", error);
+        return {
+          success: false,
+          tokensClaimed: "0",
+          newBalance: "0",
+          error: error instanceof Error ? error.message : "Failed to claim tokens",
+        };
+      }
+    });
   }
 
   /**
