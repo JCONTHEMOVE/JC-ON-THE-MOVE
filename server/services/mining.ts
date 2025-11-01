@@ -199,43 +199,45 @@ export class MiningService {
     streakBonus?: string;
     error?: string;
   }> {
-    try {
-      // Check if user is approved to claim tokens
-      const approvalCheck = await this.checkUserApproved(userId);
-      if (!approvalCheck.approved) {
-        return { 
-          success: false, 
-          tokensClaimed: "0", 
-          newBalance: "0", 
-          error: approvalCheck.error || "Account not approved" 
-        };
-      }
+    // Check if user is approved to claim tokens (before transaction)
+    const approvalCheck = await this.checkUserApproved(userId);
+    if (!approvalCheck.approved) {
+      return { 
+        success: false, 
+        tokensClaimed: "0", 
+        newBalance: "0", 
+        error: approvalCheck.error || "Account not approved" 
+      };
+    }
 
-      // Use FOR UPDATE lock to prevent concurrent claims
-      const [session] = await db
-        .select()
-        .from(miningSessions)
-        .where(and(
-          eq(miningSessions.userId, userId),
-          eq(miningSessions.status, "active")
-        ))
-        .for('update')
-        .limit(1);
-      
-      if (!session) {
-        return { success: false, tokensClaimed: "0", newBalance: "0", error: "No active mining session" };
-      }
+    // Wrap entire claim operation in a transaction for data integrity
+    return await db.transaction(async (tx) => {
+      try {
+        // Use FOR UPDATE lock to prevent concurrent claims - transaction ensures lock is held
+        const [session] = await tx
+          .select()
+          .from(miningSessions)
+          .where(and(
+            eq(miningSessions.userId, userId),
+            eq(miningSessions.status, "active")
+          ))
+          .for('update')
+          .limit(1);
+        
+        if (!session) {
+          return { success: false, tokensClaimed: "0", newBalance: "0", error: "No active mining session" };
+        }
 
-      // Prevent double-claiming on the same day
-      const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-      if (session.lastClaimDate === todayDate && claimType === 'manual') {
-        return { 
-          success: false, 
-          tokensClaimed: "0", 
-          newBalance: "0", 
-          error: "You have already claimed tokens today. Come back in 24 hours!" 
-        };
-      }
+        // Prevent double-claiming on the same day (for both manual AND auto claims)
+        const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        if (session.lastClaimDate === todayDate) {
+          return { 
+            success: false, 
+            tokensClaimed: "0", 
+            newBalance: "0", 
+            error: "Tokens have already been claimed today. Come back in 24 hours!" 
+          };
+        }
 
       // Calculate base tokens to claim
       const baseTokensStr = await this.calculateAccumulatedTokens(session);
@@ -281,75 +283,75 @@ export class MiningService {
         };
       }
 
-      // Credit user wallet
-      const [wallet] = await db
-        .select()
-        .from(walletAccounts)
-        .where(eq(walletAccounts.userId, userId))
-        .limit(1);
+        // Credit user wallet (within transaction)
+        const [wallet] = await tx
+          .select()
+          .from(walletAccounts)
+          .where(eq(walletAccounts.userId, userId))
+          .limit(1);
 
-      const currentBalance = parseFloat(wallet?.tokenBalance || "0");
-      const newBalance = currentBalance + tokensToClaim;
+        const currentBalance = parseFloat(wallet?.tokenBalance || "0");
+        const newBalance = currentBalance + tokensToClaim;
 
-      if (wallet) {
-        await db
-          .update(walletAccounts)
-          .set({
-            tokenBalance: newBalance.toFixed(8),
-            totalEarned: sql`${walletAccounts.totalEarned} + ${tokensToClaim}`,
-            lastActivity: new Date(),
-          })
-          .where(eq(walletAccounts.userId, userId));
-      } else {
-        // Create wallet if it doesn't exist
-        await db.insert(walletAccounts).values({
+        if (wallet) {
+          await tx
+            .update(walletAccounts)
+            .set({
+              tokenBalance: newBalance.toFixed(8),
+              totalEarned: sql`${walletAccounts.totalEarned} + ${tokensToClaim}`,
+              lastActivity: new Date(),
+            })
+            .where(eq(walletAccounts.userId, userId));
+        } else {
+          // Create wallet if it doesn't exist
+          await tx.insert(walletAccounts).values({
+            userId,
+            tokenBalance: tokensToClaim.toFixed(8),
+            totalEarned: tokensToClaim.toFixed(8),
+            cashBalance: "0.00",
+          });
+        }
+
+        // Record the claim (within transaction)
+        await tx.insert(miningClaims).values({
           userId,
-          tokenBalance: tokensToClaim.toFixed(8),
-          totalEarned: tokensToClaim.toFixed(8),
-          cashBalance: "0.00",
-        });
-      }
-
-      // Record the claim
-      await db.insert(miningClaims).values({
-        userId,
-        sessionId: session.id,
-        tokenAmount: tokensToClaim.toFixed(8),
-        claimType,
-      });
-
-      // Create reward record for history tracking
-      const { rewards } = await import("@shared/schema");
-      await db.insert(rewards).values({
-        userId,
-        rewardType: 'mining_claim',
-        tokenAmount: tokensToClaim.toFixed(8),
-        cashValue: (tokensToClaim * tokenPrice).toFixed(4),
-        status: 'confirmed',
-        metadata: {
           sessionId: session.id,
+          tokenAmount: tokensToClaim.toFixed(8),
           claimType,
-          baseTokens: baseTokens.toFixed(8),
-          streakBonus: streakBonus.toFixed(8),
-          streakCount,
-        },
-      });
+        });
 
-      // Update session for next 24-hour cycle with streak tracking
-      const nextClaimAt = new Date(Date.now() + MINING_CONFIG.CYCLE_DURATION_MS);
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-      
-      await db
-        .update(miningSessions)
-        .set({
-          lastClaimTime: new Date(),
-          lastClaimDate: today,
-          streakCount: streakCount,
-          accumulatedTokens: "0.00000000",
-          nextClaimAt,
-          updatedAt: new Date(),
-        })
-        .where(eq(miningSessions.id, session.id));
+        // Create reward record for history tracking (within transaction)
+        const { rewards } = await import("@shared/schema");
+        await tx.insert(rewards).values({
+          userId,
+          rewardType: 'mining_claim',
+          tokenAmount: tokensToClaim.toFixed(8),
+          cashValue: (tokensToClaim * tokenPrice).toFixed(4),
+          status: 'confirmed',
+          metadata: {
+            sessionId: session.id,
+            claimType,
+            baseTokens: baseTokens.toFixed(8),
+            streakBonus: streakBonus.toFixed(8),
+            streakCount,
+          },
+        });
+
+        // Update session for next 24-hour cycle with streak tracking (within transaction)
+        const nextClaimAt = new Date(Date.now() + MINING_CONFIG.CYCLE_DURATION_MS);
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        
+        await tx
+          .update(miningSessions)
+          .set({
+            lastClaimTime: new Date(),
+            lastClaimDate: today,
+            streakCount: streakCount,
+            accumulatedTokens: "0.00000000",
+            nextClaimAt,
+            updatedAt: new Date(),
+          })
+          .where(eq(miningSessions.id, session.id));
 
       return {
         success: true,

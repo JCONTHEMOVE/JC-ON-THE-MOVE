@@ -781,52 +781,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: `Cannot delete users with ${user.role} role` });
       }
       
-      // Get user's wallet to check token balance
-      const [wallet] = await db
-        .select()
-        .from(walletAccounts)
-        .where(eq(walletAccounts.userId, id))
-        .limit(1);
+      // Capture token balance outside transaction scope for response
+      let reclaimedTokens = 0;
       
-      const tokenBalance = wallet ? parseFloat(wallet.tokenBalance) : 0;
-      
-      // If user has tokens, transfer them to treasury
-      if (tokenBalance > 0) {
-        console.log(`💰 Transferring ${tokenBalance} tokens from user ${id} to treasury...`);
-        
-        // Set wallet balance to zero
-        if (wallet) {
-          await db
-            .update(walletAccounts)
-            .set({ tokenBalance: "0.00000000" })
-            .where(eq(walletAccounts.userId, id));
-        }
-        
-        // Record treasury deposit (tokens being reclaimed)
-        const [treasuryAccount] = await db
+      // Wrap ENTIRE deletion and treasury reclaim in single transaction for atomicity
+      await db.transaction(async (tx) => {
+        // Get user's wallet to check token balance
+        const [wallet] = await tx
           .select()
-          .from(treasuryAccounts)
-          .where(eq(treasuryAccounts.isActive, true))
+          .from(walletAccounts)
+          .where(eq(walletAccounts.userId, id || ""))
           .limit(1);
         
-        if (treasuryAccount) {
-          await db.insert(reserveTransactions).values({
-            treasuryAccountId: treasuryAccount.id,
-            transactionType: 'refund',
-            relatedEntityType: 'account_deletion',
-            relatedEntityId: id,
-            tokenAmount: tokenBalance.toFixed(8),
-            cashValue: "0.00",
-            balanceAfter: "0.00", // Will be updated by treasury service
-            tokenReserveAfter: "0.00", // Will be updated by treasury service
-            description: `Tokens reclaimed from deleted user account: ${user.email || id}`,
-          });
+        const tokenBalance = wallet ? parseFloat(wallet.tokenBalance) : 0;
+        reclaimedTokens = tokenBalance; // Capture for response
+        
+        // If user has tokens, transfer them to treasury within same transaction
+        if (tokenBalance > 0) {
+          console.log(`💰 Transferring ${tokenBalance} tokens from user ${id} to treasury...`);
+          
+          // Set wallet balance to zero within transaction
+          if (wallet) {
+            await tx
+              .update(walletAccounts)
+              .set({ tokenBalance: "0.00000000" })
+              .where(eq(walletAccounts.userId, id || ""));
+          }
+          
+          // Get treasury account and update reserve (within same transaction)
+          const [treasuryAccount] = await tx
+            .select()
+            .from(treasuryAccounts)
+            .where(eq(treasuryAccounts.isActive, true))
+            .limit(1);
+          
+          if (treasuryAccount) {
+            const currentReserve = parseFloat(treasuryAccount.tokenReserve);
+            const newReserve = currentReserve + tokenBalance;
+            
+            // Update treasury reserve within transaction
+            await tx
+              .update(treasuryAccounts)
+              .set({ tokenReserve: newReserve.toFixed(8) })
+              .where(eq(treasuryAccounts.id, treasuryAccount.id));
+            
+            // Record the reclaim transaction within same transaction
+            await tx.insert(reserveTransactions).values({
+              treasuryAccountId: treasuryAccount.id,
+              transactionType: 'refund',
+              relatedEntityType: 'account_deletion',
+              relatedEntityId: id,
+              tokenAmount: tokenBalance.toFixed(8),
+              cashValue: "0.00",
+              balanceAfter: treasuryAccount.cashReserve,
+              tokenReserveAfter: newReserve.toFixed(8),
+              description: `Tokens reclaimed from deleted user account: ${user.email || id}`,
+            });
+            
+            console.log(`✅ Transferred ${tokenBalance} tokens to treasury`);
+          } else {
+            throw new Error("No active treasury account found");
+          }
         }
         
-        console.log(`✅ Transferred ${tokenBalance} tokens to treasury`);
-      }
+        // Delete user within same transaction (all-or-nothing)
+        await tx.delete(users).where(eq(users.id, id || ""));
+        console.log(`✅ User ${id} deleted successfully`);
+      });
       
-      const deleted = await storage.deleteUser(id);
+      const deleted = true;
       
       if (!deleted) {
         console.log(`❌ Failed to delete user ${id}`);
@@ -837,7 +860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         success: true, 
         message: "User deleted successfully",
-        tokensTransferred: tokenBalance > 0 ? tokenBalance.toFixed(8) : "0.00000000"
+        tokensTransferred: reclaimedTokens > 0 ? reclaimedTokens.toFixed(8) : "0.00000000"
       });
     } catch (error) {
       console.error("Error deleting user:", error);
