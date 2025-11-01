@@ -3,32 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { Package, Star, Camera, MapPin, Phone, Mail, Calendar, Truck } from "lucide-react";
-import { ReviewDialog } from "@/components/review-dialog";
+import { Package, Wallet, User, Coins, ShoppingBag } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
-
-interface Lead {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  serviceType: string;
-  fromAddress: string;
-  toAddress?: string;
-  moveDate?: string;
-  propertySize?: string;
-  details?: string;
-  status: string;
-  createdAt: string;
-}
-
-interface Review {
-  id: string;
-  leadId: string;
-  rating: number;
-  comment: string | null;
-}
 
 interface ShopItem {
   id: string;
@@ -39,332 +16,161 @@ interface ShopItem {
   status: string;
 }
 
-const statusColors: Record<string, string> = {
-  new: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  contacted: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-  quoted: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-  confirmed: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-  available: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
-  accepted: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200",
-  in_progress: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-  completed: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-};
-
-// Sample Google reviews (would come from API in production)
-const googleReviews = [
-  {
-    id: "1",
-    author: "Sarah Johnson",
-    rating: 5,
-    text: "JC ON THE MOVE made our move so smooth! Professional team and great service.",
-    date: "2 days ago"
-  },
-  {
-    id: "2",
-    author: "Michael Brown",
-    rating: 5,
-    text: "Highly recommend! They handled everything with care and were very efficient.",
-    date: "1 week ago"
-  },
-  {
-    id: "3",
-    author: "Emily Davis",
-    rating: 5,
-    text: "Best moving company in Michigan! Will definitely use them again.",
-    date: "2 weeks ago"
-  }
-];
-
-// Sample Google photos (would come from Google My Business API)
-const googlePhotos = [
-  "https://images.unsplash.com/photo-1600518464441-9154a4dea21b?w=400",
-  "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=400",
-  "https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=400",
-  "https://images.unsplash.com/photo-1600573472592-401b489a3cdc?w=400"
-];
-
 export default function CustomerPortal() {
-  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
-  const [selectedJob, setSelectedJob] = useState<Lead | null>(null);
-
-  // Fetch only current customer's job requests
-  const { data: myJobs = [], isLoading: jobsLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/leads/my-requests"],
-  });
+  const [activeTab, setActiveTab] = useState("shop");
 
   const { data: shopItems = [] } = useQuery<ShopItem[]>({
     queryKey: ["/api/shop"],
   });
 
-  // Fetch user's reviews to check which jobs have been reviewed
-  const { data: myReviews = [] } = useQuery<Review[]>({
-    queryKey: ["/api/reviews/my-reviews"],
-  });
-
   const activeShopItems = shopItems.filter(item => item.status === 'active');
-
-  const hasReviewed = (jobId: string) => {
-    return myReviews.some(review => review.leadId === jobId);
-  };
-
-  const handleReviewClick = (job: Lead) => {
-    setSelectedJob(job);
-    setReviewDialogOpen(true);
-  };
 
   return (
     <div className="min-h-screen bg-muted/30">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="text-center">
+        <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-foreground mb-2">My Portal</h1>
-          <p className="text-muted-foreground">Track your service requests and explore our offerings</p>
+          <p className="text-muted-foreground">Welcome to your customer dashboard</p>
         </div>
 
-        {/* My Service Requests */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Truck className="h-5 w-5" />
-              My Service Requests
-            </CardTitle>
-            <CardDescription>View and track your moving and junk removal requests</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {jobsLoading ? (
-              <p className="text-muted-foreground">Loading your requests...</p>
-            ) : myJobs.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-muted-foreground mb-4">You haven't submitted any service requests yet.</p>
-                <Link href="/#quote">
-                  <Button data-testid="button-request-quote">Request a Quote</Button>
-                </Link>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {myJobs.map((job) => (
-                  <div
-                    key={job.id}
-                    className="border border-border rounded-lg p-4 hover:bg-accent/50 transition-colors"
-                    data-testid={`job-request-${job.id}`}
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h3 className="font-semibold text-lg capitalize">{job.serviceType} Service</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Requested on {new Date(job.createdAt).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Badge className={statusColors[job.status] || ""} data-testid={`status-${job.id}`}>
-                        {job.status.replace('_', ' ').toUpperCase()}
-                      </Badge>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                      <div className="flex items-start gap-2">
-                        <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
-                        <div>
-                          <p className="font-medium">From:</p>
-                          <p className="text-muted-foreground">{job.fromAddress}</p>
-                        </div>
-                      </div>
-                      {job.toAddress && (
-                        <div className="flex items-start gap-2">
-                          <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
-                          <div>
-                            <p className="font-medium">To:</p>
-                            <p className="text-muted-foreground">{job.toAddress}</p>
-                          </div>
-                        </div>
-                      )}
-                      {job.moveDate && (
-                        <div className="flex items-start gap-2">
-                          <Calendar className="h-4 w-4 text-muted-foreground mt-0.5" />
-                          <div>
-                            <p className="font-medium">Date:</p>
-                            <p className="text-muted-foreground">
-                              {new Date(job.moveDate).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                      {job.propertySize && (
-                        <div className="flex items-start gap-2">
-                          <Package className="h-4 w-4 text-muted-foreground mt-0.5" />
-                          <div>
-                            <p className="font-medium">Property Size:</p>
-                            <p className="text-muted-foreground">{job.propertySize}</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {job.details && (
-                      <div className="mt-3 pt-3 border-t border-border">
-                        <p className="text-sm text-muted-foreground">{job.details}</p>
-                      </div>
-                    )}
+        {/* Tabbed Interface */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-4 mb-8">
+            <TabsTrigger value="shop" data-testid="tab-shop">
+              <ShoppingBag className="h-4 w-4 mr-2" />
+              Shop
+            </TabsTrigger>
+            <TabsTrigger value="mining" data-testid="tab-mining">
+              <Coins className="h-4 w-4 mr-2" />
+              Mining
+            </TabsTrigger>
+            <TabsTrigger value="wallet" data-testid="tab-wallet">
+              <Wallet className="h-4 w-4 mr-2" />
+              Wallet
+            </TabsTrigger>
+            <TabsTrigger value="profile" data-testid="tab-profile">
+              <User className="h-4 w-4 mr-2" />
+              Profile
+            </TabsTrigger>
+          </TabsList>
 
-                    {/* Review button for completed jobs */}
-                    {job.status === 'completed' && (
-                      <div className="mt-3 pt-3 border-t border-border">
-                        {hasReviewed(job.id) ? (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                            <span>You've reviewed this service</span>
-                          </div>
-                        ) : (
-                          <Button
-                            onClick={() => handleReviewClick(job)}
-                            variant="outline"
-                            size="sm"
-                            className="w-full sm:w-auto"
-                            data-testid={`button-review-${job.id}`}
-                          >
-                            <Star className="h-4 w-4 mr-2" />
-                            Leave a Review
-                          </Button>
-                        )}
-                      </div>
-                    )}
+          <TabsContent value="shop" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ShoppingBag className="h-5 w-5" />
+                  Shop Marketplace
+                </CardTitle>
+                <CardDescription>Browse items available for purchase</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {activeShopItems.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground mb-4">No items available at the moment</p>
+                    <p className="text-sm text-muted-foreground">Check back soon for new listings!</p>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Shop & Reviews Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Mini Shop */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5" />
-                Shop
-              </CardTitle>
-              <CardDescription>Browse items available for purchase</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {activeShopItems.length === 0 ? (
-                <p className="text-muted-foreground text-center py-4">No items available at the moment</p>
-              ) : (
-                <div className="space-y-3">
-                  {activeShopItems.slice(0, 3).map((item) => (
-                    <Link href={`/shop/${item.id}`} key={item.id}>
-                      <div className="flex gap-3 p-2 rounded-lg hover:bg-accent transition-colors cursor-pointer">
-                        {item.photos.length > 0 && (
-                          <img
-                            src={item.photos[0]}
-                            alt={item.title}
-                            className="w-16 h-16 object-cover rounded"
-                          />
-                        )}
-                        <div className="flex-1">
-                          <h4 className="font-medium">{item.title}</h4>
-                          <p className="text-sm text-primary font-semibold">${item.price}</p>
-                        </div>
-                      </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {activeShopItems.map((item) => (
+                      <Link href={`/shop/${item.id}`} key={item.id}>
+                        <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+                          {item.photos.length > 0 && (
+                            <div className="aspect-square overflow-hidden rounded-t-lg">
+                              <img
+                                src={item.photos[0]}
+                                alt={item.title}
+                                className="w-full h-full object-cover hover:scale-105 transition-transform"
+                              />
+                            </div>
+                          )}
+                          <CardContent className="p-4">
+                            <h4 className="font-semibold mb-1 line-clamp-1">{item.title}</h4>
+                            {item.description && (
+                              <p className="text-sm text-muted-foreground mb-2 line-clamp-2">{item.description}</p>
+                            )}
+                            <p className="text-lg text-primary font-bold">${item.price}</p>
+                          </CardContent>
+                        </Card>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+                {activeShopItems.length > 0 && (
+                  <div className="mt-6 text-center">
+                    <Link href="/shop">
+                      <Button variant="outline" size="lg" data-testid="button-view-all-shop">
+                        View All Items
+                      </Button>
                     </Link>
-                  ))}
-                  <Link href="/shop">
-                    <Button variant="outline" className="w-full" data-testid="button-view-all-shop">
-                      View All Items
-                    </Button>
-                  </Link>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Google Reviews */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Star className="h-5 w-5 text-yellow-500" />
-                Customer Reviews
-              </CardTitle>
-              <CardDescription>See what our customers are saying</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {googleReviews.map((review) => (
-                  <div key={review.id} className="border-b border-border pb-3 last:border-0">
-                    <div className="flex items-start justify-between mb-1">
-                      <p className="font-semibold text-sm">{review.author}</p>
-                      <div className="flex gap-0.5">
-                        {[...Array(review.rating)].map((_, i) => (
-                          <Star key={i} className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-1">{review.text}</p>
-                    <p className="text-xs text-muted-foreground">{review.date}</p>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        {/* Photo Gallery */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Camera className="h-5 w-5" />
-              Our Work Gallery
-            </CardTitle>
-            <CardDescription>Recent photos from our moving and junk removal services</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {googlePhotos.map((photo, index) => (
-                <div key={index} className="aspect-square overflow-hidden rounded-lg">
-                  <img
-                    src={photo}
-                    alt={`Gallery photo ${index + 1}`}
-                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
-                  />
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+          <TabsContent value="mining" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Coins className="h-5 w-5" />
+                  Mining & Rewards
+                </CardTitle>
+                <CardDescription>Earn JCMOVES tokens through daily check-ins</CardDescription>
+              </CardHeader>
+              <CardContent className="text-center py-8">
+                <Link href="/rewards">
+                  <Button size="lg" data-testid="button-go-to-mining">
+                    <Coins className="h-5 w-5 mr-2" />
+                    Go to Mining Dashboard
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        {/* Contact Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Need Help?</CardTitle>
-            <CardDescription>Get in touch with us</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex items-center gap-2">
-                <Phone className="h-4 w-4 text-muted-foreground" />
-                <a href="tel:+15172025454" className="text-primary hover:underline">
-                  (517) 202-5454
-                </a>
-              </div>
-              <div className="flex items-center gap-2">
-                <Mail className="h-4 w-4 text-muted-foreground" />
-                <a href="mailto:jconthemove@gmail.com" className="text-primary hover:underline">
-                  jconthemove@gmail.com
-                </a>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          <TabsContent value="wallet" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Wallet className="h-5 w-5" />
+                  My Wallet
+                </CardTitle>
+                <CardDescription>View your token balance and transactions</CardDescription>
+              </CardHeader>
+              <CardContent className="text-center py-8">
+                <Link href="/profile">
+                  <Button size="lg" data-testid="button-go-to-wallet">
+                    <Wallet className="h-5 w-5 mr-2" />
+                    Go to Wallet & Profile
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="profile" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  My Profile
+                </CardTitle>
+                <CardDescription>Manage your account settings and information</CardDescription>
+              </CardHeader>
+              <CardContent className="text-center py-8">
+                <Link href="/profile">
+                  <Button size="lg" data-testid="button-go-to-profile">
+                    <User className="h-5 w-5 mr-2" />
+                    Go to Profile Settings
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
-
-      {/* Review Dialog */}
-      {selectedJob && (
-        <ReviewDialog
-          open={reviewDialogOpen}
-          onOpenChange={setReviewDialogOpen}
-          jobId={selectedJob.id}
-          jobServiceType={selectedJob.serviceType}
-        />
-      )}
     </div>
   );
 }
