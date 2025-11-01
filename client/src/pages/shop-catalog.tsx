@@ -26,7 +26,8 @@ function ShopItemCard({ item }: { item: ShopItem }) {
   };
 
   return (
-    <Card className="overflow-hidden hover:shadow-lg transition-shadow" data-testid={`card-shop-item-${item.id}`}>
+    <Link href={`/shop/${item.id}`}>
+    <Card className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer" data-testid={`card-shop-item-${item.id}`}>
       <CardHeader className="p-0">
         {/* Photo Slideshow */}
         <div className="relative bg-muted aspect-square overflow-hidden">
@@ -123,6 +124,7 @@ function ShopItemCard({ item }: { item: ShopItem }) {
         </Button>
       </CardFooter>
     </Card>
+    </Link>
   );
 }
 

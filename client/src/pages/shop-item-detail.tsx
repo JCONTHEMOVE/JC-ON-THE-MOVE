@@ -1,27 +1,88 @@
 import { useState } from "react";
 import { useParams, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, ArrowLeft, Eye, MessageCircle, DollarSign, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowLeft, Eye, MessageCircle, DollarSign, X, Phone, Trash2, CheckCircle2 } from "lucide-react";
 import { type ShopItem } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export function ShopItemDetailPage() {
   const { id } = useParams();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
   const [isZoomOpen, setIsZoomOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   // Fetch shop item details
   const { data: item, isLoading } = useQuery<ShopItem>({
     queryKey: ["/api/shop", id],
     enabled: !!id,
   });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("DELETE", `/api/shop/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shop"] });
+      toast({
+        title: "Item Deleted",
+        description: "Your shop item has been removed.",
+      });
+      setLocation("/shop");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete item",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mark as sold mutation
+  const markAsSoldMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("PATCH", `/api/shop/${id}`, { status: "sold" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shop", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/shop"] });
+      toast({
+        title: "Marked as Sold",
+        description: "This item is now marked as sold.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update item status",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Check if user can manage this item (creator or admin)
+  const canManageItem = item && user && (item.postedBy === user.id || user.role === 'admin');
 
   if (isLoading) {
     return (
@@ -222,8 +283,25 @@ export function ShopItemDetailPage() {
               </div>
             </div>
 
+            {/* Phone Number */}
+            {item.phoneNumber && (
+              <div className="mb-4 p-3 bg-muted rounded-lg">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <Phone className="h-4 w-4" />
+                  <span>Contact Seller</span>
+                </div>
+                <a 
+                  href={`tel:${item.phoneNumber}`}
+                  className="text-lg font-semibold text-primary hover:underline"
+                  data-testid="link-phone-number"
+                >
+                  {item.phoneNumber}
+                </a>
+              </div>
+            )}
+
             {/* Action Buttons */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 mb-4">
               <Button
                 size="lg"
                 className="w-full"
@@ -244,6 +322,36 @@ export function ShopItemDetailPage() {
                 Contact
               </Button>
             </div>
+
+            {/* Item Management Buttons (Creator & Admin Only) */}
+            {canManageItem && (
+              <div className="grid grid-cols-2 gap-2 pt-4 border-t">
+                {item.status !== "sold" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => markAsSoldMutation.mutate()}
+                    disabled={markAsSoldMutation.isPending}
+                    data-testid="button-mark-as-sold"
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    Mark as Sold
+                  </Button>
+                )}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  disabled={deleteMutation.isPending}
+                  data-testid="button-delete-item"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Item
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -290,6 +398,31 @@ export function ShopItemDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Shop Item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this item? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                deleteMutation.mutate();
+                setDeleteConfirmOpen(false);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

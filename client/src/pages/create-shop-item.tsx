@@ -21,6 +21,7 @@ const formSchema = z.object({
   title: z.string().min(1, "Title is required").max(200),
   description: z.string().min(1, "Description is required"),
   price: z.string().min(1, "Price is required").regex(/^\d+(\.\d{1,2})?$/, "Invalid price format (e.g., 10.99)"),
+  phoneNumber: z.string().min(1, "Phone number is required").regex(/^[\d\s\-\(\)\+]+$/, "Invalid phone number format"),
   photos: z.array(
     z.string()
       .refine(
@@ -47,6 +48,7 @@ export function CreateShopItemPage() {
       title: "",
       description: "",
       price: "",
+      phoneNumber: "",
       photos: [],
       status: "draft",
       category: "",
@@ -371,7 +373,7 @@ export function CreateShopItemPage() {
                 )}
               />
 
-              {/* Price and Category Row */}
+              {/* Price, Phone Number, and Category Row */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Price Field */}
                 <FormField
@@ -393,25 +395,48 @@ export function CreateShopItemPage() {
                   )}
                 />
 
-                {/* Category Field */}
+                {/* Phone Number Field */}
                 <FormField
                   control={form.control}
-                  name="category"
+                  name="phoneNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Category (Optional)</FormLabel>
+                      <FormLabel>Contact Phone Number</FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="e.g., Furniture, Electronics"
+                          type="tel"
+                          placeholder="(517) 202-5454"
                           {...field}
-                          data-testid="input-category"
+                          data-testid="input-phone-number"
                         />
                       </FormControl>
+                      <FormDescription className="text-xs">
+                        Buyers will see this number to contact you
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
+
+              {/* Category Field */}
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category (Optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="e.g., Furniture, Electronics"
+                        {...field}
+                        data-testid="input-category"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               {/* Status Field */}
               <FormField
