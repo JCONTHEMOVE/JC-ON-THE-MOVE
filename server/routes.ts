@@ -723,7 +723,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Delete user (admin only)
+  // Update user status (pending/approved/removed)
+  app.patch('/api/admin/users/:id/status', isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      
+      // Validate status
+      if (!['pending', 'approved', 'removed'].includes(status)) {
+        return res.status(400).json({ error: "Invalid status. Must be 'pending', 'approved', or 'removed'" });
+      }
+      
+      console.log(`🔄 Admin updating user ${id} status to ${status}...`);
+      
+      // Get user to verify exists
+      const user = await storage.getUser(id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Update user status
+      const [updatedUser] = await db
+        .update(users)
+        .set({ 
+          status,
+          isApproved: status === 'approved', // Sync with deprecated field for backward compatibility
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, id))
+        .returning();
+      
+      console.log(`✅ User ${id} status updated to ${status}`);
+      res.json({ success: true, user: updatedUser });
+    } catch (error) {
+      console.error("Error updating user status:", error);
+      res.status(500).json({ error: "Failed to update user status" });
+    }
+  });
+
+  // Delete user (admin only) - transfers tokens to treasury before deletion
   app.delete('/api/admin/users/:id', isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
       const { id } = req.params;
@@ -743,6 +781,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: `Cannot delete users with ${user.role} role` });
       }
       
+      // Get user's wallet to check token balance
+      const [wallet] = await db
+        .select()
+        .from(walletAccounts)
+        .where(eq(walletAccounts.userId, id))
+        .limit(1);
+      
+      const tokenBalance = wallet ? parseFloat(wallet.tokenBalance) : 0;
+      
+      // If user has tokens, transfer them to treasury
+      if (tokenBalance > 0) {
+        console.log(`💰 Transferring ${tokenBalance} tokens from user ${id} to treasury...`);
+        
+        // Set wallet balance to zero
+        if (wallet) {
+          await db
+            .update(walletAccounts)
+            .set({ tokenBalance: "0.00000000" })
+            .where(eq(walletAccounts.userId, id));
+        }
+        
+        // Record treasury deposit (tokens being reclaimed)
+        const [treasuryAccount] = await db
+          .select()
+          .from(treasuryAccounts)
+          .where(eq(treasuryAccounts.isActive, true))
+          .limit(1);
+        
+        if (treasuryAccount) {
+          await db.insert(reserveTransactions).values({
+            treasuryAccountId: treasuryAccount.id,
+            transactionType: 'refund',
+            relatedEntityType: 'account_deletion',
+            relatedEntityId: id,
+            tokenAmount: tokenBalance.toFixed(8),
+            cashValue: "0.00",
+            balanceAfter: "0.00", // Will be updated by treasury service
+            tokenReserveAfter: "0.00", // Will be updated by treasury service
+            description: `Tokens reclaimed from deleted user account: ${user.email || id}`,
+          });
+        }
+        
+        console.log(`✅ Transferred ${tokenBalance} tokens to treasury`);
+      }
+      
       const deleted = await storage.deleteUser(id);
       
       if (!deleted) {
@@ -751,7 +834,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       console.log(`✅ User ${id} deleted successfully`);
-      res.json({ success: true, message: "User deleted successfully" });
+      res.json({ 
+        success: true, 
+        message: "User deleted successfully",
+        tokensTransferred: tokenBalance > 0 ? tokenBalance.toFixed(8) : "0.00000000"
+      });
     } catch (error) {
       console.error("Error deleting user:", error);
       res.status(500).json({ error: "Failed to delete user" });

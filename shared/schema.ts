@@ -107,7 +107,8 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   role: text("role").notNull().default("employee"), // 'admin', 'employee', 'customer'
-  isApproved: boolean("is_approved").notNull().default(false), // Employee must be approved by admin before gaining full access
+  status: text("status").notNull().default("pending"), // 'pending', 'approved', 'removed' - user account status
+  isApproved: boolean("is_approved").notNull().default(false), // DEPRECATED: Use status field instead. Kept for backward compatibility
   dateOfBirth: date("date_of_birth"), // Required for age verification (18+)
   tosAccepted: boolean("tos_accepted").notNull().default(false), // Terms of Service acceptance
   tosAcceptedAt: timestamp("tos_accepted_at"), // When TOS was accepted
@@ -435,6 +436,7 @@ export const shopItems = pgTable("shop_items", {
   title: text("title").notNull(),
   description: text("description").notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  phoneNumber: text("phone_number").notNull(), // Contact number for this listing
   photos: jsonb("photos").notNull().default("[]"), // Array of photo objects for slideshow
   category: text("category"), // Optional category (furniture, electronics, etc.)
   status: text("status").notNull().default("active"), // 'active', 'sold', 'archived'
@@ -598,6 +600,7 @@ export const insertShopItemSchema = createInsertSchema(shopItems).omit({
 }).extend({
   photos: z.array(shopMediaSchema).min(1, "At least one photo or video is required"),
   price: z.string().regex(/^\d+\.?\d{0,2}$/, "Price must be a valid number with up to 2 decimal places").or(z.coerce.number().positive("Price must be greater than 0")),
+  phoneNumber: z.string().regex(/^[\d\s\-\(\)]+$/, "Phone number must contain only numbers, spaces, dashes, and parentheses").min(10, "Phone number must be at least 10 characters"),
   title: z.string().min(3, "Title must be at least 3 characters").max(200, "Title must not exceed 200 characters"),
   description: z.string().min(10, "Description must be at least 10 characters").max(2000, "Description must not exceed 2000 characters"),
 });

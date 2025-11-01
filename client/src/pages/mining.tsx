@@ -109,8 +109,8 @@ export default function MiningPage() {
       
       setTimeRemaining(remaining);
 
-      // Auto-claim when timer reaches zero
-      if (remaining === 0 && parseFloat(accumulatedTokens) > 0) {
+      // Auto-claim when timer reaches zero (but only if not already claiming)
+      if (remaining === 0 && parseFloat(accumulatedTokens) > 0 && !claimMutation.isPending) {
         claimMutation.mutate();
       }
     };

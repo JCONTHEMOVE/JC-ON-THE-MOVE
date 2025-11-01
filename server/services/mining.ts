@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { miningSessions, miningClaims, walletAccounts, reserveTransactions, treasuryAccounts } from "@shared/schema";
+import { miningSessions, miningClaims, walletAccounts, reserveTransactions, treasuryAccounts, users } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { treasuryService } from "./treasury";
 
@@ -13,6 +13,37 @@ const MINING_CONFIG = {
 
 export class MiningService {
   /**
+   * Check if user is approved to use mining features
+   */
+  async checkUserApproved(userId: string): Promise<{ approved: boolean; error?: string }> {
+    try {
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!user) {
+        return { approved: false, error: "User not found" };
+      }
+
+      if (user.status !== 'approved') {
+        return { 
+          approved: false, 
+          error: user.status === 'pending' 
+            ? "Your account is pending approval. Please wait for admin approval to start mining."
+            : "Your account has been removed and cannot access mining features."
+        };
+      }
+
+      return { approved: true };
+    } catch (error) {
+      console.error("Error checking user approval status:", error);
+      return { approved: false, error: "Failed to verify account status" };
+    }
+  }
+
+  /**
    * Start or resume mining session for a user
    */
   async startMining(userId: string): Promise<{
@@ -20,6 +51,12 @@ export class MiningService {
     timeRemaining: number;
     accumulatedTokens: string;
   }> {
+    // Check if user is approved
+    const approvalCheck = await this.checkUserApproved(userId);
+    if (!approvalCheck.approved) {
+      throw new Error(approvalCheck.error || "Account not approved for mining");
+    }
+
     // Check if user already has an active session
     const existingSession = await this.getActiveSession(userId);
     
@@ -152,6 +189,7 @@ export class MiningService {
   /**
    * Claim accumulated tokens (manual or automatic)
    * Now includes streak bonuses for consecutive daily claims
+   * Protected against double-claiming with database row locking
    */
   async claimTokens(userId: string, claimType: 'auto' | 'manual' = 'manual'): Promise<{
     success: boolean;
@@ -162,10 +200,41 @@ export class MiningService {
     error?: string;
   }> {
     try {
-      const session = await this.getActiveSession(userId);
+      // Check if user is approved to claim tokens
+      const approvalCheck = await this.checkUserApproved(userId);
+      if (!approvalCheck.approved) {
+        return { 
+          success: false, 
+          tokensClaimed: "0", 
+          newBalance: "0", 
+          error: approvalCheck.error || "Account not approved" 
+        };
+      }
+
+      // Use FOR UPDATE lock to prevent concurrent claims
+      const [session] = await db
+        .select()
+        .from(miningSessions)
+        .where(and(
+          eq(miningSessions.userId, userId),
+          eq(miningSessions.status, "active")
+        ))
+        .for('update')
+        .limit(1);
       
       if (!session) {
         return { success: false, tokensClaimed: "0", newBalance: "0", error: "No active mining session" };
+      }
+
+      // Prevent double-claiming on the same day
+      const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      if (session.lastClaimDate === todayDate && claimType === 'manual') {
+        return { 
+          success: false, 
+          tokensClaimed: "0", 
+          newBalance: "0", 
+          error: "You have already claimed tokens today. Come back in 24 hours!" 
+        };
       }
 
       // Calculate base tokens to claim
