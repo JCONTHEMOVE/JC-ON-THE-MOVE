@@ -600,6 +600,58 @@ export default function RewardsDashboard() {
                 </Card>
               </>
             )}
+
+            {/* TrustDice Faucet Widget */}
+            <Card className="p-6 bg-gradient-to-br from-purple-600 via-purple-700 to-purple-800 text-white border-0 shadow-xl">
+              <div className="text-center space-y-4">
+                <div className="flex justify-center">
+                  <div className="text-6xl">🏴‍☠️</div>
+                </div>
+                <h3 className="text-2xl font-bold">TrustDice Crypto Faucet</h3>
+                <p className="text-sm opacity-90">
+                  Claim free crypto every 6 hours! Earn Bitcoin, Ethereum, and more from the TrustDice faucet.
+                </p>
+                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 space-y-2">
+                  <p className="text-xs opacity-75">Referral Code</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-black/30 px-3 py-2 rounded font-mono text-sm">
+                      u_jconthemove
+                    </code>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText('u_jconthemove');
+                        toast({
+                          title: "Copied!",
+                          description: "Referral code copied to clipboard",
+                        });
+                      }}
+                      data-testid="button-copy-trustdice-code"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <Button
+                  asChild
+                  className="w-full bg-white text-purple-700 hover:bg-gray-100 font-semibold"
+                  data-testid="button-trustdice-faucet"
+                >
+                  <a
+                    href="https://trustdice.win/?ref=u_jconthemove"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ArrowUpRight className="mr-2 h-4 w-4" />
+                    Open TrustDice Faucet
+                  </a>
+                </Button>
+                <p className="text-xs opacity-75">
+                  Use our referral code when signing up to support JCMOVES!
+                </p>
+              </div>
+            </Card>
           </div>
         </TabsContent>
 
