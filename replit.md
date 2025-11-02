@@ -37,14 +37,19 @@ Preferred communication style: Simple, everyday language.
 - **Templates**: HTML and text email templates.
 
 ## Authentication & Security
-- **Replit Auth**: OIDC-based authentication.
+- **Dual Authentication System**: 
+  - **Replit Auth**: OIDC-based authentication for existing users (legacy support).
+  - **Email/Password Auth**: Custom bcrypt-hashed authentication for new employees and customers (no Replit account required).
+  - **Public Registration Routes**: `/employee-register`, `/employee-login` accessible without authentication.
+  - **Session Fixation Protection**: Session regeneration on login/registration prevents session fixation attacks.
+  - **Status-Based Access Control**: Pending users blocked from protected routes; only "active" users can access the platform.
 - **Session Duration**: 90 days (3 months) for extended user sessions.
-- **Role-Based Access Control**: Admin and employee roles with distinct permissions.
-- **Route Protection**: Role-specific middleware.
+- **Role-Based Access Control**: Admin, employee, and customer roles with distinct permissions.
+- **Route Protection**: Role-specific and status-aware middleware.
 - **Data Isolation**: Employees access available jobs and their own assignments.
 - **CORS**: Express CORS middleware.
 - **Input Validation**: Zod schemas.
-- **Database Security**: Parameterized queries and atomic job assignment.
+- **Database Security**: Parameterized queries, bcrypt password hashing (10 rounds), and atomic job assignment.
 - **Compliance**: Mandatory age verification (18+) and Terms of Service acceptance.
 
 ## Deployment Architecture
