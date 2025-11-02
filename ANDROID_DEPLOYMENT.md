@@ -18,7 +18,20 @@ Before you begin, ensure you have:
 
 ## Quick Start
 
-### 1. Build the Production Web App
+### 1. Regenerate Android Assets (First Time or After Icon Changes)
+
+```bash
+npx tsx scripts/copy-android-icons.ts
+```
+
+This generates:
+- App icons for all Android densities (mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi)
+- Adaptive icon foregrounds with proper safe zones
+- Splash screens for all orientations and densities
+
+**Note**: Only needed when you update the base icon files in `public/icons/`.
+
+### 2. Build the Production Web App
 
 ```bash
 npm run build
@@ -26,7 +39,7 @@ npm run build
 
 This creates an optimized production build in `dist/public/`.
 
-### 2. Sync to Android Platform
+### 3. Sync to Android Platform
 
 ```bash
 npx cap sync android
@@ -34,7 +47,7 @@ npx cap sync android
 
 This copies the web assets to the Android project.
 
-### 3. Open in Android Studio
+### 4. Open in Android Studio
 
 ```bash
 npx cap open android

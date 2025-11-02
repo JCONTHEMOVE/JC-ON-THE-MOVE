@@ -52,9 +52,29 @@ async function copyAndroidIcons() {
         .png()
         .toFile(path.join(targetDir, 'ic_launcher_round.png'));
       
-      // Generate ic_launcher_foreground.png (for adaptive icon)
-      await sharp(baseIcon)
-        .resize(size, size)
+      // Generate ic_launcher_foreground.png (for adaptive icon - with safe zone)
+      // Adaptive icons need 66% foreground size for the safe zone
+      const foregroundSize = Math.round(size * 0.66);
+      const padding = Math.round((size - foregroundSize) / 2);
+      
+      const foregroundIcon = await sharp(baseIcon)
+        .resize(foregroundSize, foregroundSize)
+        .png()
+        .toBuffer();
+      
+      await sharp({
+        create: {
+          width: size,
+          height: size,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 0 } // Transparent background
+        }
+      })
+        .composite([{
+          input: foregroundIcon,
+          top: padding,
+          left: padding
+        }])
         .png()
         .toFile(path.join(targetDir, 'ic_launcher_foreground.png'));
       
