@@ -317,6 +317,53 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
   
   console.log('[AUTH CHECK] Path:', req.path);
   console.log('[AUTH CHECK] Session ID:', req.sessionID || 'No session ID');
+  
+  // Check for email/password session first
+  const sessionUserId = (req.session as any).userId;
+  
+  if (sessionUserId) {
+    // User authenticated via email/password - check status
+    try {
+      const { db } = await import('./db');
+      const { users } = await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
+      
+      const [dbUser] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, sessionUserId))
+        .limit(1);
+
+      if (!dbUser) {
+        console.log('[AUTH CHECK] ❌ Session user not found in database');
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      if (dbUser.status === 'pending') {
+        console.log('[AUTH CHECK] ❌ User status is pending');
+        return res.status(403).json({ 
+          message: "Account pending approval", 
+          status: "pending" 
+        });
+      }
+
+      if (dbUser.status !== 'active') {
+        console.log('[AUTH CHECK] ❌ User status is not active:', dbUser.status);
+        return res.status(403).json({ 
+          message: "Account access restricted", 
+          status: dbUser.status 
+        });
+      }
+
+      console.log('[AUTH CHECK] ✅ Email/password user authenticated and active');
+      return next();
+    } catch (error) {
+      console.error('[AUTH CHECK] Database error:', error);
+      return res.status(500).json({ message: "Authentication check failed" });
+    }
+  }
+  
+  // Check for Replit Auth
   console.log('[AUTH CHECK] req.isAuthenticated():', req.isAuthenticated());
   console.log('[AUTH CHECK] User object exists:', !!user);
   console.log('[AUTH CHECK] User expires_at:', user?.expires_at || 'No expires_at');

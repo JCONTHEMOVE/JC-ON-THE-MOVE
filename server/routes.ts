@@ -90,22 +90,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         referralCode,
       }).returning();
 
-      // Create session for auto-login after registration
-      (req.session as any).userId = newUser.id;
-      (req.session as any).userEmail = newUser.email;
-      (req.session as any).userRole = newUser.role;
+      // Regenerate session to prevent session fixation attacks
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error('Session regeneration error:', err);
+          return res.status(500).json({ error: "Registration failed. Please try again." });
+        }
 
-      res.json({
-        success: true,
-        user: {
-          id: newUser.id,
-          email: newUser.email,
-          firstName: newUser.firstName,
-          lastName: newUser.lastName,
-          role: newUser.role,
-          status: newUser.status,
-        },
-        message: "Registration successful! Your account is pending admin approval."
+        // Create session for auto-login after registration
+        (req.session as any).userId = newUser.id;
+        (req.session as any).userEmail = newUser.email;
+        (req.session as any).userRole = newUser.role;
+
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error('Session save error:', saveErr);
+            return res.status(500).json({ error: "Registration failed. Please try again." });
+          }
+
+          res.json({
+            success: true,
+            user: {
+              id: newUser.id,
+              email: newUser.email,
+              firstName: newUser.firstName,
+              lastName: newUser.lastName,
+              role: newUser.role,
+              status: newUser.status,
+            },
+            message: "Registration successful! Your account is pending admin approval."
+          });
+        });
       });
     } catch (error: any) {
       console.error("Employee registration error:", error);
@@ -144,21 +159,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
-      // Create session
-      (req.session as any).userId = user.id;
-      (req.session as any).userEmail = user.email;
-      (req.session as any).userRole = user.role;
-
-      res.json({
-        success: true,
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: user.role,
-          status: user.status,
+      // Regenerate session to prevent session fixation attacks
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error('Session regeneration error:', err);
+          return res.status(500).json({ error: "Login failed. Please try again." });
         }
+
+        // Create session
+        (req.session as any).userId = user.id;
+        (req.session as any).userEmail = user.email;
+        (req.session as any).userRole = user.role;
+
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error('Session save error:', saveErr);
+            return res.status(500).json({ error: "Login failed. Please try again." });
+          }
+
+          res.json({
+            success: true,
+            user: {
+              id: user.id,
+              email: user.email,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              role: user.role,
+              status: user.status,
+            }
+          });
+        });
       });
     } catch (error: any) {
       console.error("Employee login error:", error);
