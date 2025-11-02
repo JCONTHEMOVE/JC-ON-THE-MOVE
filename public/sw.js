@@ -1,5 +1,5 @@
 // Service Worker for JC ON THE MOVE Mobile App
-const CACHE_NAME = 'jc-mobile-v1.0.0';
+const CACHE_NAME = 'jc-mobile-v1.1.0';
 const OFFLINE_URL = '/offline.html';
 
 // Resources to cache for offline functionality
@@ -17,9 +17,12 @@ const API_CACHE_PATTERNS = [
   /^\/api\/contacts/
 ];
 
-// Cache-first resources (images, fonts, etc.)
+// Cache-first resources (JS, CSS, images, fonts, etc.)
 const CACHE_FIRST_PATTERNS = [
-  /\.(?:png|jpg|jpeg|svg|gif|webp)$/,
+  /\.(?:js|mjs)$/,
+  /\.css$/,
+  /\/assets\//,
+  /\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/,
   /\.(?:woff|woff2|ttf|eot)$/,
   /^https:\/\/fonts\./
 ];
@@ -224,7 +227,7 @@ self.addEventListener('push', (event) => {
   const options = {
     title: notificationData.title || 'JC ON THE MOVE',
     body: notificationData.body || 'You have a new update',
-    icon: '/icons/icon-192x192.svg',
+    icon: '/icons/icon-192x192.png',
     vibrate: [200, 100, 200],
     data: notificationData.data || {},
     requireInteraction: false
