@@ -103,6 +103,7 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
   username: varchar("username").unique(), // Optional unique username for display instead of email
+  passwordHash: varchar("password_hash"), // For employee email/password authentication (null for Replit Auth users)
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
