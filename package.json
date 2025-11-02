@@ -11,6 +11,7 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.17.2",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@neondatabase/serverless": "^0.10.4",
@@ -63,6 +64,10 @@
     "@types/react-dom": "^18.3.1",
     "@types/web-push": "^3.6.4",
     "@types/ws": "^8.5.13",
+    "@uppy/aws-s3": "^5.0.2",
+    "@uppy/core": "^5.1.1",
+    "@uppy/dashboard": "^5.0.3",
+    "@uppy/react": "^5.1.1",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.20",
     "bcrypt": "^6.0.0",
