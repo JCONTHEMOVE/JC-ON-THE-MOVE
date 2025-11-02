@@ -106,6 +106,7 @@ export const users = pgTable("users", {
   passwordHash: varchar("password_hash"), // For employee email/password authentication (null for Replit Auth users)
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
+  phoneNumber: varchar("phone_number"), // Phone contact for employees/customers
   profileImageUrl: varchar("profile_image_url"),
   role: text("role").notNull().default("employee"), // 'admin', 'employee', 'customer'
   status: text("status").notNull().default("pending"), // 'pending', 'approved', 'removed' - user account status

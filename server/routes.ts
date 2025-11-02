@@ -85,6 +85,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         passwordHash,
         firstName: data.firstName,
         lastName: data.lastName,
+        phoneNumber: data.phoneNumber,
         role: "employee",
         status: "pending", // Requires admin approval
         referralCode,
