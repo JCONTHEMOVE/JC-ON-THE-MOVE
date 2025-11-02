@@ -35,7 +35,15 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME)
       .then((cache) => {
         console.log('[SW] Caching essential resources');
-        return cache.addAll(STATIC_CACHE_URLS);
+        // Cache files individually to avoid one failure blocking installation
+        return Promise.allSettled(
+          STATIC_CACHE_URLS.map(url => 
+            cache.add(url).catch(err => {
+              console.warn(`[SW] Failed to cache ${url}:`, err);
+              return null;
+            })
+          )
+        );
       })
       .then(() => {
         console.log('[SW] Installation complete');
@@ -43,6 +51,8 @@ self.addEventListener('install', (event) => {
       })
       .catch((error) => {
         console.error('[SW] Installation failed:', error);
+        // Don't block installation on cache errors
+        return self.skipWaiting();
       })
   );
 });
