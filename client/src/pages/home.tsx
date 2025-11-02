@@ -442,6 +442,24 @@ export default function HomePage() {
                   </div>
                 </div>
               </div>
+              
+              {/* Employee Registration Link */}
+              <div className="mt-8 pt-8 border-t border-border">
+                <p className="text-sm text-muted-foreground mb-3">
+                  Looking to join our team?
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  asChild
+                  data-testid="link-employee-register"
+                >
+                  <a href="/employee-register">
+                    <Users className="mr-2 h-4 w-4" />
+                    Employee Registration
+                  </a>
+                </Button>
+              </div>
             </div>
             
             <ContactForm />
