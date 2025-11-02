@@ -11,6 +11,7 @@ import { Link } from "wouter";
 import { useState, useEffect } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getDailyScripture } from "@shared/scriptures";
 
 interface Lead {
   id: string;
@@ -46,43 +47,6 @@ interface ShopItem {
   price: string;
   photos: string[];
   status: string;
-}
-
-// Daily scripture verses - rotates based on day of year
-const dailyScriptures = [
-  {
-    verse: "I can do all things through Christ who strengthens me.",
-    reference: "Philippians 4:13"
-  },
-  {
-    verse: "Trust in the LORD with all your heart and lean not on your own understanding.",
-    reference: "Proverbs 3:5"
-  },
-  {
-    verse: "For God so loved the world that he gave his one and only Son.",
-    reference: "John 3:16"
-  },
-  {
-    verse: "The LORD is my shepherd; I shall not want.",
-    reference: "Psalm 23:1"
-  },
-  {
-    verse: "Be strong and courageous. Do not be afraid; do not be discouraged.",
-    reference: "Joshua 1:9"
-  },
-  {
-    verse: "And we know that in all things God works for the good of those who love him.",
-    reference: "Romans 8:28"
-  },
-  {
-    verse: "Cast all your anxiety on him because he cares for you.",
-    reference: "1 Peter 5:7"
-  }
-];
-
-function getDailyScripture() {
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
-  return dailyScriptures[dayOfYear % dailyScriptures.length];
 }
 
 export default function EmployeeHomePage() {
