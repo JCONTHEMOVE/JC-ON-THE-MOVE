@@ -35,6 +35,8 @@ import TermsOfService from "@/pages/terms";
 import PendingQuotesPage from "@/pages/pending-quotes";
 import EmployeesPage from "@/pages/employees";
 import LeadDetailPage from "@/pages/lead-detail";
+import EmployeeRegister from "@/pages/employee-register";
+import EmployeeLogin from "@/pages/employee-login";
 
 // Landing page for unauthenticated users
 function LandingPage() {
@@ -186,6 +188,10 @@ function Router() {
 
   return (
     <Switch>
+      {/* Public Authentication Routes - No Replit account needed! */}
+      <Route path="/employee-register" component={EmployeeRegister} />
+      <Route path="/employee-login" component={EmployeeLogin} />
+      
       {/* Customer interface - accessible to all users without authentication */}
       <Route path="/customer" component={CustomerMobileInterface} />
       

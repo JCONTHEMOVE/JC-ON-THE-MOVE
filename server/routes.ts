@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema, insertReviewSchema } from "@shared/schema";
 import { sendEmail, generateLeadNotificationEmail, generateContactNotificationEmail } from "./services/email";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+import bcrypt from "bcrypt";
 // REMOVED: Daily check-in service replaced by unified mining system with streaks
 // import { dailyCheckinService } from "./services/daily-checkin";
 import { rewardsService } from "./services/rewards";
@@ -45,6 +46,192 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.error('⚠️  Warning: Authentication setup failed during route registration:', error);
     console.error('⚠️  Server will continue without authentication features');
   }
+
+  // Employee Email/Password Authentication Endpoints (Public - No auth required)
+  
+  // Employee Registration
+  const employeeRegisterSchema = z.object({
+    email: z.string().email("Invalid email address"),
+    password: z.string().min(8, "Password must be at least 8 characters").regex(/^(?=.*[A-Za-z])(?=.*\d)/, "Password must contain letters and numbers"),
+    firstName: z.string().min(1, "First name is required"),
+    lastName: z.string().min(1, "Last name is required"),
+    phoneNumber: z.string().min(10, "Phone number is required")
+  });
+
+  app.post("/api/auth/employee/register", async (req, res) => {
+    try {
+      const data = employeeRegisterSchema.parse(req.body);
+      
+      // Check if email already exists
+      const existingUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, data.email))
+        .limit(1);
+
+      if (existingUser.length > 0) {
+        return res.status(400).json({ error: "Email already registered" });
+      }
+
+      // Hash password with bcrypt (10 rounds = good security/performance balance)
+      const passwordHash = await bcrypt.hash(data.password, 10);
+
+      // Generate unique referral code
+      const referralCode = `EMP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+      // Create user with employee role and pending status
+      const [newUser] = await db.insert(users).values({
+        email: data.email,
+        passwordHash,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        role: "employee",
+        status: "pending", // Requires admin approval
+        referralCode,
+      }).returning();
+
+      // Create session for auto-login after registration
+      (req.session as any).userId = newUser.id;
+      (req.session as any).userEmail = newUser.email;
+      (req.session as any).userRole = newUser.role;
+
+      res.json({
+        success: true,
+        user: {
+          id: newUser.id,
+          email: newUser.email,
+          firstName: newUser.firstName,
+          lastName: newUser.lastName,
+          role: newUser.role,
+          status: newUser.status,
+        },
+        message: "Registration successful! Your account is pending admin approval."
+      });
+    } catch (error: any) {
+      console.error("Employee registration error:", error);
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: error.errors[0].message });
+      }
+      res.status(500).json({ error: "Registration failed. Please try again." });
+    }
+  });
+
+  // Employee Login
+  const employeeLoginSchema = z.object({
+    email: z.string().email("Invalid email address"),
+    password: z.string().min(1, "Password is required")
+  });
+
+  app.post("/api/auth/employee/login", async (req, res) => {
+    try {
+      const data = employeeLoginSchema.parse(req.body);
+
+      // Find user by email
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, data.email))
+        .limit(1);
+
+      if (!user || !user.passwordHash) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      // Verify password
+      const passwordMatch = await bcrypt.compare(data.password, user.passwordHash);
+      
+      if (!passwordMatch) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      // Create session
+      (req.session as any).userId = user.id;
+      (req.session as any).userEmail = user.email;
+      (req.session as any).userRole = user.role;
+
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          status: user.status,
+        }
+      });
+    } catch (error: any) {
+      console.error("Employee login error:", error);
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: error.errors[0].message });
+      }
+      res.status(500).json({ error: "Login failed. Please try again." });
+    }
+  });
+
+  // Employee Logout
+  app.post("/api/auth/employee/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Session destruction error:', err);
+        return res.status(500).json({ error: "Logout failed" });
+      }
+      res.clearCookie('connect.sid');
+      res.json({ success: true });
+    });
+  });
+
+  // Get current authenticated user (supports both Replit Auth and Email/Password)
+  app.get("/api/auth/user", async (req, res) => {
+    try {
+      // Check for email/password session first
+      const sessionUserId = (req.session as any).userId;
+      
+      if (sessionUserId) {
+        // User authenticated via email/password
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, sessionUserId))
+          .limit(1);
+
+        if (!user) {
+          return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        return res.json({
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          status: user.status,
+          profileImageUrl: user.profileImageUrl,
+        });
+      }
+
+      // Check for Replit Auth
+      if (req.isAuthenticated && req.isAuthenticated()) {
+        const userClaims = (req.user as any)?.claims;
+        if (userClaims?.sub) {
+          const userId = userClaims.sub;
+          const user = await storage.getUser(userId);
+          
+          if (!user) {
+            return res.status(401).json({ message: "Unauthorized" });
+          }
+
+          return res.json(user);
+        }
+      }
+
+      // Not authenticated
+      return res.status(401).json({ message: "Unauthorized" });
+    } catch (error) {
+      console.error("Auth user endpoint error:", error);
+      res.status(500).json({ message: "Authentication failed" });
+    }
+  });
   
   // Validation schemas for rewards endpoints
   // NOTE: checkinSchema removed - daily check-ins replaced by unified mining system
