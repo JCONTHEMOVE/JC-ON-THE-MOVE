@@ -3257,6 +3257,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Test SendGrid email service (admin only)
+  app.get("/api/admin/test-email", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const companyEmail = process.env.COMPANY_EMAIL || "upmichiganstatemovers@gmail.com";
+      
+      const emailSuccess = await sendEmail({
+        to: companyEmail,
+        from: companyEmail,
+        subject: "✅ JC ON THE MOVE SendGrid Test",
+        text: "This is a test email from your Replit backend. SendGrid is working!",
+        html: "<h2>JC ON THE MOVE 🚛</h2><p>This is a test email from your Replit app. SendGrid is working!</p><p>Sent at: " + new Date().toLocaleString() + "</p>",
+      });
+
+      if (emailSuccess) {
+        res.json({ 
+          success: true, 
+          message: "✅ Test email sent successfully! Check your inbox at " + companyEmail 
+        });
+      } else {
+        res.status(500).json({ 
+          success: false, 
+          message: "❌ Email service is not configured or failed to send. Check server logs for details." 
+        });
+      }
+    } catch (error: any) {
+      console.error("SendGrid test error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: "❌ Error sending test email: " + error.message 
+      });
+    }
+  });
+
   // Get system configuration (admin only) - shows environment variable status without exposing values
   app.get("/api/admin/system/config", isAuthenticated, requireAdmin, async (req, res) => {
     try {
