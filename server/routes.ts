@@ -2236,7 +2236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Notification routes
   app.get("/api/notifications", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
-      const userId = (req.user as any)?.id;
+      const userId = (req.session as any).userId;
       const limit = parseInt(req.query.limit as string) || 50;
       
       const notifications = await storage.getUserNotifications(userId, limit);
@@ -2249,7 +2249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/notifications/unread-count", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
-      const userId = (req.user as any)?.id;
+      const userId = (req.session as any).userId;
       const count = await storage.getUnreadNotificationCount(userId);
       res.json({ count });
     } catch (error) {
@@ -2276,7 +2276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/notifications/mark-all-read", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
-      const userId = (req.user as any)?.id;
+      const userId = (req.session as any).userId;
       await storage.markAllNotificationsAsRead(userId);
       res.json({ success: true });
     } catch (error) {
@@ -2287,7 +2287,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/notifications/subscribe", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.user as any)?.id;
+      const userId = (req.session as any).userId;
       const { pushSubscriptionSchema } = await import("@shared/schema");
       const subscription = pushSubscriptionSchema.parse(req.body);
       
@@ -3000,7 +3000,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? limitParam 
         : 100;
       
-      console.log(`[BLOCKCHAIN SCAN] Admin ${(req.user as any)?.email} initiated scan with limit: ${limit}`);
+      console.log(`[BLOCKCHAIN SCAN] Admin ${req.currentUser?.email} initiated scan with limit: ${limit}`);
       
       const result = await solanaMonitor.scanHistoricalTransactions(limit);
       
@@ -3290,6 +3290,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public health check for environment configuration
+  app.get("/api/health-check", (req, res) => {
+    res.json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      configured: {
+        database: !!process.env.DATABASE_URL,
+        sessionSecret: !!process.env.SESSION_SECRET,
+        sendgrid: !!process.env.SENDGRID_API_KEY,
+      },
+      authType: "email/password"
+    });
+  });
+
   // Get system configuration (admin only) - shows environment variable status without exposing values
   app.get("/api/admin/system/config", isAuthenticated, requireAdmin, async (req, res) => {
     try {
@@ -3571,7 +3586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const impressionId = await advertisingService.trackImpression(
         placementId, 
         network,
-        req.user?.id,
+        (req.session as any).userId,
         req.body.sessionId,
         req.body.userAgent,
         req.ip
@@ -3598,7 +3613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         impressionId,
         placementId, 
         network,
-        req.user?.id,
+        (req.session as any).userId,
         clickUrl
       );
       
@@ -3680,7 +3695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/advertising/completion", isAuthenticated, async (req, res) => {
     try {
       const { impressionId, sessionId, network, completionType = 'view' } = req.body;
-      const userId = req.user!.id;
+      const userId = (req.session as any).userId;
       
       if (!impressionId || !sessionId || !network) {
         return res.status(400).json({ error: "impressionId, sessionId, and network are required" });
