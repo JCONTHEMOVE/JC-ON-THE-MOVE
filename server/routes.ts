@@ -164,7 +164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Employee registration error:", error);
       if (error.name === 'ZodError') {
-        return res.status(400).json({ error: error.errors[0].message });
+        return res.status(400).json({ error: error.issues?.[0]?.message || "Invalid registration data" });
       }
       res.status(500).json({ error: "Registration failed. Please try again." });
     }
@@ -232,7 +232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Employee login error:", error);
       if (error.name === 'ZodError') {
-        return res.status(400).json({ error: error.errors[0].message });
+        return res.status(400).json({ error: error.issues?.[0]?.message || "Invalid login data" });
       }
       res.status(500).json({ error: "Login failed. Please try again." });
     }
