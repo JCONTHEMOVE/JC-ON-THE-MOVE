@@ -22,14 +22,18 @@ export default function EmployeeLogin() {
       const response = await apiRequest("POST", "/api/auth/employee/login", data);
       return response.json();
     },
-    onSuccess: (data: any) => {
-      // Invalidate all queries to refetch with new auth
-      queryClient.invalidateQueries();
-      
+    onSuccess: async (data: any) => {
       toast({
         title: "Welcome Back!",
         description: `Logged in as ${data.user.firstName} ${data.user.lastName}`,
       });
+
+      // Invalidate and refetch auth query before redirecting
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/user"] });
+      
+      // Small delay to ensure state updates
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Redirect based on status
       if (data.user.status === "pending") {
