@@ -21,14 +21,16 @@ export function useAuth() {
         }
         if (!response.ok) {
           console.error(`Authentication check failed: ${response.status}`);
-          throw new Error(`Authentication check failed: ${response.status}`);
+          // Treat any error as unauthenticated instead of getting stuck loading
+          return null;
         }
         const userData = await response.json();
         console.log('Authentication successful, user:', userData?.email);
         return userData;
       } catch (error) {
         console.error('Auth fetch error:', error);
-        throw error;
+        // Network errors or other issues - treat as unauthenticated
+        return null;
       }
     },
   });
