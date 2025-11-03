@@ -4,12 +4,23 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/useAuth";
 import { useState } from "react";
 import { Menu, X, User, LogOut } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function Header() {
   const [location] = useLocation();
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, isAuthenticated, hasAdminAccess, isLoading } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      await apiRequest("POST", "/api/auth/logout", {});
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Logout error:", error);
+      window.location.href = "/";
+    }
+  };
 
   const scrollToSection = (sectionId: string) => {
     if (location === "/") {
@@ -168,31 +179,24 @@ export default function Header() {
                         {user?.username || user?.firstName || user?.email || 'User'}
                       </span>
                     </Link>
-                    <a 
-                      href="/api/logout" 
+                    <button
+                      onClick={handleLogout}
                       className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
                       data-testid="button-logout"
                     >
                       <LogOut className="h-4 w-4 inline mr-1" />
                       Logout
-                    </a>
+                    </button>
                   </div>
                 ) : (
                   <div className="flex items-center space-x-2">
-                    <a 
-                      href="/api/login?role=customer" 
-                      className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                      data-testid="button-customer-login"
-                    >
-                      Customer Portal
-                    </a>
-                    <a 
-                      href="/api/login?role=employee" 
+                    <Link 
+                      href="/employee-login" 
                       className="bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2 rounded-md text-sm font-medium transition-colors"
                       data-testid="button-employee-login"
                     >
                       Employee Portal
-                    </a>
+                    </Link>
                   </div>
                 )}
               </div>
@@ -355,31 +359,25 @@ export default function Header() {
                       {user?.username || user?.firstName || user?.email || 'User'}
                     </span>
                   </Link>
-                  <a 
-                    href="/api/logout" 
+                  <button
+                    onClick={handleLogout}
                     className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
                     data-testid="button-mobile-logout"
                   >
                     <LogOut className="h-4 w-4 inline mr-1" />
                     Logout
-                  </a>
+                  </button>
                 </>
               ) : (
                 <div className="flex flex-col space-y-2">
-                  <a 
-                    href="/api/login?role=customer" 
-                    className="text-muted-foreground hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
-                    data-testid="button-mobile-customer-login"
-                  >
-                    Customer Portal
-                  </a>
-                  <a 
-                    href="/api/login?role=employee" 
+                  <Link 
+                    href="/employee-login" 
                     className="bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
                     data-testid="button-mobile-employee-login"
+                    onClick={() => setMobileMenuOpen(false)}
                   >
                     Employee Portal
-                  </a>
+                  </Link>
                 </div>
               )}
             </div>

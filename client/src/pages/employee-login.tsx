@@ -121,31 +121,17 @@ export default function EmployeeLogin() {
               )}
             </Button>
 
-            <div className="text-center text-sm space-y-2">
-              <div>
-                <span className="text-muted-foreground">Don't have an account? </span>
-                <Button
-                  variant="link"
-                  className="p-0 h-auto text-orange-600 hover:text-orange-700"
-                  onClick={() => setLocation("/employee-register")}
-                  type="button"
-                  data-testid="link-register"
-                >
-                  Create Account
-                </Button>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Customer? </span>
-                <Button
-                  variant="link"
-                  className="p-0 h-auto text-blue-600 hover:text-blue-700"
-                  onClick={() => setLocation("/api/login?role=customer")}
-                  type="button"
-                  data-testid="link-customer-login"
-                >
-                  Sign in with Replit
-                </Button>
-              </div>
+            <div className="text-center text-sm">
+              <span className="text-muted-foreground">Don't have an account? </span>
+              <Button
+                variant="link"
+                className="p-0 h-auto text-orange-600 hover:text-orange-700"
+                onClick={() => setLocation("/employee-register")}
+                type="button"
+                data-testid="link-register"
+              >
+                Create Account
+              </Button>
             </div>
           </form>
         </CardContent>
