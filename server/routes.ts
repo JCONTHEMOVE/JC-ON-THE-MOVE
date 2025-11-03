@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema, insertReviewSchema } from "@shared/schema";
 import { sendEmail, generateLeadNotificationEmail, generateContactNotificationEmail } from "./services/email";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupAuth, isAuthenticated } from "./auth";
 import bcrypt from "bcrypt";
 // REMOVED: Daily check-in service replaced by unified mining system with streaks
 // import { dailyCheckinService } from "./services/daily-checkin";
@@ -216,6 +216,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.status(500).json({ error: "Login failed. Please try again." });
     }
+  });
+
+  // Logout endpoint for all users (email/password)
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Session destruction error:', err);
+        return res.status(500).json({ error: "Logout failed" });
+      }
+      res.clearCookie('connect.sid');
+      res.json({ success: true });
+    });
   });
 
   // Employee Logout
