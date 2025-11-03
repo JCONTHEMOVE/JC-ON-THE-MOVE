@@ -20,7 +20,7 @@ export default function EmployeeLogin() {
   const loginMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       const response = await apiRequest("POST", "/api/auth/employee/login", data);
-      return response;
+      return response.json();
     },
     onSuccess: (data: any) => {
       // Invalidate all queries to refetch with new auth

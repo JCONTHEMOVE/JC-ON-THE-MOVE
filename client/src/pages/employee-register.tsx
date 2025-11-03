@@ -30,7 +30,7 @@ export default function EmployeeRegister() {
         lastName: data.lastName,
         phoneNumber: data.phoneNumber,
       });
-      return response;
+      return response.json();
     },
     onSuccess: (data: any) => {
       toast({
