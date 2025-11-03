@@ -87,27 +87,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(users.email, data.email))
         .limit(1);
 
-      if (existingUser.length > 0) {
-        return res.status(400).json({ error: "Email already registered" });
-      }
-
       // Hash password with bcrypt (10 rounds = good security/performance balance)
       const passwordHash = await bcrypt.hash(data.password, 10);
 
-      // Generate unique referral code
-      const referralCode = `EMP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      let newUser;
 
-      // Create user with employee role and pending status
-      const [newUser] = await db.insert(users).values({
-        email: data.email,
-        passwordHash,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        phoneNumber: data.phoneNumber,
-        role: "employee",
-        status: "pending", // Requires admin approval
-        referralCode,
-      }).returning();
+      // If user exists but has no password (Replit Auth migration), update their account
+      if (existingUser.length > 0 && !existingUser[0].passwordHash) {
+        console.log(`🔄 Migrating Replit Auth account to email/password: ${data.email}`);
+        
+        const [updatedUser] = await db
+          .update(users)
+          .set({
+            passwordHash,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            phoneNumber: data.phoneNumber,
+          })
+          .where(eq(users.id, existingUser[0].id))
+          .returning();
+        
+        newUser = updatedUser;
+      } else if (existingUser.length > 0) {
+        // User exists and already has a password
+        return res.status(400).json({ error: "Email already registered" });
+      } else {
+        // Create new user
+        const referralCode = `EMP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        
+        const [createdUser] = await db.insert(users).values({
+          email: data.email,
+          passwordHash,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phoneNumber: data.phoneNumber,
+          role: "employee",
+          status: "pending", // Requires admin approval
+          referralCode,
+        }).returning();
+        
+        newUser = createdUser;
+      }
 
       // Regenerate session to prevent session fixation attacks
       req.session.regenerate((err) => {
