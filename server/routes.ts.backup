@@ -241,6 +241,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     });
   });
+
+  // Get current authenticated user (email/password only)
+  app.get("/api/auth/user", async (req, res) => {
+    try {
+      const sessionUserId = (req.session as any).userId;
+      
+      if (!sessionUserId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // User authenticated via email/password
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, sessionUserId))
+        .limit(1);
+
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      return res.json({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        status: user.status,
+        profileImageUrl: user.profileImageUrl,
+      });
+    } catch (error) {
+      console.error("Auth user endpoint error:", error);
+      res.status(500).json({ message: "Authentication failed" });
+    }
+  });
   
   // Validation schemas for rewards endpoints
   // NOTE: checkinSchema removed - daily check-ins replaced by unified mining system
@@ -581,7 +616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       console.log(`✅ Authentication successful - Fetching user data for userId: ${userId}`);
       const user = await storage.getUser(userId);
       console.log(`User data retrieved:`, user ? `found - ${user.email} with role ${user.role}` : 'not found');
@@ -602,7 +637,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update user compliance (age verification and TOS)
   app.post('/api/auth/user/compliance', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { dateOfBirth, tosAccepted } = req.body;
 
       if (!dateOfBirth || typeof tosAccepted !== 'boolean') {
@@ -662,7 +697,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update username
   app.post('/api/auth/user/username', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { username } = req.body;
 
       if (!username || username.length < 3) {
@@ -1207,7 +1242,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Profile image upload (base64 encoded)
   app.post('/api/user/profile-image', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { profileImageUrl } = req.body;
 
       if (!profileImageUrl || typeof profileImageUrl !== 'string') {
@@ -1234,7 +1269,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Help request submission with optional images
   app.post('/api/support/help-request', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { message, imageUrls } = req.body;
 
       if (!message || typeof message !== 'string' || message.trim().length === 0) {
@@ -1268,7 +1303,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/leads/employee", isAuthenticated, requireApprovedEmployee, async (req: any, res) => {
     try {
       console.log('📝 Employee lead creation request:', JSON.stringify(req.body, null, 2));
-      const employeeId = (req.session as any).userId; // Get from authenticated user
+      const employeeId = req.user.claims.sub; // Get from authenticated user
       
       const leadData = insertLeadSchema.parse(req.body);
       console.log('✅ Lead data validated successfully');
@@ -1655,7 +1690,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Submit a review for a completed job (authenticated customers only)
   app.post("/api/reviews", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
       if (!userId) {
         return res.status(401).json({ error: "User not authenticated" });
       }
@@ -1733,7 +1768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Only allow fetching own reviews unless admin
       if (userId) {
-        const requestingUserId = (req.session as any).userId;
+        const requestingUserId = req.user?.claims?.sub;
         const user = requestingUserId ? await storage.getUser(requestingUserId) : null;
         
         if (user?.role !== 'admin' && requestingUserId !== userId) {
@@ -1753,7 +1788,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current user's reviews (authenticated)
   app.get("/api/reviews/my-reviews", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
       if (!userId) {
         return res.status(401).json({ error: "User not authenticated" });
       }
@@ -1807,7 +1842,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsedOffset = Math.max(parseInt(offset as string) || 0, 0); // Non-negative
       
       // Enforce visibility based on authentication and authorization
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
       let user = null;
       if (userId) {
         user = await storage.getUser(userId);
@@ -1854,7 +1889,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // If item is not active, only owner or admin can view
       if (item.status !== 'active') {
-        const userId = (req.session as any).userId;
+        const userId = req.user?.claims?.sub;
         if (!userId) {
           return res.status(404).json({ error: "Shop item not found" });
         }
@@ -1875,7 +1910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create new shop item (authenticated users only)
   app.post("/api/shop", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
       if (!userId) {
         return res.status(401).json({ error: "User not authenticated" });
       }
@@ -1900,7 +1935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/shop/:id", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
       
       if (!userId) {
         return res.status(401).json({ error: "User not authenticated" });
@@ -1949,7 +1984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/shop/:id", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
       
       if (!userId) {
         return res.status(401).json({ error: "User not authenticated" });
@@ -2059,7 +2094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Customer endpoint to fetch only their own job requests
   app.get("/api/leads/my-requests", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
       if (!userId) {
         return res.status(401).json({ error: "User not authenticated" });
       }
@@ -2309,7 +2344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get wallet balance
   app.get("/api/rewards/wallet", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       
       const wallet = await db
         .select()
@@ -2335,7 +2370,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get rewards history
   app.get("/api/rewards/history", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const limit = parseInt(req.query.limit as string) || 50;
       
       const rewardsHistory = await db
@@ -2401,7 +2436,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Cashout request
   // app.post("/api/rewards/cashout", isAuthenticated, async (req: any, res) => {
   //   try {
-  //     const userId = (req.session as any).userId;
+  //     const userId = req.user.claims.sub;
   //     
   //     // Validate request body with Zod
   //     const validatedData = cashoutSchema.parse(req.body);
@@ -2497,7 +2532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get cashout history
   // app.get("/api/rewards/cashouts", isAuthenticated, async (req: any, res) => {
   //   try {
-  //     const userId = (req.session as any).userId;
+  //     const userId = req.user.claims.sub;
   //     
   //     const cashouts = await db
   //       .select({
@@ -2569,7 +2604,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user's referral code (generate if needed)
   app.get("/api/referrals/my-code", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const referralCode = await storage.generateReferralCode(userId);
       res.json({ referralCode });
     } catch (error) {
@@ -2581,7 +2616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Apply a referral code
   app.post("/api/referrals/apply", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { referralCode } = referralCodeSchema.parse(req.body);
       
       const result = await storage.applyReferralCode(userId, referralCode);
@@ -2617,7 +2652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get referral stats
   app.get("/api/referrals/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const stats = await storage.getReferralStats(userId);
       res.json(stats);
     } catch (error) {
@@ -2632,7 +2667,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/treasury/deposit", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
     try {
       const depositData = treasuryDepositSchema.parse(req.body);
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       
       const result = await treasuryService.depositFunds(
         userId,
@@ -2663,7 +2698,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/treasury/moonshot-deposit", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
     try {
       const transferData = moonshotAccountTransferSchema.parse(req.body);
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       
       // Initiate Moonshot transfer
       const transferHash = await moonshotService.initiateAccountTransfer(transferData);
@@ -2720,7 +2755,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/treasury/record-token-deposit", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
     try {
       const { tokenAmount, transactionHash, moonshotAccountId, notes } = req.body;
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
 
       // Validation
       if (!tokenAmount || typeof tokenAmount !== 'number' || tokenAmount <= 0) {
@@ -3183,7 +3218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Bootstrap endpoint - promote current user to admin if no admins exist
   app.post("/api/bootstrap/admin", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
       if (!userId) {
         return res.status(401).json({ error: "User ID not found" });
       }
@@ -3337,7 +3372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Daily check-in endpoint
   app.post("/api/gamification/checkin", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const result = await gamificationService.performDailyCheckIn(userId);
       
       if (result.success) {
@@ -3370,7 +3405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get employee gamification data (stats, achievements, rank, etc.)
   app.get("/api/gamification/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const data = await gamificationService.getEmployeeGamificationData(userId);
       
       res.json({
@@ -3409,7 +3444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/gamification/job-completion", isAuthenticated, async (req: any, res) => {
     try {
       const { jobId, onTime, customerRating } = req.body;
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       
       if (!jobId) {
         return res.status(400).json({
@@ -3442,7 +3477,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user's weekly rank
   app.get("/api/gamification/rank", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const rank = await gamificationService.getWeeklyRank(userId);
       
       res.json({
@@ -3463,7 +3498,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user's faucet status for all supported currencies
   app.get("/api/faucet/status", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const faucetStatus = await faucetService.getFaucetStatus(userId);
       
       res.json({
@@ -3482,7 +3517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Claim faucet reward for a specific currency
   app.post("/api/faucet/claim/:currency", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { currency } = req.params;
       const userAgent = req.headers['user-agent'];
       const ipAddress = req.ip || req.connection.remoteAddress;
@@ -3746,7 +3781,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/faucet/claim-status/:currency", isAuthenticated, async (req: any, res) => {
     try {
       const { currency } = req.params;
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
 
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
@@ -3771,7 +3806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/faucet/claim", isAuthenticated, async (req: any, res) => {
     try {
       const { currency, faucetpayAddress, deviceFingerprint } = faucetClaimSchema.parse(req.body);
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
       const userEmail = req.user?.claims?.email;
 
       if (!userId || !req.user) {
@@ -3939,7 +3974,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user's faucet claim history
   app.get("/api/faucet/claims", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user?.claims?.sub;
       const currency = req.query.currency as string;
       const limit = parseInt(req.query.limit as string) || 50;
 
@@ -3989,7 +4024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user's crypto wallets
   app.get("/api/wallets", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const wallets = await walletService.getUserWallets(userId);
       res.json({ wallets });
     } catch (error) {
@@ -4001,7 +4036,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create wallets for user (all supported currencies)
   app.post("/api/wallets/create", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const wallets = await walletService.createAllWalletsForUser(userId);
       res.json({ 
         success: true, 
@@ -4017,7 +4052,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get wallet balance for specific currency
   app.get("/api/wallets/:currency/balance", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { currency } = req.params;
       
       const balanceInfo = await walletService.getWalletBalance(userId, currency);
@@ -4039,7 +4074,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get wallet transfer summary (Admin only)
   app.get("/api/wallets/transfer-summary", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       
       // Get all user wallets
       const wallets = await storage.getUserWalletsWithCurrency(userId);
@@ -4089,7 +4124,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get wallet transactions
   app.get("/api/wallets/:walletId/transactions", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { walletId } = req.params;
       const limit = parseInt(req.query.limit as string) || 50;
       
@@ -4116,7 +4151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Record a deposit (for external deposits)
   app.post("/api/wallets/deposit", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { currency, amount, transactionHash, source } = req.body;
 
       if (!currency || !amount || parseFloat(amount) <= 0) {
@@ -4162,7 +4197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Wallet export request endpoint  
   app.post("/api/wallets/export-request", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       if (!userId) {
         return res.status(401).json({ error: "Unauthorized" });
       }
@@ -4238,7 +4273,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Sync tokens from rewards system to crypto wallets
   app.post("/api/wallets/sync-from-rewards", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       if (!userId) {
         return res.status(401).json({ error: "Unauthorized" });
       }
@@ -4357,7 +4392,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Transfer tokens from user's JCMOVES wallet to treasury (admin, employee, and business_owner only - not customers)
   app.post("/api/wallets/fund-treasury", isAuthenticated, requireTreasuryAccess, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { amount, note } = req.body;
 
       if (!amount || parseFloat(amount) <= 0) {
@@ -4450,7 +4485,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Authentication required" });
       }
       
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       console.log("[MINING] Starting mining for user:", userId);
       
       const { miningService } = await import('./services/mining');
@@ -4468,7 +4503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get mining status and stats
   app.get("/api/mining/status", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { miningService } = await import('./services/mining');
       
       const stats = await miningService.getMiningStats(userId);
@@ -4482,7 +4517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Manually claim accumulated tokens
   app.post("/api/mining/claim", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.user.claims.sub;
       const { miningService } = await import('./services/mining');
       
       const result = await miningService.claimTokens(userId, 'manual');

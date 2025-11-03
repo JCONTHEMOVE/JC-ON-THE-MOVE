@@ -57,20 +57,20 @@ Preferred communication style: Simple, everyday language.
 
 ## Deployment Architecture
 - **Production Build**: Static asset generation with Express serving SPA.
-- **Environment Variables**: Managed for database, SendGrid, and company email.
+- **Environment Variables**: Managed for database, SendGrid, session secrets, and company email.
 - **Database Migrations**: Drizzle Kit for schema management.
 - **Graceful Startup**: Error handling prevents service failures from blocking server startup.
 - **Production Configuration**: `NODE_ENV=production` for optimized builds.
-- **Domain Configuration**: `REPLIT_DOMAINS` for multi-domain authentication.
+- **Session Security**: `SESSION_SECRET` for secure session encryption.
 - **Health Check Endpoint**: `/health` endpoint for Autoscale Deployment monitoring.
 - **Media Asset Storage**: Large media files (>50MB) stored in Replit Object Storage to bypass deployment file size limits. Files uploaded to the `public` directory are served at `/public/<filename>` in both development and production.
 
 ### Required Environment Variables for Deployment
+- **SESSION_SECRET**: Required for secure session encryption. Should be a random, long string (minimum 32 characters recommended).
 - **SENDGRID_API_KEY**: Must be a valid SendGrid API key starting with `SG.` (e.g., `SG.xxxxxxxxxxxxx`). If not provided or invalid, email notifications will be disabled but the app will continue to function.
 - **VITE_SOLANA_RPC_URL**: Must be a valid HTTP/HTTPS URL pointing to a Solana RPC endpoint (e.g., `https://api.mainnet-beta.solana.com` or `https://api.devnet.solana.com`). This is a frontend environment variable bundled at build time.
 - **DATABASE_URL**: PostgreSQL connection string (automatically provided by Replit).
 - **NODE_ENV**: Set to `production` for deployment builds.
-- **REPLIT_DOMAINS**: Comma-separated list of allowed authentication domains (automatically managed by Replit).
 
 ## UI/UX Decisions
 - Modern, responsive design.

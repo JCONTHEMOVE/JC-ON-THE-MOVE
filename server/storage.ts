@@ -6,7 +6,6 @@ import { cryptoService } from "./services/crypto";
 
 export interface IStorage {
   // User operations
-  // (IMPORTANT) these user operations are mandatory for Replit Auth.
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser, tokenPrice?: number, riskLimits?: { shouldHaltDistributions: boolean; maxSafeTokens: number; riskLevel: string }): Promise<User>;
   
@@ -163,7 +162,6 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   // User operations
-  // (IMPORTANT) these user operations are mandatory for Replit Auth.
 
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
