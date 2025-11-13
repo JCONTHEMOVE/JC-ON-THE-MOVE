@@ -1,9 +1,5 @@
 {
-  "buildCommand": "npm install vite esbuild && npm run build",
-  "redirects": [
-    { "source": "/", "destination": "https://www.jconthemove.com", "permanent": true }
-  ],
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/" }
-  ]
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite"
 }
