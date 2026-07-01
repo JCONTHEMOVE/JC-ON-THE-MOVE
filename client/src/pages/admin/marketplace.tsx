@@ -9,6 +9,7 @@ import MarketplaceCoverageAudit from "@/components/MarketplaceCoverageAudit";
 import MarketplaceFocusRouter from "@/components/MarketplaceFocusRouter";
 import MarketplaceNextStepFlow from "@/components/MarketplaceNextStepFlow";
 import MarketplaceSmartBookingEngine from "@/components/MarketplaceSmartBookingEngine";
+import MarketplaceSourceActionDeck from "@/components/MarketplaceSourceActionDeck";
 import MarketplaceSourceReadinessBoard from "@/components/MarketplaceSourceReadinessBoard";
 import MarketplaceSourceLookup from "@/components/MarketplaceSourceLookup";
 import MarketplaceTaskSplit from "@/components/MarketplaceTaskSplit";
@@ -261,6 +262,7 @@ export default function AdminMarketplacePage() {
           </TabsContent>
           <TabsContent value="sources" className="space-y-5">
             <MarketplaceSourceLookup />
+            <MarketplaceSourceActionDeck limit={8} />
             <MarketplaceCoverageAudit />
           </TabsContent>
           <TabsContent value="zones">

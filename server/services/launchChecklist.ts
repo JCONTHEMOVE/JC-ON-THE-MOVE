@@ -1498,6 +1498,16 @@ const SCENARIOS: Scenario[] = [
           ],
         },
         {
+          name: "marketplace admin source actions",
+          path: "client/src/pages/admin/marketplace.tsx",
+          required: [
+            "MarketplaceSourceActionDeck",
+            'TabsContent value="sources"',
+            "MarketplaceSourceLookup",
+            "MarketplaceCoverageAudit",
+          ],
+        },
+        {
           name: "action matrix source chips",
           path: "client/src/components/MarketplaceActionMatrix.tsx",
           required: [
