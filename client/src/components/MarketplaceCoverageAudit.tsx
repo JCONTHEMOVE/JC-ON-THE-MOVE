@@ -8,10 +8,13 @@ import {
 } from "lucide-react";
 import {
   MARKETPLACE_FUNCTIONAL_IDEAS,
+  MARKETPLACE_LAUNCH_SOURCE_TARGETS,
   MARKETPLACE_REFERENCE_BLUEPRINTS,
   MARKETPLACE_REQUEST_SHAPES,
   MARKETPLACE_SOURCE_FLOW_MATRIX,
   type MarketplaceFunctionalIdeaStatus,
+  type MarketplaceLaunchSourceTarget,
+  type MarketplaceLaunchSourceTargetGroup,
   type MarketplaceRequestShapeId,
 } from "@shared/marketplaceShapes";
 
@@ -19,36 +22,11 @@ type MarketplaceCoverageAuditProps = {
   className?: string;
 };
 
-type CoverageAnchor = {
-  label: string;
-  aliases: string[];
-  group: "retail" | "moving" | "trust" | "growth" | "payments";
-};
-
 type CoverageStatus = MarketplaceFunctionalIdeaStatus | "covered" | "missing";
 
-const anchors: CoverageAnchor[] = [
-  { label: "Target", aliases: ["target"], group: "retail" },
-  { label: "Walmart", aliases: ["walmart"], group: "retail" },
-  { label: "Goodwill", aliases: ["goodwill", "donation", "reuse"], group: "retail" },
-  { label: "McDonald's", aliases: ["mcdonald", "menu"], group: "growth" },
-  { label: "Two Men and a Truck", aliases: ["two men", "two_men"], group: "moving" },
-  { label: "U-Haul", aliases: ["u-haul", "uhaul"], group: "moving" },
-  { label: "MovingHelp / MovingHelper", aliases: ["movinghelp", "movinghelper", "moving helper"], group: "moving" },
-  { label: "Porch Moving Group", aliases: ["porch"], group: "moving" },
-  { label: "HireAHelper", aliases: ["hireahelper", "hire a helper"], group: "moving" },
-  { label: "Yelp", aliases: ["yelp"], group: "trust" },
-  { label: "Facebook", aliases: ["facebook"], group: "trust" },
-  { label: "Google", aliases: ["google"], group: "trust" },
-  { label: "PODS", aliases: ["pods", "pod"], group: "moving" },
-  { label: "Craigslist", aliases: ["craigslist", "classified"], group: "trust" },
-  { label: "JCMOVES Crypto", aliases: ["jcmoves", "crypto"], group: "growth" },
-  { label: "Square", aliases: ["square", "invoice", "payment"], group: "payments" },
-  { label: "Discord / Solbot", aliases: ["discord", "solbot", "webhook"], group: "growth" },
-  { label: "Generosity Fund", aliases: ["generosity", "giveback", "mom", "nominee"], group: "growth" },
-];
+const anchors = MARKETPLACE_LAUNCH_SOURCE_TARGETS;
 
-const groupLabels: Record<CoverageAnchor["group"], string> = {
+const groupLabels: Record<MarketplaceLaunchSourceTargetGroup, string> = {
   retail: "Retail / reuse",
   moving: "Moving logistics",
   trust: "Local demand",
@@ -80,7 +58,7 @@ function shapeLabel(id: MarketplaceRequestShapeId) {
   return MARKETPLACE_REQUEST_SHAPES.find((shape) => shape.id === id)?.shape || id.replace(/_/g, " ");
 }
 
-function anchorCoverage(anchor: CoverageAnchor) {
+function anchorCoverage(anchor: MarketplaceLaunchSourceTarget) {
   const sourceFlows = MARKETPLACE_SOURCE_FLOW_MATRIX.filter((flow) =>
     includesAlias(
       searchableText(

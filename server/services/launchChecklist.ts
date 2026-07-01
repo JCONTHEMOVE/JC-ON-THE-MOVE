@@ -19,6 +19,7 @@ import { isDispatchable } from "../dispatch/isDispatchable";
 import { getAppUrl } from "../appUrl";
 import {
   MARKETPLACE_ACTION_TASKS,
+  MARKETPLACE_LAUNCH_SOURCE_TARGETS,
   MARKETPLACE_OPERATING_FLYWHEEL,
   MARKETPLACE_REFERENCE_BLUEPRINTS,
   MARKETPLACE_REQUEST_SHAPES,
@@ -1192,62 +1193,15 @@ const SCENARIOS: Scenario[] = [
     id: "marketplace_source_model",
     label: "Marketplace source model covers customer, worker, company flows",
     run: async () => {
-      const requiredAliases = [
-        "target",
-        "walmart",
-        "goodwill",
-        "mcdonalds",
-        "mc donalds",
-        "2men and a truck",
-        "two men and a truck",
-        "uhaul",
-        "u-haul",
-        "movinghelp.com",
-        "movinghelper.com",
-        "porch moving group",
-        "hire-a-helper",
-        "yelp",
-        "google",
-        "facebook",
-        "craigslist",
-        "pods",
-        "u-box",
-        "square",
-        "discord",
-        "solbot webhook",
-        "jcmoves",
-        "crypto",
-        "generosity",
-        "mom",
-        "nominee",
-      ];
+      const requiredAliases = MARKETPLACE_LAUNCH_SOURCE_TARGETS.flatMap((target) => target.aliases);
       const missingAliases = requiredAliases.filter((alias) => !getMarketplaceSourceFlowForSource(alias));
       if (missingAliases.length > 0) {
         return { ok: false, detail: `missing source aliases: ${missingAliases.join(", ")}` };
       }
 
-      const requiredReferences = [
-        "Target",
-        "Walmart",
-        "Goodwill",
-        "McDonald's",
-        "Two Men and a Truck",
-        "U-Haul",
-        "MovingHelp",
-        "MovingHelper",
-        "Porch Moving Group",
-        "HireAHelper",
-        "Yelp",
-        "Google",
-        "Facebook",
-        "Craigslist",
-        "PODS",
-        "U-Box",
-        "Square",
-        "Discord + Solbot Webhooks",
-        "JCMOVES Crypto",
-        "Generosity Fund",
-      ];
+      const requiredReferences = Array.from(new Set(
+        MARKETPLACE_LAUNCH_SOURCE_TARGETS.flatMap((target) => target.blueprintReferences),
+      ));
       const referenceText = MARKETPLACE_REFERENCE_BLUEPRINTS.map((blueprint) => blueprint.reference).join(" ").toLowerCase();
       const missingReferences = requiredReferences.filter((reference) => !referenceText.includes(reference.toLowerCase()));
       if (missingReferences.length > 0) {

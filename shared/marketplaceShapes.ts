@@ -188,6 +188,137 @@ export type MarketplaceSmartBookingStep = {
   shapeIds: MarketplaceRequestShapeId[];
 };
 
+export type MarketplaceLaunchSourceTargetGroup =
+  | "retail"
+  | "moving"
+  | "trust"
+  | "growth"
+  | "payments";
+
+export type MarketplaceLaunchSourceTarget = {
+  label: string;
+  aliases: string[];
+  group: MarketplaceLaunchSourceTargetGroup;
+  blueprintReferences: string[];
+};
+
+export const MARKETPLACE_LAUNCH_SOURCE_TARGETS: MarketplaceLaunchSourceTarget[] = [
+  {
+    label: "Target",
+    aliases: ["target"],
+    group: "retail",
+    blueprintReferences: ["Target"],
+  },
+  {
+    label: "Walmart",
+    aliases: ["walmart"],
+    group: "retail",
+    blueprintReferences: ["Walmart"],
+  },
+  {
+    label: "Goodwill",
+    aliases: ["goodwill", "donation", "reuse"],
+    group: "retail",
+    blueprintReferences: ["Goodwill"],
+  },
+  {
+    label: "McDonald's",
+    aliases: ["mcdonalds", "mc donalds", "mcdonald", "menu"],
+    group: "growth",
+    blueprintReferences: ["McDonald's"],
+  },
+  {
+    label: "Two Men and a Truck",
+    aliases: ["2men and a truck", "two men and a truck", "two men", "two_men"],
+    group: "moving",
+    blueprintReferences: ["Two Men and a Truck"],
+  },
+  {
+    label: "U-Haul",
+    aliases: ["uhaul", "u-haul"],
+    group: "moving",
+    blueprintReferences: ["U-Haul"],
+  },
+  {
+    label: "MovingHelp / MovingHelper",
+    aliases: ["movinghelp.com", "movinghelper.com", "movinghelp", "movinghelper", "moving helper"],
+    group: "moving",
+    blueprintReferences: ["MovingHelp / MovingHelper"],
+  },
+  {
+    label: "Porch Moving Group",
+    aliases: ["porch moving group", "porch"],
+    group: "moving",
+    blueprintReferences: ["Porch Moving Group"],
+  },
+  {
+    label: "HireAHelper",
+    aliases: ["hire-a-helper", "hireahelper", "hire a helper"],
+    group: "moving",
+    blueprintReferences: ["HireAHelper"],
+  },
+  {
+    label: "Yelp",
+    aliases: ["yelp"],
+    group: "trust",
+    blueprintReferences: ["Yelp"],
+  },
+  {
+    label: "Google",
+    aliases: ["google"],
+    group: "trust",
+    blueprintReferences: ["Google"],
+  },
+  {
+    label: "Facebook",
+    aliases: ["facebook"],
+    group: "trust",
+    blueprintReferences: ["Facebook"],
+  },
+  {
+    label: "Craigslist",
+    aliases: ["craigslist", "classified"],
+    group: "trust",
+    blueprintReferences: ["Craigslist"],
+  },
+  {
+    label: "PODS",
+    aliases: ["pods", "pod"],
+    group: "moving",
+    blueprintReferences: ["PODS / U-Box"],
+  },
+  {
+    label: "U-Box",
+    aliases: ["u-box", "ubox", "u_box"],
+    group: "moving",
+    blueprintReferences: ["PODS / U-Box"],
+  },
+  {
+    label: "Square",
+    aliases: ["square", "invoice", "payment"],
+    group: "payments",
+    blueprintReferences: ["Square"],
+  },
+  {
+    label: "Discord / Solbot",
+    aliases: ["discord", "solbot", "solbot webhook", "webhook"],
+    group: "growth",
+    blueprintReferences: ["Discord + Solbot Webhooks"],
+  },
+  {
+    label: "JCMOVES Crypto",
+    aliases: ["jcmoves", "crypto"],
+    group: "growth",
+    blueprintReferences: ["JCMOVES Crypto"],
+  },
+  {
+    label: "Generosity Fund",
+    aliases: ["generosity", "giveback", "mom", "nominee"],
+    group: "growth",
+    blueprintReferences: ["Generosity Fund"],
+  },
+];
+
 export const MARKETPLACE_REQUEST_SHAPES: MarketplaceRequestShape[] = [
   {
     id: "fast_quote",

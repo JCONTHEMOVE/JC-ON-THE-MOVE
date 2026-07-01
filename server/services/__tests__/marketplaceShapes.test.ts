@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   MARKETPLACE_ACTION_TASKS,
+  MARKETPLACE_LAUNCH_SOURCE_TARGETS,
   MARKETPLACE_OPERATING_FLYWHEEL,
   MARKETPLACE_REFERENCE_BLUEPRINTS,
   MARKETPLACE_REQUEST_SHAPES,
@@ -82,30 +83,17 @@ const expectedSourceAliases: Array<[string, string]> = [
   ["nominee", "generosity_fund"],
 ];
 
-const requiredBlueprintReferences = [
-  "Target",
-  "Walmart",
-  "Goodwill",
-  "McDonald's",
-  "Two Men and a Truck",
-  "U-Haul",
-  "MovingHelp",
-  "MovingHelper",
-  "Porch Moving Group",
-  "HireAHelper",
-  "Yelp",
-  "Google",
-  "Facebook",
-  "Craigslist",
-  "PODS",
-  "U-Box",
-  "Square",
-  "Discord + Solbot Webhooks",
-  "JCMOVES Crypto",
-  "Generosity Fund",
-];
+const requiredBlueprintReferences = Array.from(new Set(
+  MARKETPLACE_LAUNCH_SOURCE_TARGETS.flatMap((target) => target.blueprintReferences),
+));
 
 test("resolves every named inspiration source to an operational flow", () => {
+  for (const target of MARKETPLACE_LAUNCH_SOURCE_TARGETS) {
+    for (const alias of target.aliases) {
+      assert.ok(getMarketplaceSourceFlowForSource(alias), `${target.label} alias "${alias}" should resolve to a marketplace flow`);
+    }
+  }
+
   for (const [alias, expectedId] of expectedSourceAliases) {
     const flow = getMarketplaceSourceFlowForSource(alias);
     assert.ok(flow, `${alias} should resolve to a marketplace flow`);
