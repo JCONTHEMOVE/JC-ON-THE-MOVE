@@ -1403,6 +1403,15 @@ const SCENARIOS: Scenario[] = [
             "completedByMe",
           ],
         },
+        {
+          name: "marketplace tasks tab",
+          path: "client/src/pages/admin/marketplace.tsx",
+          required: [
+            "MarketplaceSourceReadinessBoard",
+            'TabsTrigger value="tasks"',
+            'TabsContent value="tasks"',
+          ],
+        },
       ];
       const missingFiles = sourceChecks.filter((check) => !existsSync(path.resolve(process.cwd(), check.path)));
       if (missingFiles.length === 0) {

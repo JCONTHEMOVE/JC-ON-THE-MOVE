@@ -9,6 +9,7 @@ import MarketplaceCoverageAudit from "@/components/MarketplaceCoverageAudit";
 import MarketplaceFocusRouter from "@/components/MarketplaceFocusRouter";
 import MarketplaceNextStepFlow from "@/components/MarketplaceNextStepFlow";
 import MarketplaceSmartBookingEngine from "@/components/MarketplaceSmartBookingEngine";
+import MarketplaceSourceReadinessBoard from "@/components/MarketplaceSourceReadinessBoard";
 import MarketplaceSourceLookup from "@/components/MarketplaceSourceLookup";
 import MarketplaceTaskSplit from "@/components/MarketplaceTaskSplit";
 import { useQuery } from "@tanstack/react-query";
@@ -225,8 +226,9 @@ export default function AdminMarketplacePage() {
           </a>
         </div>
         <Tabs defaultValue="flow">
-          <TabsList className="mb-6 grid w-full grid-cols-2 border border-slate-700/50 bg-slate-800/50 md:grid-cols-6">
+          <TabsList className="mb-6 grid w-full grid-cols-2 border border-slate-700/50 bg-slate-800/50 md:grid-cols-7">
             <TabsTrigger value="flow" className="data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-300">Flow</TabsTrigger>
+            <TabsTrigger value="tasks" className="data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-300">Tasks</TabsTrigger>
             <TabsTrigger value="sources" className="data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-300">Sources</TabsTrigger>
             <TabsTrigger value="zones" className="data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-300">Zones</TabsTrigger>
             <TabsTrigger value="rewards" className="data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-300">Rewards</TabsTrigger>
@@ -251,6 +253,11 @@ export default function AdminMarketplacePage() {
             <MarketplaceTaskSplit compact />
             <MarketplaceActionMatrix compact rail="all" limit={9} />
             <MarketplaceSmartBookingEngine />
+          </TabsContent>
+          <TabsContent value="tasks" className="space-y-5">
+            <MarketplaceSourceReadinessBoard />
+            <AuthorityTasksCard />
+            <MarketplaceTaskSplit compact />
           </TabsContent>
           <TabsContent value="sources" className="space-y-5">
             <MarketplaceSourceLookup />
