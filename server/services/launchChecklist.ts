@@ -1444,6 +1444,9 @@ const SCENARIOS: Scenario[] = [
           name: "source lookup",
           path: "client/src/components/MarketplaceSourceLookup.tsx",
           required: [
+            "MARKETPLACE_LAUNCH_SOURCE_TARGETS",
+            "Launch targets",
+            "sourceFlowForTarget",
             "getMarketplaceReferenceBlueprintsForSource",
             "Operating Blueprints",
             "Borrow",

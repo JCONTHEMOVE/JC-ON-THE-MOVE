@@ -12,10 +12,14 @@ import {
 } from "lucide-react";
 import {
   MARKETPLACE_ACTION_TASKS,
+  MARKETPLACE_LAUNCH_SOURCE_TARGETS,
   MARKETPLACE_SOURCE_FLOW_MATRIX,
   getMarketplaceReferenceBlueprintsForSource,
+  getMarketplaceSourceFlowForSource,
   type MarketplaceActionPhase,
   type MarketplaceFunctionalIdeaStatus,
+  type MarketplaceLaunchSourceTarget,
+  type MarketplaceLaunchSourceTargetGroup,
   type MarketplaceSideId,
   type MarketplaceSourceFlow,
 } from "@shared/marketplaceShapes";
@@ -74,6 +78,14 @@ const statusClasses: Record<MarketplaceFunctionalIdeaStatus, string> = {
   next: "border-orange-400/30 bg-orange-500/10 text-orange-200",
 };
 
+const targetGroupLabels: Record<MarketplaceLaunchSourceTargetGroup, string> = {
+  retail: "Retail / reuse",
+  moving: "Moving logistics",
+  trust: "Local demand",
+  growth: "Rewards / marketing",
+  payments: "Payment rails",
+};
+
 function statusLabel(status: MarketplaceFunctionalIdeaStatus) {
   return status.replace(/_/g, " ");
 }
@@ -90,8 +102,15 @@ function phaseValue(flow: MarketplaceSourceFlow, phase: MarketplaceActionPhase) 
   return flow.finish;
 }
 
+function sourceFlowForTarget(target: MarketplaceLaunchSourceTarget) {
+  return target.aliases
+    .map((alias) => getMarketplaceSourceFlowForSource(alias))
+    .find((resolvedFlow): resolvedFlow is MarketplaceSourceFlow => Boolean(resolvedFlow));
+}
+
 export default function MarketplaceSourceLookup({ className = "" }: MarketplaceSourceLookupProps) {
   const [sourceId, setSourceId] = useState("uhaul_movinghelp");
+  const [selectedTarget, setSelectedTarget] = useState<string | null>("MovingHelp / MovingHelper");
   const [side, setSide] = useState<MarketplaceSideId>("company");
   const flow = MARKETPLACE_SOURCE_FLOW_MATRIX.find((item) => item.id === sourceId) || MARKETPLACE_SOURCE_FLOW_MATRIX[0];
   const blueprints = useMemo(
@@ -126,7 +145,40 @@ export default function MarketplaceSourceLookup({ className = "" }: MarketplaceS
       <div className="mt-4 grid gap-3 lg:grid-cols-[0.85fr_1.15fr]">
         <div className="space-y-3">
           <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Reference</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Launch targets</p>
+            <p className="mt-1 text-[11px] leading-4 text-slate-400">
+              Pick the plain-English model first, then inspect the operating flow below.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+              {MARKETPLACE_LAUNCH_SOURCE_TARGETS.map((target) => {
+                const targetFlow = sourceFlowForTarget(target);
+                const active = target.label === selectedTarget;
+                return (
+                  <button
+                    key={target.label}
+                    type="button"
+                    onClick={() => {
+                      if (targetFlow) setSourceId(targetFlow.id);
+                      setSelectedTarget(target.label);
+                    }}
+                    className={`rounded-md border p-3 text-left transition ${
+                      active
+                        ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-100"
+                        : "border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700"
+                    }`}
+                  >
+                    <span className="block text-xs font-black uppercase tracking-wide">{target.label}</span>
+                    <span className="mt-1 block text-[11px] leading-4 opacity-80">
+                      {targetGroupLabels[target.group]} {targetFlow ? `-> ${targetFlow.source}` : "-> needs flow"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Operating flow</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
               {MARKETPLACE_SOURCE_FLOW_MATRIX.map((item) => {
                 const active = item.id === flow.id;
@@ -134,7 +186,10 @@ export default function MarketplaceSourceLookup({ className = "" }: MarketplaceS
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setSourceId(item.id)}
+                    onClick={() => {
+                      setSourceId(item.id);
+                      setSelectedTarget(null);
+                    }}
                     className={`rounded-md border p-3 text-left transition ${
                       active
                         ? "border-cyan-400/40 bg-cyan-500/15 text-cyan-100"
