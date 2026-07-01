@@ -23,6 +23,7 @@ import {
   MARKETPLACE_REFERENCE_BLUEPRINTS,
   MARKETPLACE_REQUEST_SHAPES,
   MARKETPLACE_SOURCE_FLOW_MATRIX,
+  getMarketplaceLaunchTasks,
   getMarketplaceReferenceBlueprintsForSource,
   getMarketplaceSourceFlowForSource,
 } from "../../shared/marketplaceShapes";
@@ -48,6 +49,7 @@ export type ScenarioId =
   | "admin_access_ready"
   | "public_booking_catalog"
   | "marketplace_source_model"
+  | "marketplace_launch_task_bonus_rail"
   | "marketplace_surface_mounts"
   | "quick_request_notifications"
   | "quick_request_storage"
@@ -1282,6 +1284,155 @@ const SCENARIOS: Scenario[] = [
       return {
         ok: true,
         detail: `${MARKETPLACE_SOURCE_FLOW_MATRIX.length} source flows, ${MARKETPLACE_REQUEST_SHAPES.length} request shapes, ${MARKETPLACE_OPERATING_FLYWHEEL.length} flywheel stages, ${MARKETPLACE_ACTION_TASKS.length} action tasks`,
+      };
+    },
+  },
+  {
+    id: "marketplace_launch_task_bonus_rail",
+    label: "Marketplace launch tasks can be claimed safely for JCMOVES bonuses",
+    run: async () => {
+      const launchTasks = getMarketplaceLaunchTasks();
+      const flowIds = new Set(MARKETPLACE_SOURCE_FLOW_MATRIX.map((flow) => flow.id));
+      const actionTaskIds = new Set(MARKETPLACE_ACTION_TASKS.map((task) => task.id));
+      const problems: string[] = [];
+
+      if (launchTasks.length !== flowIds.size) {
+        problems.push(`expected ${flowIds.size} launch tasks, found ${launchTasks.length}`);
+      }
+
+      const rails = new Set(launchTasks.map((task) => task.ownerRail));
+      for (const rail of ["bronze", "silver", "gold", "platinum"]) {
+        if (!rails.has(rail as any)) problems.push(`no ${rail} launch task owner rail`);
+      }
+
+      const readiness = new Set(launchTasks.map((task) => task.readiness));
+      for (const level of ["build", "watch", "ready"]) {
+        if (!readiness.has(level as any)) problems.push(`no ${level} launch task`);
+      }
+
+      for (const task of launchTasks) {
+        if (!flowIds.has(task.sourceFlowId)) problems.push(`${task.id} references unknown source flow ${task.sourceFlowId}`);
+        if (!task.title.trim()) problems.push(`${task.id} missing title`);
+        if (!task.acceptanceCriteria.trim()) problems.push(`${task.id} missing acceptance criteria`);
+        if (!task.automationGate.trim()) problems.push(`${task.id} missing automation gate`);
+        if (task.completionBonusJcMoves <= 0) problems.push(`${task.id} has no completion bonus`);
+        if (task.totalMappedBonusJcMoves > 0 && task.completionBonusJcMoves > task.totalMappedBonusJcMoves) {
+          problems.push(`${task.id} completion bonus exceeds mapped JCMOVES context`);
+        }
+        if (task.linkedActionTaskIds.length === 0) problems.push(`${task.id} has no linked action tasks`);
+        for (const linkedTaskId of task.linkedActionTaskIds) {
+          if (!actionTaskIds.has(linkedTaskId)) problems.push(`${task.id} references unknown action task ${linkedTaskId}`);
+        }
+      }
+
+      const { rows: tableRows } = await pool.query<{ exists: boolean }>(`
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name = 'launch_task_completions'
+        ) AS exists
+      `);
+      if (!tableRows[0]?.exists) {
+        problems.push("launch_task_completions table is missing");
+      } else {
+        const { rows: columnRows } = await pool.query<{ column_name: string }>(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'launch_task_completions'
+        `);
+        const columns = new Set(columnRows.map((row) => row.column_name));
+        const requiredColumns = [
+          "task_id",
+          "source_flow_id",
+          "completed_by_user_id",
+          "authority_tier",
+          "bonus_tokens",
+          "proof_notes",
+          "metadata",
+          "created_at",
+        ];
+        const missingColumns = requiredColumns.filter((column) => !columns.has(column));
+        if (missingColumns.length > 0) {
+          problems.push(`launch_task_completions missing column(s): ${missingColumns.join(", ")}`);
+        }
+
+        const { rows: indexRows } = await pool.query<{ count: number }>(`
+          SELECT COUNT(*)::int AS count
+          FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND tablename = 'launch_task_completions'
+            AND indexname = 'uq_launch_task_completion_user_task'
+        `);
+        if (Number(indexRows[0]?.count || 0) !== 1) {
+          problems.push("launch_task_completions unique user/task guard is missing");
+        }
+      }
+
+      const sourceChecks = [
+        {
+          name: "shared launch task model",
+          path: "shared/marketplaceShapes.ts",
+          required: [
+            "completionBonusJcMoves",
+            "launchTaskBonusByReadiness",
+            "getMarketplaceLaunchTasks",
+            "getMarketplaceLaunchTasksForRail",
+          ],
+        },
+        {
+          name: "launch task api",
+          path: "server/routes.ts",
+          required: [
+            'app.get("/api/marketplace/launch-tasks"',
+            'app.post("/api/marketplace/launch-tasks/:taskId/complete"',
+            "ON CONFLICT (task_id, completed_by_user_id) DO NOTHING",
+            "'ops_task_launch'",
+            "proofNotes.length < 8",
+          ],
+        },
+        {
+          name: "launch task board",
+          path: "client/src/components/MarketplaceSourceReadinessBoard.tsx",
+          required: [
+            'queryKey: ["/api/marketplace/launch-tasks"]',
+            "proofNote",
+            "Claim",
+            "bonusTokens",
+            "completedByMe",
+          ],
+        },
+      ];
+      const missingFiles = sourceChecks.filter((check) => !existsSync(path.resolve(process.cwd(), check.path)));
+      if (missingFiles.length === 0) {
+        const missingSnippets = sourceChecks.flatMap((check) => {
+          const text = readFileSync(path.resolve(process.cwd(), check.path), "utf8");
+          return check.required
+            .filter((snippet) => !text.includes(snippet))
+            .map((snippet) => `${check.name}: ${snippet}`);
+        });
+        if (missingSnippets.length > 0) problems.push(`missing launch-task wiring: ${missingSnippets.join(", ")}`);
+      } else {
+        const builtClientText = readBuiltClientText();
+        if (!builtClientText) {
+          problems.push(`source unavailable (${missingFiles.map((check) => check.path).join(", ")}) and no built client bundle found`);
+        } else {
+          const missingBundleText = ["claim bonus", "Proof note", "Claim"].filter((snippet) => !builtClientText.includes(snippet));
+          if (missingBundleText.length > 0) {
+            problems.push(`production bundle missing launch-task text: ${missingBundleText.join(", ")}`);
+          }
+        }
+      }
+
+      if (problems.length > 0) {
+        return { ok: false, detail: problems.slice(0, 8).join("; ") };
+      }
+
+      const availableBonus = launchTasks.reduce((sum, task) => sum + task.completionBonusJcMoves, 0);
+      return {
+        ok: true,
+        detail: `${launchTasks.length} source launch tasks; rails ${Array.from(rails).join("/")}; ${availableBonus.toLocaleString()} controlled JCMOVES available; one-claim guard and proof-note API mounted`,
       };
     },
   },
