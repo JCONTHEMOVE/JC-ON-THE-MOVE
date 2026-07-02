@@ -6,6 +6,7 @@ import { leads, users, type Lead } from "@shared/schema";
 
 export type JobEventType =
   | "quote_requested"
+  | "quote_sent"
   | "job_available"
   | "crew_assigned"
   | "job_updated"
@@ -55,6 +56,12 @@ function displayService(lead: Pick<Lead, "serviceType">) {
   return String(lead.serviceType || "job").replace(/_/g, " ");
 }
 
+function formatLeadPrice(lead: Pick<Lead, "totalPrice" | "basePrice">) {
+  const amount = Number(lead.totalPrice || lead.basePrice || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return `$${amount.toFixed(2)}`;
+}
+
 function adminLeadUrl(leadId: string) {
   return `/admin/jobs?lead=${encodeURIComponent(leadId)}`;
 }
@@ -88,6 +95,16 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
         title: "New Job Request",
         message: `${name} submitted a ${service} request. Review and price it before sending it to crew.`,
       };
+    case "quote_sent": {
+      const total = formatLeadPrice(lead);
+      const hasPaymentUrl = Boolean(options.extra?.paymentUrl);
+      return {
+        scope: "owners",
+        notificationType: "system_alert",
+        title: "Quote Sent",
+        message: `${service} quote for ${name} was sent${total ? ` for ${total}` : ""}.${hasPaymentUrl ? " Payment link is ready." : ""}`,
+      };
+    }
     case "job_available":
       return {
         scope: "eligible_crew",

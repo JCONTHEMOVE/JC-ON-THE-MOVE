@@ -83,12 +83,12 @@ const PACKAGES: PackageOption[] = [
   {
     id: "pkg_2_load_unload_big",
     name: "Package 2",
-    range: "$300-450",
+    range: "$375 intro",
     base: 375,
-    crewSize: 2,
-    jobHours: 4,
-    laborHours: "6-8 labor hrs",
-    description: "Loading and unloading, or a larger local job.",
+    crewSize: 3,
+    jobHours: 1.5,
+    laborHours: "3 movers / first 1.5 hrs",
+    description: "Small-to-medium junk intro, loading/unloading, or larger local job.",
   },
   {
     id: "pkg_3_two_movers_day",
@@ -151,6 +151,11 @@ function formatMoney(value?: string | number | null) {
   const n = Number(value || 0);
   if (!Number.isFinite(n) || n <= 0) return "Quote needed";
   return `$${Math.round(n).toLocaleString()}`;
+}
+
+function formatQuantity(value: number) {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
 function formatOrder(lead: Lead) {
@@ -338,12 +343,18 @@ function TradingJobCard({ lead, compact = false, onOpen }: { lead: Lead; compact
   );
 }
 
-function Stepper({ value, onChange, min = 0, max = 999 }: { value: number; onChange: (value: number) => void; min?: number; max?: number }) {
+function Stepper({ value, onChange, min = 0, max = 999, step = 1 }: { value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
+  const nextValue = (direction: 1 | -1) => {
+    const raw = value + direction * step;
+    const clamped = Math.min(max, Math.max(min, raw));
+    return Math.round(clamped * 100) / 100;
+  };
+
   return (
     <div className="flex items-center rounded-[8px] border border-slate-700 bg-slate-950">
-      <button className="h-9 w-9 text-slate-300 hover:text-white" onClick={() => onChange(Math.max(min, value - 1))}>-</button>
-      <div className="w-12 text-center text-sm font-bold text-white">{value}</div>
-      <button className="h-9 w-9 text-slate-300 hover:text-white" onClick={() => onChange(Math.min(max, value + 1))}>+</button>
+      <button className="h-9 w-9 text-slate-300 hover:text-white" onClick={() => onChange(nextValue(-1))}>-</button>
+      <div className="w-12 text-center text-sm font-bold text-white">{formatQuantity(value)}</div>
+      <button className="h-9 w-9 text-slate-300 hover:text-white" onClick={() => onChange(nextValue(1))}>+</button>
     </div>
   );
 }
@@ -383,7 +394,8 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
         `Truck: ${truck === "none" ? "No rental truck" : truck === "15ft" ? "15 ft rental truck" : "26 ft rental truck"}`,
         truck !== "none" ? `Truck mileage: ${truckMiles} miles, ${truckOverageMiles} over included 50 at $5/mile` : "",
         travelMiles ? `Mover travel: ${travelMiles} miles at $5/mile` : "",
-        extraHours ? `Extra hours: ${extraHours} hr x ${crewSize} mover(s) x $${EXTRA_HOUR_PER_MOVER_RATE}/mover-hour = $${extraHoursCharge}` : "",
+        `Included time: ${formatQuantity(selectedPackage.jobHours)} hr with ${crewSize} mover(s)`,
+        extraHours ? `Extra hours: ${formatQuantity(extraHours)} hr x ${crewSize} mover(s) x $${EXTRA_HOUR_PER_MOVER_RATE}/mover-hour = $${extraHoursCharge}` : "",
         blankets ? "We supply moving blankets: $99" : "",
         shrinkwrap ? "We supply shrinkwrap: $99" : "",
         notes.trim(),
@@ -499,9 +511,9 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
               </div>
               <div>
                 <Label className="text-xs uppercase tracking-wider text-slate-500">Extra Hours</Label>
-                <div className="mt-2"><Stepper value={extraHours} min={0} max={8} onChange={setExtraHours} /></div>
+                <div className="mt-2"><Stepper value={extraHours} min={0} max={8} step={0.5} onChange={setExtraHours} /></div>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  {confirmedHours} job hr total; +${extraHoursCharge.toLocaleString()} at ${crewSize} mover(s)
+                  {formatQuantity(confirmedHours)} job hr total; +${extraHoursCharge.toLocaleString()} at ${crewSize} mover(s)
                 </p>
               </div>
             </div>

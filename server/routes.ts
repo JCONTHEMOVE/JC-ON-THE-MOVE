@@ -12185,6 +12185,24 @@ Thank you for your business!
 
       // Invalidate cache so frontend refreshes
       const updatedLead = await storage.getLead(id);
+      if (updatedLead) {
+        await emitJobEvent("quote_sent", updatedLead, {
+          actorId,
+          source: "lead_send_quote",
+          previousStatus: lead.status,
+          status: updatedLead.status,
+          note: "Quote sent to customer.",
+          extra: {
+            quoteSentAt: now.toISOString(),
+            emailSent,
+            squareInvoiceCreated,
+            paymentUrl: squarePaymentUrl,
+            quoteTotal: price,
+            invoiceTotal: grandTotal,
+            shopCardSubtotal,
+          },
+        });
+      }
       res.json({ success: true, quoteSentAt: now.toISOString(), emailSent, squareInvoiceCreated, paymentUrl: squarePaymentUrl, lead: updatedLead });
     } catch (error) {
       console.error("Error sending quote:", error);
