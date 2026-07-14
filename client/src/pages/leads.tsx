@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -33,9 +33,11 @@ import { apiRequest } from "@/lib/queryClient";
 import { insertLeadSchema, type InsertLead, type Lead, type User } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { LeadQuoteDialog } from "@/components/LeadQuoteDialog";
+import { StaffJobForm } from "@/components/StaffJobForm";
+import { LeadCleanupPanel } from "@/components/LeadCleanupPanel";
 
 export default function LeadsPage() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
@@ -58,10 +60,17 @@ export default function LeadsPage() {
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const isAdmin = ["admin", "business_owner"].includes(currentUser?.role || "");
+  const requestedTab = new URLSearchParams(location.split("?")[1] || "").get("tab");
+  const requestedDate = new URLSearchParams(location.split("?")[1] || "").get("date") || undefined;
+  const [activeTab, setActiveTab] = useState(requestedTab === "add" ? "add" : "view");
   const [orderSearch, setOrderSearch] = useState("");
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [lookupResult, setLookupResult] = useState<Lead | null>(null);
   const [lookupError, setLookupError] = useState("");
+
+  useEffect(() => {
+    if (requestedTab === "add") setActiveTab("add");
+  }, [requestedTab]);
 
   const serviceOptions = [
     { value: "residential", label: "Residential Moving", icon: Home },
@@ -200,8 +209,8 @@ export default function LeadsPage() {
     },
     onSuccess: () => {
       toast({
-        title: "Lead deleted",
-        description: "The lead has been permanently deleted.",
+        title: "Job archived",
+        description: "The job was removed from active leads and can be restored from Archived Jobs.",
       });
       setLeadToDelete(null);
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
@@ -370,7 +379,7 @@ export default function LeadsPage() {
             </div>
           )}
 
-          <Tabs defaultValue="view" className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList className="bg-slate-800/80 border border-slate-700 flex-wrap h-auto gap-1">
               <TabsTrigger value="view" data-testid="tab-view-leads">Active Leads</TabsTrigger>
               <TabsTrigger value="completed" data-testid="tab-completed-leads" className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
@@ -382,7 +391,8 @@ export default function LeadsPage() {
                   Archived ({archivedLeads.length})
                 </TabsTrigger>
               )}
-              <TabsTrigger value="add" data-testid="tab-add-lead">+ Book a Job</TabsTrigger>
+              {isAdmin && <TabsTrigger value="cleanup" data-testid="tab-cleanup-leads">Cleanup</TabsTrigger>}
+              <TabsTrigger value="add" data-testid="tab-add-lead">+ Add a Job</TabsTrigger>
             </TabsList>
 
             <TabsContent value="view">
@@ -610,7 +620,27 @@ export default function LeadsPage() {
               </TabsContent>
             )}
 
+            {isAdmin && (
+              <TabsContent value="cleanup">
+                <LeadCleanupPanel />
+              </TabsContent>
+            )}
+
             <TabsContent value="add">
+              {isStaff ? (
+                <StaffJobForm prefilledDate={requestedDate} />
+              ) : (
+                <Card className="border-slate-700 bg-slate-800/50">
+                  <CardHeader>
+                    <CardTitle className="text-white">Book a service</CardTitle>
+                    <CardDescription className="text-slate-400">The staff intake form is for approved crew. Use the full booking flow for a detailed customer request.</CardDescription>
+                  </CardHeader>
+                  <CardContent><Link href="/book"><Button>Open booking wizard</Button></Link></CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="legacy-add" className="hidden" aria-hidden="true">
               {/* Booking Confirmation Banner */}
               {bookingConfirmed && (
                 <div className="mb-4 rounded-xl border border-orange-500/30 bg-orange-500/10 p-4 flex items-start justify-between gap-3">

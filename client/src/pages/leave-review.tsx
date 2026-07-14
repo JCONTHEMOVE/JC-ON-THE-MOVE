@@ -1,9 +1,10 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Star, Heart, Users, DollarSign, ChevronRight, CheckCircle, Truck,
   ShoppingCart, Bitcoin, Copy, Check, Gem, Tag, ExternalLink,
-  Search, Phone, Mail, Hash, ArrowRight, AlertCircle, Calendar
+  Search, Phone, Mail, Hash, ArrowRight, AlertCircle, Calendar,
+  Coins, Wallet
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -221,6 +222,30 @@ const SERVICE_LABELS: Record<string, string> = {
   handyman: "Handyman", demolition: "Demolition", flooring: "Flooring", painting: "Painting",
 };
 
+type TipMethod = "cart" | "bitcoin" | "jcmoves" | "jcmoves_usd";
+
+type AssignedEmployee = {
+  id: string;
+  name: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  profileImageUrl?: string | null;
+};
+
+type WalletBalance = {
+  tokenBalance: string;
+  cashBalance: string;
+};
+
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return (parts[0]?.[0] || "J") + (parts[1]?.[0] || "C");
+}
+
+function formatTokenAmount(value: number) {
+  return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 function JobLookupScreen({ onSelect }: { onSelect: (jobId: string, token?: string) => void }) {
   const [searchInput, setSearchInput] = useState("");
   const [submitted, setSubmitted] = useState("");
@@ -426,7 +451,9 @@ export default function LeaveReviewPage() {
   const [includeTip, setIncludeTip] = useState(false);
   const [numberOfMovers, setNumberOfMovers] = useState(2);
   const [tipPerMover, setTipPerMover] = useState(20);
-  const [tipMethod, setTipMethod] = useState<"cart" | "bitcoin">("cart");
+  const [tokenTipPerMover, setTokenTipPerMover] = useState(100);
+  const [tipMethod, setTipMethod] = useState<TipMethod>("cart");
+  const [selectedCrewIds, setSelectedCrewIds] = useState<string[]>([]);
 
   const token = resolvedToken;
   const jobId = resolvedJobId;
@@ -434,12 +461,11 @@ export default function LeaveReviewPage() {
   // Keep all hooks ABOVE any conditional returns
   const tipCartId = `tip-${token || jobId || "job"}`;
   const tipInCart = isInCart(tipCartId);
-  const totalTip = numberOfMovers * tipPerMover;
 
   const { data: jobInfo, isLoading, error } = useQuery<{
     jobId: string; customerName: string; serviceType: string;
-    serviceLabel: string; completedDate: string;
-    assignedEmployees: Array<{ id: string; name: string }>; crewSize: number;
+    serviceLabel: string; completedDate: string | null;
+    assignedEmployees: AssignedEmployee[]; crewSize: number;
   }>({
     queryKey: ["/api/review", token || jobId],
     queryFn: async () => {
@@ -452,15 +478,68 @@ export default function LeaveReviewPage() {
     retry: false,
   });
 
-  // Sync number of movers with job info when it loads
-  const crewSizeDefault = jobInfo?.crewSize || 2;
+  const { data: currentUser } = useQuery<any | null>({
+    queryKey: ["/api/auth/user"],
+    queryFn: async () => {
+      const res = await fetch("/api/auth/user", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    retry: false,
+    staleTime: 60000,
+  });
+
+  const { data: walletData } = useQuery<WalletBalance | null>({
+    queryKey: ["/api/wallet/balance"],
+    queryFn: async () => {
+      const res = await fetch("/api/wallet/balance", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!currentUser,
+    retry: false,
+  });
+
+  const assignedEmployees = jobInfo?.assignedEmployees || [];
+  const hasAssignedCrew = assignedEmployees.length > 0;
+  const selectedCrew = assignedEmployees.filter((employee) => selectedCrewIds.includes(employee.id));
+  const tipRecipientCount = hasAssignedCrew ? selectedCrew.length : numberOfMovers;
+  const isTokenTip = tipMethod === "jcmoves";
+  const isWalletTip = tipMethod === "jcmoves" || tipMethod === "jcmoves_usd";
+  const totalTip = isTokenTip ? 0 : tipRecipientCount * tipPerMover;
+  const totalTokenTip = isTokenTip ? tipRecipientCount * tokenTipPerMover : 0;
+  const walletTokens = walletData ? parseFloat(walletData.tokenBalance || "0") : 0;
+  const walletCash = walletData ? parseFloat(walletData.cashBalance || "0") : 0;
+  const walletTipNeedsLogin = includeTip && isWalletTip && !currentUser;
+  const walletTipInsufficient = includeTip && (
+    (tipMethod === "jcmoves" && totalTokenTip > walletTokens) ||
+    (tipMethod === "jcmoves_usd" && totalTip > walletCash)
+  );
+
+  useEffect(() => {
+    if (!jobInfo) return;
+    const crew = jobInfo.assignedEmployees || [];
+    if (crew.length > 0) {
+      setSelectedCrewIds((current) => {
+        const next = current.filter((id) => crew.some((employee) => employee.id === id));
+        return next.length > 0 ? next : crew.map((employee) => employee.id);
+      });
+      setNumberOfMovers(crew.length);
+      setMoverNames((current) => current || crew.map((employee) => employee.name).join(", "));
+      return;
+    }
+    setNumberOfMovers(jobInfo.crewSize || 2);
+  }, [jobInfo?.jobId]);
 
   const handleAddTipToCart = () => {
+    const recipientLabel = hasAssignedCrew && selectedCrew.length > 0
+      ? selectedCrew.map((employee) => employee.name.split(" ")[0]).join(", ")
+      : `${tipRecipientCount} mover${tipRecipientCount !== 1 ? "s" : ""}`;
     addItem({
       id: tipCartId,
       name: `Crew Tip — ${numberOfMovers} mover${numberOfMovers !== 1 ? "s" : ""} × $${tipPerMover}`,
       price: totalTip,
-      image: "",
+      image: recipientLabel ? "" : "",
       type: "tip",
     });
     toast({
@@ -472,14 +551,30 @@ export default function LeaveReviewPage() {
   const submitMutation = useMutation({
     mutationFn: async () => {
       const url = token ? `/api/review/token/${token}` : `/api/review/job/${jobId}`;
+      const tipAllocations = includeTip && hasAssignedCrew
+        ? selectedCrew.map((employee) => ({
+            workerId: employee.id,
+            workerName: employee.name,
+            amountUsd: isTokenTip ? 0 : tipPerMover,
+            tokenAmount: isTokenTip ? tokenTipPerMover : 0,
+          }))
+        : [];
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          rating, comment, moverNames, wouldRecommend,
+          rating,
+          comment,
+          moverNames: hasAssignedCrew && selectedCrew.length > 0
+            ? selectedCrew.map((employee) => employee.name).join(", ")
+            : moverNames,
+          wouldRecommend,
           ...(includeTip && {
-            numberOfMovers, tipPerMover, tipAmount: totalTip,
+            numberOfMovers: tipRecipientCount,
+            ...(!isTokenTip && { tipPerMover, tipAmount: totalTip }),
+            ...(isTokenTip && { tokenTipPerMover, tokenTipAmount: totalTokenTip }),
             tipMethod,
+            tipAllocations,
           }),
         }),
       });
@@ -536,6 +631,22 @@ export default function LeaveReviewPage() {
               <p className="text-sm text-muted-foreground">
                 If you haven't sent the Bitcoin yet, you still can — use the address on your previous screen.
                 Our team will verify receipt and distribute to the crew. Thank you! 🧡
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {includeTip && isWalletTip && (
+          <Card className="w-full max-w-md border-emerald-200 dark:border-emerald-800">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-emerald-600">
+                {tipMethod === "jcmoves" ? <Coins className="h-5 w-5" /> : <Wallet className="h-5 w-5" />}
+                Tip Sent
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Your {tipMethod === "jcmoves" ? "JCMOVES" : "JCMOVES USD"} tip was attached to this review and credited to the selected mover{tipRecipientCount !== 1 ? "s" : ""}.
               </p>
             </CardContent>
           </Card>
@@ -617,12 +728,18 @@ export default function LeaveReviewPage() {
                   )}
                 </div>
                 {jobInfo.assignedEmployees?.length > 0 && (
-                  <div className="ml-auto flex gap-1 flex-wrap justify-end">
+                  <div className="ml-auto flex gap-2 flex-wrap justify-end">
                     {jobInfo.assignedEmployees.map((e) => (
-                      <Badge key={e.id} variant="outline"
-                        className="text-xs border-amber-400 text-amber-600 dark:text-amber-400">
-                        {e.name}
-                      </Badge>
+                      <div key={e.id} className="flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-2 py-1 dark:border-amber-800 dark:bg-amber-950">
+                        {e.profileImageUrl ? (
+                          <img src={e.profileImageUrl} alt={e.name} className="h-7 w-7 rounded-full object-cover" />
+                        ) : (
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-xs font-black text-white">
+                            {getInitials(e.name)}
+                          </span>
+                        )}
+                        <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">{e.name}</span>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -728,7 +845,61 @@ export default function LeaveReviewPage() {
 
           {includeTip ? (
             <CardContent className="space-y-6 pt-0">
+              {hasAssignedCrew && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <Label className="flex items-center gap-2 text-base font-semibold">
+                      <Users className="h-4 w-4 text-blue-500" /> Tip recipients
+                    </Label>
+                    <span className="rounded-lg bg-blue-50 px-3 py-1 text-sm font-bold text-blue-600 dark:bg-blue-950 dark:text-blue-400">
+                      {tipRecipientCount} selected
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {assignedEmployees.map((employee) => {
+                      const selected = selectedCrewIds.includes(employee.id);
+                      return (
+                        <button
+                          key={employee.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCrewIds((current) => {
+                              const next = selected
+                                ? current.filter((id) => id !== employee.id)
+                                : [...current, employee.id];
+                              setNumberOfMovers(Math.max(1, next.length));
+                              return next;
+                            });
+                          }}
+                          className={`flex items-center gap-3 rounded-xl border-2 p-3 text-left transition-all ${
+                            selected
+                              ? "border-blue-500 bg-blue-50 dark:bg-blue-950"
+                              : "border-border hover:border-blue-300"
+                          }`}
+                        >
+                          {employee.profileImageUrl ? (
+                            <img src={employee.profileImageUrl} alt={employee.name} className="h-12 w-12 rounded-full object-cover" />
+                          ) : (
+                            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-sm font-black text-white dark:bg-slate-100 dark:text-slate-900">
+                              {getInitials(employee.name)}
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-bold text-foreground">{employee.name}</span>
+                            <span className={`text-xs ${selected ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}>
+                              {selected ? "Included" : "Tap to include"}
+                            </span>
+                          </span>
+                          {selected && <Check className="h-5 w-5 text-blue-500" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Mover count slider */}
+              {!hasAssignedCrew && (
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <Label className="flex items-center gap-2 text-base font-semibold">
@@ -750,8 +921,10 @@ export default function LeaveReviewPage() {
                   ))}
                 </div>
               </div>
+              )}
 
               {/* Tip per mover slider */}
+              {tipMethod !== "jcmoves" && (
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <Label className="flex items-center gap-2 text-base font-semibold">
@@ -780,22 +953,57 @@ export default function LeaveReviewPage() {
                   ))}
                 </div>
               </div>
+              )}
+
+              {tipMethod === "jcmoves" && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <Label className="flex items-center gap-2 text-base font-semibold">
+                      <Coins className="h-4 w-4 text-green-500" /> JCMOVES per mover
+                    </Label>
+                    <span className="text-2xl font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950 rounded-lg px-3 py-1">
+                      {formatTokenAmount(tokenTipPerMover)}
+                    </span>
+                  </div>
+                  <Slider value={[tokenTipPerMover]} min={25} max={1000} step={25}
+                    onValueChange={([v]) => setTokenTipPerMover(v)}
+                    className="[&_[role=slider]]:bg-green-500 [&_[role=slider]]:border-green-500" />
+                  <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                    <span>25</span><span>1,000</span>
+                  </div>
+                  <div className="flex gap-2 mt-3 flex-wrap">
+                    {[50, 100, 250, 500].map((amt) => (
+                      <button key={amt} type="button" onClick={() => setTokenTipPerMover(amt)}
+                        className={`px-3 py-1 rounded-lg text-sm font-semibold border-2 transition-all ${
+                          tokenTipPerMover === amt
+                            ? "border-green-500 bg-green-500 text-white"
+                            : "border-border hover:border-green-400 text-muted-foreground"
+                        }`}>
+                        {amt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Total */}
               <div className="bg-amber-50 dark:bg-amber-950 border-2 border-amber-300 dark:border-amber-700 rounded-2xl p-4 text-center">
                 <p className="text-sm text-amber-700 dark:text-amber-300 font-medium mb-1">Total tip</p>
                 <div className="text-5xl font-black text-amber-600 dark:text-amber-400 mb-1">
-                  ${totalTip.toFixed(2)}
+                  {isTokenTip ? `${formatTokenAmount(totalTokenTip)} JCMOVES` : `$${totalTip.toFixed(2)}`}
                 </div>
-                <p className="text-sm text-amber-600 dark:text-amber-400">
+                <p className="hidden">
                   {numberOfMovers} mover{numberOfMovers !== 1 ? "s" : ""} × ${tipPerMover} each
                 </p>
               </div>
 
               {/* ── Payment method toggle ── */}
               <div>
+                <p className="text-sm text-amber-600 dark:text-amber-400">
+                  {tipRecipientCount} mover{tipRecipientCount !== 1 ? "s" : ""} x {isTokenTip ? `${formatTokenAmount(tokenTipPerMover)} JCMOVES` : `$${tipPerMover}`} each
+                </p>
                 <Label className="text-sm font-semibold mb-3 block">How would you like to tip?</Label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <button type="button" onClick={() => setTipMethod("cart")}
                     className={`rounded-xl border-2 p-3 transition-all text-left ${
                       tipMethod === "cart"
@@ -820,6 +1028,30 @@ export default function LeaveReviewPage() {
                     </p>
                     <p className="text-xs text-muted-foreground">Send BTC directly to the crew wallet</p>
                   </button>
+                  <button type="button" onClick={() => setTipMethod("jcmoves")}
+                    className={`rounded-xl border-2 p-3 transition-all text-left ${
+                      tipMethod === "jcmoves"
+                        ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
+                        : "border-border hover:border-emerald-300"
+                    }`}>
+                    <Coins className={`h-6 w-6 mb-1 ${tipMethod === "jcmoves" ? "text-emerald-500" : "text-muted-foreground"}`} />
+                    <p className={`font-bold text-sm ${tipMethod === "jcmoves" ? "text-emerald-700 dark:text-emerald-300" : "text-foreground"}`}>
+                      JCMOVES
+                    </p>
+                    <p className="text-xs text-muted-foreground">Transfer tokens from your wallet</p>
+                  </button>
+                  <button type="button" onClick={() => setTipMethod("jcmoves_usd")}
+                    className={`rounded-xl border-2 p-3 transition-all text-left ${
+                      tipMethod === "jcmoves_usd"
+                        ? "border-sky-500 bg-sky-50 dark:bg-sky-950"
+                        : "border-border hover:border-sky-300"
+                    }`}>
+                    <Wallet className={`h-6 w-6 mb-1 ${tipMethod === "jcmoves_usd" ? "text-sky-500" : "text-muted-foreground"}`} />
+                    <p className={`font-bold text-sm ${tipMethod === "jcmoves_usd" ? "text-sky-700 dark:text-sky-300" : "text-foreground"}`}>
+                      JCMOVES USD
+                    </p>
+                    <p className="text-xs text-muted-foreground">Use your service-credit balance</p>
+                  </button>
                 </div>
               </div>
 
@@ -837,7 +1069,7 @@ export default function LeaveReviewPage() {
                       ${totalTip.toFixed(2)}
                     </span>
                   </div>
-                  <Button onClick={handleAddTipToCart} disabled={tipInCart}
+                  <Button onClick={handleAddTipToCart} disabled={tipInCart || tipRecipientCount === 0 || totalTip <= 0}
                     className={`w-full font-bold ${tipInCart
                       ? "bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 border border-green-400"
                       : "bg-amber-500 hover:bg-amber-600 text-white"}`}>
@@ -858,6 +1090,58 @@ export default function LeaveReviewPage() {
               {tipMethod === "bitcoin" && (
                 <div className="rounded-xl border border-orange-200 dark:border-orange-800 bg-white dark:bg-slate-900 p-4">
                   <BitcoinTipPanel usdAmount={totalTip} />
+                </div>
+              )}
+
+              {tipMethod === "jcmoves" && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">JCMOVES token tip</p>
+                      <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                        {currentUser ? `Wallet balance: ${formatTokenAmount(walletTokens)} JCMOVES` : "Sign in to use wallet tipping"}
+                      </p>
+                    </div>
+                    <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
+                      {formatTokenAmount(totalTokenTip)}
+                    </span>
+                  </div>
+                  {walletTipNeedsLogin && (
+                    <p className="mt-3 rounded-lg border border-emerald-300 bg-white/70 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-700 dark:bg-slate-900 dark:text-emerald-200">
+                      Choose card or Bitcoin, or sign in before submitting to tip with JCMOVES.
+                    </p>
+                  )}
+                  {tipMethod === "jcmoves" && walletTipInsufficient && (
+                    <p className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+                      Your JCMOVES balance is lower than this tip.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {tipMethod === "jcmoves_usd" && (
+                <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-800 dark:bg-sky-950">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-sky-800 dark:text-sky-200">JCMOVES USD tip</p>
+                      <p className="text-xs text-sky-700 dark:text-sky-300">
+                        {currentUser ? `Wallet balance: $${walletCash.toFixed(2)}` : "Sign in to use wallet tipping"}
+                      </p>
+                    </div>
+                    <span className="text-xl font-black text-sky-700 dark:text-sky-300">
+                      ${totalTip.toFixed(2)}
+                    </span>
+                  </div>
+                  {walletTipNeedsLogin && (
+                    <p className="mt-3 rounded-lg border border-sky-300 bg-white/70 px-3 py-2 text-xs text-sky-800 dark:border-sky-700 dark:bg-slate-900 dark:text-sky-200">
+                      Choose card or Bitcoin, or sign in before submitting to tip with JCMOVES USD.
+                    </p>
+                  )}
+                  {tipMethod === "jcmoves_usd" && walletTipInsufficient && (
+                    <p className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+                      Your JCMOVES USD balance is lower than this tip.
+                    </p>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -889,9 +1173,30 @@ export default function LeaveReviewPage() {
               Tap the stars above to rate your experience
             </p>
           )}
+          {includeTip && hasAssignedCrew && tipRecipientCount === 0 && (
+            <p className="text-center text-xs text-destructive">
+              Select at least one mover to receive the tip.
+            </p>
+          )}
+          {walletTipNeedsLogin && (
+            <p className="text-center text-xs text-destructive">
+              Sign in to submit a JCMOVES wallet tip, or choose card or Bitcoin.
+            </p>
+          )}
+          {walletTipInsufficient && !walletTipNeedsLogin && (
+            <p className="text-center text-xs text-destructive">
+              Your wallet balance is lower than this tip.
+            </p>
+          )}
           <Button
             onClick={() => submitMutation.mutate()}
-            disabled={rating === 0 || submitMutation.isPending}
+            disabled={
+              rating === 0 ||
+              submitMutation.isPending ||
+              (includeTip && hasAssignedCrew && tipRecipientCount === 0) ||
+              walletTipNeedsLogin ||
+              walletTipInsufficient
+            }
             size="lg"
             className="w-full h-12 text-base bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg">
             {submitMutation.isPending ? (

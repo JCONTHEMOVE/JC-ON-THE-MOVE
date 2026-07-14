@@ -1,5 +1,5 @@
 // Service Worker for JC ON THE MOVE Mobile App
-const CACHE_NAME = 'jc-mobile-v1.1.1';
+const CACHE_NAME = 'jc-mobile-v1.1.2';
 const OFFLINE_URL = '/offline.html';
 
 // Resources to cache for offline functionality

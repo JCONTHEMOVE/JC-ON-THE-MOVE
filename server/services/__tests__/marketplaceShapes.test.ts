@@ -13,6 +13,7 @@ import {
   getMarketplaceLaunchTasks,
   getMarketplaceLaunchTasksForRail,
   getMarketplaceLaunchTasksForReadiness,
+  getMarketplaceLaunchSourceTargetsForFlow,
   getMarketplaceReadinessForSourceFlow,
   getMarketplaceReferenceBlueprintsForSource,
   getMarketplaceSourceFlowForSource,
@@ -279,6 +280,10 @@ test("derives launch tasks from source readiness with rail, proof, and mapped JC
   for (const task of launchTasks) {
     assert.ok(flowIds.has(task.sourceFlowId), `${task.id} should reference a known source flow`);
     assert.ok(readinessIds.has(task.sourceFlowId), `${task.id} should be backed by readiness data`);
+    assert.ok(
+      getMarketplaceLaunchSourceTargetsForFlow(task.sourceFlowId).length > 0,
+      `${task.id} should map back to at least one launch source target`,
+    );
     assertFilled(task.title, `${task.id}.title`);
     assertFilled(task.launchQuestion, `${task.id}.launchQuestion`);
     assertFilled(task.action, `${task.id}.action`);
@@ -309,6 +314,18 @@ test("derives launch tasks from source readiness with rail, proof, and mapped JC
     true,
     "readiness filter should only return the requested readiness state",
   );
+
+  for (const target of MARKETPLACE_LAUNCH_SOURCE_TARGETS) {
+    const targetFlowIds = new Set(
+      target.aliases
+        .map((alias) => getMarketplaceSourceFlowForSource(alias)?.id)
+        .filter(Boolean),
+    );
+    assert.ok(
+      launchTasks.some((task) => targetFlowIds.has(task.sourceFlowId)),
+      `${target.label} should have at least one launch task`,
+    );
+  }
 });
 
 test("resolves every action task into visible source play chips", () => {

@@ -1753,6 +1753,14 @@ export function getMarketplaceSourceFlowForSource(source: string | null | undefi
   }) || null;
 }
 
+export function getMarketplaceLaunchSourceTargetsForFlow(sourceFlowId: string | null | undefined) {
+  if (!sourceFlowId) return [];
+
+  return MARKETPLACE_LAUNCH_SOURCE_TARGETS.filter((target) =>
+    target.aliases.some((alias) => getMarketplaceSourceFlowForSource(alias)?.id === sourceFlowId)
+  );
+}
+
 export function getMarketplaceSourceFlowsForShape(id: MarketplaceRequestShapeId) {
   return MARKETPLACE_SOURCE_FLOW_MATRIX.filter((flow) => flow.shapeIds.includes(id));
 }

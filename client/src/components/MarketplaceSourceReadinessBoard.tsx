@@ -12,6 +12,8 @@ import {
   Wrench,
 } from "lucide-react";
 import {
+  MARKETPLACE_LAUNCH_SOURCE_TARGETS,
+  getMarketplaceLaunchSourceTargetsForFlow,
   getMarketplaceLaunchTasks,
   type MarketplaceActionRail,
   type MarketplaceLaunchTask,
@@ -86,6 +88,7 @@ export default function MarketplaceSourceReadinessBoard({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [proofByTask, setProofByTask] = useState<Record<string, string>>({});
+  const [targetFilter, setTargetFilter] = useState("all");
   const { data } = useQuery<LaunchTasksResponse>({
     queryKey: ["/api/marketplace/launch-tasks"],
     staleTime: 30_000,
@@ -115,8 +118,13 @@ export default function MarketplaceSourceReadinessBoard({
   });
   const rows = useMemo(() => {
     const source = data?.tasks && data.tasks.length > 0 ? data.tasks : fallbackRows(limit);
-    return typeof limit === "number" ? source.slice(0, Math.max(0, limit)) : source;
-  }, [data?.tasks, limit]);
+    const filtered = targetFilter === "all"
+      ? source
+      : source.filter((task) =>
+        getMarketplaceLaunchSourceTargetsForFlow(task.sourceFlowId).some((target) => target.label === targetFilter)
+      );
+    return typeof limit === "number" ? filtered.slice(0, Math.max(0, limit)) : filtered;
+  }, [data?.tasks, limit, targetFilter]);
   if (rows.length === 0) return null;
 
   const ready = data?.summary?.readyCount ?? rows.filter((row) => row.readiness === "ready").length;
@@ -145,6 +153,27 @@ export default function MarketplaceSourceReadinessBoard({
           <Score label="Build" value={String(build)} />
         </div>
       </div>
+
+      {!compact && (
+        <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+          <label className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500" htmlFor="marketplace-launch-target-filter">
+            Target focus
+          </label>
+          <select
+            id="marketplace-launch-target-filter"
+            value={targetFilter}
+            onChange={(event) => setTargetFilter(event.target.value)}
+            className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-bold text-slate-100 outline-none focus:border-violet-400"
+          >
+            <option value="all">All source targets</option>
+            {MARKETPLACE_LAUNCH_SOURCE_TARGETS.map((target) => (
+              <option key={target.label} value={target.label}>
+                {target.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className={`mt-4 grid gap-3 ${compact ? "" : "lg:grid-cols-2"}`}>
         {rows.map((task) => (
@@ -182,6 +211,7 @@ function ReadinessCard({
   const canComplete = Boolean(task.canComplete);
   const completed = Boolean(task.completedByMe);
   const bonusTokens = Number(task.bonusTokens ?? task.completionBonusJcMoves ?? 0);
+  const sourceTargets = getMarketplaceLaunchSourceTargetsForFlow(task.sourceFlowId);
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/65 p-3">
@@ -200,6 +230,19 @@ function ReadinessCard({
           </span>
         </div>
       </div>
+
+      {sourceTargets.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {sourceTargets.slice(0, 4).map((target) => (
+            <span
+              key={target.label}
+              className="rounded-full border border-cyan-400/25 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-cyan-100"
+            >
+              {target.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="mt-3 rounded-md border border-violet-400/15 bg-violet-500/10 p-2.5">
         <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-violet-200">Launch Question</p>

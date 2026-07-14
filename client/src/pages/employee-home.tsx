@@ -688,7 +688,7 @@ export default function EmployeeHomePage() {
                 <span className="text-xl">{monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()} Jobs</span>
               </CardTitle>
               <div className="flex gap-2 flex-wrap">
-                <Link href="/book?worker=1">
+                <Link href="/leads?tab=add">
                   <Button
                     size="sm"
                     className="gap-1 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white border-0 shadow-lg shadow-orange-500/25"
@@ -917,7 +917,7 @@ export default function EmployeeHomePage() {
               {selectedDateJobs.length === 0 ? (
                 <div className="text-center py-6 space-y-4">
                   <p className="text-muted-foreground">No jobs scheduled for this date</p>
-                  <Link href={`/book?worker=1${selectedDate ? `&date=${selectedDate.toISOString().split('T')[0]}` : ''}`}>
+                  <Link href={`/leads?tab=add${selectedDate ? `&date=${selectedDate.toISOString().split('T')[0]}` : ''}`}>
                     <Button 
                       size="lg"
                       className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
@@ -1026,7 +1026,7 @@ export default function EmployeeHomePage() {
               {/* Add Job Button - shown at bottom when there are jobs */}
               {selectedDateJobs.length > 0 && (
                 <div className="pt-2 border-t">
-                  <Link href={`/book?worker=1${selectedDate ? `&date=${selectedDate.toISOString().split('T')[0]}` : ''}`}>
+                  <Link href={`/leads?tab=add${selectedDate ? `&date=${selectedDate.toISOString().split('T')[0]}` : ''}`}>
                     <Button 
                       variant="outline"
                       className="w-full"

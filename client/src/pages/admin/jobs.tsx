@@ -97,12 +97,15 @@ type Lead = {
   confirmedDate?: string;
   arrivalWindow?: string;
   crewSize?: number;
+  truckProvider?: string | null;
+  truckSize?: string | null;
   status: string;
   basePrice?: string;
   totalPrice?: string;
   depositRequired?: boolean;
   depositAmount?: string;
   depositPaid?: boolean;
+  isQuoteOnly?: boolean;
   confirmedHours?: number;
   crewMembers?: string[];
   crewBonusFlags?: Record<string, boolean>;
@@ -117,6 +120,7 @@ type Lead = {
   source?: string | null;
   promoCode?: string | null;
   quoteSnapshot?: LeadQuoteSnapshot | null;
+  zoneSnapshot?: { preview?: { matched?: boolean; quote?: { minEstimate?: number; maxEstimate?: number; rate?: { hourlyRate?: number; minimumHours?: number } | null } } } | null;
   attribution?: {
     attributionType: string;
     promoCode: string | null;
@@ -789,7 +793,7 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
       queryClient.invalidateQueries({ queryKey: ["/api/leads/archived"] });
       setDeleteConfirmOpen(false);
       toast({
-        title: "Lead deleted",
+        title: "Job archived",
         description: `${lead?.firstName || "Lead"} ${lead?.lastName || ""}`.trim() + " was removed from active jobs.",
       });
       onClose();
@@ -892,6 +896,11 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
   });
   const guidanceAnswers = smartBookingAnswersForLead(lead);
   const marketplaceAdminPhase = marketplaceActionPhaseForLead(lead);
+  const savedZonePreview = lead.zoneSnapshot?.preview;
+  const savedZoneQuote = savedZonePreview?.quote;
+  const savedZoneEstimate = Number.isFinite(Number(savedZoneQuote?.minEstimate)) && Number.isFinite(Number(savedZoneQuote?.maxEstimate))
+    ? `$${Math.round(Number(savedZoneQuote?.minEstimate))}–$${Math.round(Number(savedZoneQuote?.maxEstimate))}`
+    : null;
 
   return (
     <Sheet open={open} onOpenChange={v => !v && onClose()}>
@@ -927,8 +936,8 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
               size="icon"
               onClick={() => setDeleteConfirmOpen(true)}
               className="h-9 w-9 flex-shrink-0 rounded-full border border-red-500/30 bg-red-950/20 text-red-300 hover:bg-red-500/20 hover:text-red-100"
-              title="Delete lead"
-              aria-label="Delete lead"
+              title="Remove from active jobs"
+              aria-label="Remove from active jobs"
               data-testid={`button-delete-lead-${lead.id}`}
             >
               <X className="h-4 w-4" />
@@ -1019,6 +1028,15 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
               </div>
             </div>
 
+            {(savedZoneEstimate || lead.truckProvider || lead.confirmedHours) && (
+              <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/25 p-3 text-xs">
+                <p className="mb-1 font-semibold uppercase tracking-wide text-slate-400">Saved staff intake</p>
+                {savedZoneEstimate && <p className={lead.isQuoteOnly || !savedZonePreview?.matched ? "text-amber-300" : "text-emerald-300"}>Zone estimate: {savedZoneEstimate}{lead.isQuoteOnly || !savedZonePreview?.matched ? " · owner review" : ""}</p>}
+                {savedZoneQuote?.rate && <p className="text-slate-300">Rate: ${savedZoneQuote.rate.hourlyRate}/hr · {savedZoneQuote.rate.minimumHours} hour minimum</p>}
+                <p className="text-slate-300">Plan: {lead.confirmedHours || scheduleHours || "—"} hours · {lead.truckProvider === "jc_on_the_move" ? "JC ON THE MOVE truck" : lead.truckProvider === "rental_uhaul" ? "Rental / U-Haul" : lead.truckProvider === "customer" ? "Customer truck" : lead.truckProvider === "none" ? "No truck" : "Truck to confirm"}{lead.truckSize && lead.truckSize !== "none" ? ` · ${lead.truckSize.replace("_", " ")}` : ""}</p>
+              </div>
+            )}
+
             <Button
               type="button"
               onClick={() => scheduleJobMutation.mutate()}
@@ -1093,9 +1111,7 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
             <POSRow label="Phone" value={
               <a href={`tel:${lead.phone}`} className="text-blue-400 hover:text-blue-300">{lead.phone}</a>
             } />
-            <POSRow label="Email" value={
-              <a href={`mailto:${lead.email}`} className="text-blue-400 hover:text-blue-300 truncate max-w-[180px] block">{lead.email}</a>
-            } />
+            <POSRow label="Email" value={lead.email ? <a href={`mailto:${lead.email}`} className="text-blue-400 hover:text-blue-300 truncate max-w-[180px] block">{lead.email}</a> : "Not provided"} />
             <POSRow label="Date" value={formatDateShort(effectiveDate)} />
             {lead.arrivalWindow && <POSRow label="Arrival" value={lead.arrivalWindow} />}
             {marketplaceShape && <POSRow label="Shape" value={marketplaceShape.shape} />}
@@ -1609,7 +1625,7 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent className="bg-slate-900 border-slate-700 text-white" data-testid="dialog-admin-job-delete-confirm">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Delete this lead?</AlertDialogTitle>
+            <AlertDialogTitle className="text-white">Remove this job from active jobs?</AlertDialogTitle>
             <AlertDialogDescription className="text-slate-400">
               This removes{" "}
               <strong className="text-slate-100">{lead.firstName} {lead.lastName}</strong>{" "}
@@ -1629,7 +1645,7 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
               disabled={archiveLeadMutation.isPending}
               data-testid="button-confirm-delete-lead"
             >
-              {archiveLeadMutation.isPending ? "Deleting..." : "Yes, delete lead"}
+              {archiveLeadMutation.isPending ? "Archiving..." : "Archive job"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

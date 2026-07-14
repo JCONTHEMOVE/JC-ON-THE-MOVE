@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { Phone, Mail, MapPin, Calendar, ChevronRight, Trash2, Users, DollarSign, Zap, Copy, Hash, ExternalLink } from "lucide-react";
+import { Phone, Mail, MapPin, Calendar, ChevronRight, Trash2, Users, DollarSign, Zap, Copy, Hash, ExternalLink, Clock, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +47,11 @@ export interface JobCardProps {
     email?: string | null;
     details?: string | null;
     crewSize?: number | null;
+    confirmedHours?: number | null;
+    truckProvider?: string | null;
+    truckSize?: string | null;
+    isQuoteOnly?: boolean | null;
+    zoneSnapshot?: unknown;
     estimatedTotal?: string | null;
     totalPrice?: string | null;
     basePrice?: string | null;
@@ -72,6 +77,14 @@ export function JobCard({ lead, onDelete, showContact = true, showTokens = true,
 
   const displayPrice = lead.totalPrice || lead.estimatedTotal || lead.basePrice;
   const earnTokens = displayPrice ? Math.round(parseFloat(displayPrice) * EARN_RATE) : null;
+  const savedPreview = lead.zoneSnapshot && typeof lead.zoneSnapshot === "object"
+    ? (lead.zoneSnapshot as { preview?: { matched?: boolean; quote?: { minEstimate?: number; maxEstimate?: number } } }).preview
+    : undefined;
+  const savedEstimate = savedPreview?.quote;
+  const savedEstimateLabel = savedEstimate && Number.isFinite(Number(savedEstimate.minEstimate)) && Number.isFinite(Number(savedEstimate.maxEstimate))
+    ? `${Math.round(Number(savedEstimate.minEstimate))}–${Math.round(Number(savedEstimate.maxEstimate))}`
+    : null;
+  const truckLabel = lead.truckProvider === "jc_on_the_move" ? "JC truck" : lead.truckProvider === "rental_uhaul" ? "Rental / U-Haul" : lead.truckProvider === "customer" ? "Customer truck" : lead.truckProvider === "none" ? "No truck" : null;
 
   return (
     <Card
@@ -174,6 +187,26 @@ export function JobCard({ lead, onDelete, showContact = true, showTokens = true,
               <Users className="h-3.5 w-3.5 shrink-0 text-slate-500" />
               <span className="text-slate-300">
                 <span className="text-slate-500">Crew:</span> {lead.crewSize} mover{lead.crewSize !== 1 ? "s" : ""}
+              </span>
+            </div>
+          )}
+          {lead.confirmedHours && (
+            <div className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+              <span className="text-slate-300"><span className="text-slate-500">Expected:</span> {lead.confirmedHours} hour{lead.confirmedHours === 1 ? "" : "s"}</span>
+            </div>
+          )}
+          {truckLabel && (
+            <div className="flex items-center gap-1.5">
+              <Truck className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+              <span className="text-slate-300"><span className="text-slate-500">Truck:</span> {truckLabel}{lead.truckSize && lead.truckSize !== "none" ? ` · ${lead.truckSize.replace("_", " ")}` : ""}</span>
+            </div>
+          )}
+          {!displayPrice && savedEstimateLabel && (
+            <div className="flex items-center gap-1.5">
+              <DollarSign className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+              <span className={lead.isQuoteOnly || !savedPreview?.matched ? "text-amber-300 font-semibold" : "text-emerald-400 font-semibold"}>
+                {lead.isQuoteOnly || !savedPreview?.matched ? "Estimate review" : "Zone estimate"}: ${savedEstimateLabel}
               </span>
             </div>
           )}

@@ -3,10 +3,13 @@ import { useLocation } from "wouter";
 import {
   Radio, Briefcase, Users, Wallet, Sliders, ChevronRight, LogOut,
   Menu, X, CalendarDays, FileBarChart, Rocket, AlertTriangle,
-  ClipboardList, Megaphone, Lightbulb, Store,
+  ClipboardList, Megaphone, Lightbulb, Store, GraduationCap,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, clearTokens, queryClient } from "@/lib/queryClient";
+import { TutorialInviteDialog } from "@/components/tutorial-invite-dialog";
+import { Switch } from "@/components/ui/switch";
+import { useAdminViewMode } from "@/hooks/useAdminViewMode";
 
 // Task #196 — Lead funnel outage banner. Shown across every admin page
 // when the customer-quote submission rate drops to zero during a window
@@ -67,6 +70,7 @@ const OPTIONS = [
   { label: "Marketing", icon: Megaphone, path: "/admin/marketing-webhooks" },
   { label: "Marketplace", icon: Store, path: "/admin/marketplace" },
   { label: "Playbook", icon: Lightbulb, path: "/admin/marketplace-playbook" },
+  { label: "Tutorials", icon: GraduationCap, path: "/admin/tutorials" },
   { label: "Launch", icon: Rocket, path: "/admin/launch-checklist" },
 ];
 
@@ -94,6 +98,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { isCrewPreview, setCrewPreview } = useAdminViewMode();
 
   const handleLogout = async () => {
     try {
@@ -113,8 +118,36 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       : (location === path || location.startsWith(`${path}/`));
 
   const go = (p: string) => { setLocation(p); setMobileOpen(false); };
+  const setCrewView = (enabled: boolean) => {
+    setCrewPreview(enabled);
+    if (enabled) {
+      setLocation("/crew");
+      setMobileOpen(false);
+    }
+  };
 
   const optionsContainsActive = OPTIONS.some(c => isActive(c.path));
+
+  const renderCrewPreviewToggle = () => (
+    <div className="mx-2 mb-4 rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-3 py-3">
+      <div className="flex items-center gap-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-300">
+          <Users className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-white">Crew View</p>
+          <p className="text-[11px] leading-tight text-cyan-100/70">See the worker app</p>
+        </div>
+        <Switch
+          checked={isCrewPreview}
+          onCheckedChange={setCrewView}
+          aria-label="Toggle crew view"
+          className="data-[state=checked]:bg-cyan-500"
+          data-testid="switch-admin-crew-view"
+        />
+      </div>
+    </div>
+  );
 
   const renderNav = (onSelect: (p: string) => void) => (
     <>
@@ -161,6 +194,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             </div>
             <h2 className="text-lg font-black text-white">IN GOD WE TRUST</h2>
           </div>
+          {renderCrewPreviewToggle()}
           <nav className="flex-1">
             {renderNav(go)}
           </nav>
@@ -187,6 +221,15 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <Menu className="h-5 w-5" />
           </button>
           <span className="text-sm font-semibold text-white">Admin</span>
+          <button
+            type="button"
+            onClick={() => setCrewView(true)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2 py-1.5 text-xs font-semibold text-cyan-100"
+            data-testid="button-mobile-crew-view"
+          >
+            <Users className="h-3.5 w-3.5" />
+            Crew
+          </button>
         </header>
 
         {/* Mobile drawer */}
@@ -207,6 +250,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                   <X className="h-5 w-5" />
                 </button>
               </div>
+              {renderCrewPreviewToggle()}
               <nav>{renderNav(go)}</nav>
               <div className="px-2 py-4 mt-2 border-t border-slate-800/60">
                 <button
@@ -226,6 +270,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <LeadFunnelOutageBanner />
           {children}
         </main>
+        <TutorialInviteDialog audience="admin" currentPath={location} onNavigate={go} />
       </div>
     </div>
   );

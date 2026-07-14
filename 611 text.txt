@@ -1,0 +1,178 @@
+2026-06-11T17:07:23.398967613Z [inf]  Starting Container
+2026-06-11T17:07:24.329545659Z [inf]  > rest-express@1.0.0 start
+2026-06-11T17:07:24.329553192Z [inf]  > cross-env NODE_ENV=production node dist/index.js
+2026-06-11T17:07:24.329557079Z [inf]  
+2026-06-11T17:07:24.329610256Z [err]  npm warn config production Use `--omit=dev` instead.
+2026-06-11T17:07:24.329614903Z [inf]  
+2026-06-11T17:07:24.694267717Z [inf]    OK COMPANY_EMAIL (optional) - company sender/recipient fallback for transactional email
+2026-06-11T17:07:24.694272559Z [inf]    OK GMAIL_USER (optional) - Gmail sender address for free email notifications
+2026-06-11T17:07:24.694277152Z [inf]    OK GMAIL_APP_PASSWORD (optional) - Gmail app password for SMTP email notifications
+2026-06-11T17:07:24.694281272Z [inf]    OPTIONAL SENDGRID_API_KEY (optional) - SendGrid fallback email delivery when Gmail OAuth is not configured
+2026-06-11T17:07:24.694285052Z [inf]    OK GOOGLE_OAUTH_CLIENT_ID (optional) - Google login OAuth client ID
+2026-06-11T17:07:24.694289887Z [inf]    OK GOOGLE_OAUTH_CLIENT_SECRET (optional) - Google login OAuth client secret
+2026-06-11T17:07:24.694294777Z [inf]  [env-check] production env vars:
+2026-06-11T17:07:24.694294812Z [inf]    OK GOOGLE_OAUTH_REDIRECT_URI (optional) - Google login callback URL; defaults to APP_URL/api/auth/google/callback
+2026-06-11T17:07:24.694298441Z [inf]    OPTIONAL GOOGLE_APPLICATION_CREDENTIALS (optional) - Google Cloud service-account file for object storage
+2026-06-11T17:07:24.694303254Z [inf]    OPTIONAL GOOGLE_APPLICATION_CREDENTIALS_JSON (optional) - Google Cloud service-account JSON for object storage
+2026-06-11T17:07:24.694306083Z [inf]    OK DATABASE_URL (required) - PostgreSQL database connection
+2026-06-11T17:07:24.694311644Z [inf]    OK SESSION_SECRET (required) - session cookies and JWT signing fallback
+2026-06-11T17:07:24.694316254Z [inf]    OK SQUARE_ACCESS_TOKEN (required) - Square card invoicing + customer search
+2026-06-11T17:07:24.694320617Z [inf]    OK SQUARE_ENVIRONMENT (required) - Square sandbox vs production switch
+2026-06-11T17:07:24.694324502Z [inf]    OPTIONAL BTC_WALLET_ADDRESS (optional) - Bitcoin payment auto-verify sweep + customer pay-with-BTC display
+2026-06-11T17:07:24.694328641Z [inf]    OPTIONAL ADMIN_EMAIL (optional) - admin quote/lead notification recipient; falls back to COMPANY_EMAIL
+2026-06-11T17:07:24.695653741Z [inf]    OPTIONAL GOOGLE_CLOUD_PROJECT_ID (optional) - Google Cloud project ID for storage
+2026-06-11T17:07:24.695657272Z [inf]    OPTIONAL ADMIN_PHONE_NUMBER (optional) - admin SMS notification recipient
+2026-06-11T17:07:24.695660630Z [inf]    OPTIONAL TWILIO_ACCOUNT_SID (optional) - Twilio SMS account for admin/crew notifications
+2026-06-11T17:07:24.695663921Z [inf]    OPTIONAL TWILIO_AUTH_TOKEN (optional) - Twilio API auth paired with TWILIO_ACCOUNT_SID
+2026-06-11T17:07:24.695668978Z [inf]    OPTIONAL TWILIO_PHONE_NUMBER (optional) - Twilio sender phone number; alternatively use TWILIO_MESSAGING_SERVICE_SID
+2026-06-11T17:07:24.695671995Z [inf]    OPTIONAL TWILIO_MESSAGING_SERVICE_SID (optional) - Twilio sender messaging service; alternatively use TWILIO_PHONE_NUMBER
+2026-06-11T17:07:24.695674919Z [inf]  Starting server on port 8080...
+2026-06-11T17:07:24.695677616Z [inf]  Initializing application server...
+2026-06-11T17:07:24.741257980Z [err]  SENDGRID_API_KEY environment variable not set. SendGrid fallback will be disabled.
+2026-06-11T17:07:24.743427500Z [err]  MOONSHOT_TOKEN_ADDRESS not configured
+2026-06-11T17:07:24.745593894Z [inf]  🔗 SolanaTransferService initialized
+2026-06-11T17:07:24.745598896Z [inf]  📍 RPC: https://api.mainnet-beta.solana.com
+2026-06-11T17:07:24.745602060Z [inf]  🪙 Token Mint: BHZW4jds7NSe5Fqvw9Z4pvt423EJSx63k8MT11F2moon
+2026-06-11T17:07:24.745604941Z [err]  ⚠️ Primary Treasury: TREASURY_WALLET_PRIVATE_KEY not configured
+2026-06-11T17:07:24.745607899Z [err]  ⚠️ JC MOVES BANKS: JCMOVES_BANKS_PRIVATE_KEY not configured
+2026-06-11T17:07:24.745610683Z [err]  ⚠️ IN GOD WE TRUST: IN_GOD_WE_TRUST_PRIVATE_KEY not configured
+2026-06-11T17:07:24.745613632Z [err]  ⚠️ VITE_SOLANA_RPC_URL not set. Using public Solana RPC endpoint (rate limited). Set VITE_SOLANA_RPC_URL in deployment secrets for better performance.
+2026-06-11T17:07:24.747357228Z [inf]  🔄 JupiterSwapService initialized
+2026-06-11T17:07:24.795927091Z [inf]  Gmail email service available (primary)
+2026-06-11T17:07:24.797774159Z [inf]  JC ON THE MOVE HTTP listener started
+2026-06-11T17:07:24.797778345Z [inf]  Serving on http://0.0.0.0:8080
+2026-06-11T17:07:25.301946026Z [inf]  ✅ Task #185 demand history columns ready
+2026-06-11T17:07:25.301949663Z [inf]  ✅ Lawn care tables ready
+2026-06-11T17:07:25.301952803Z [inf]  ✅ Task #175 payment columns ready
+2026-06-11T17:07:25.301956226Z [inf]  ✅ job_trade_requests table ready
+2026-06-11T17:07:25.301959892Z [inf]  ✅ Loyalty tier columns ready
+2026-06-11T17:07:25.316265665Z [inf]  users auth/profile columns ready
+2026-06-11T17:07:25.387690252Z [inf]  worker authority and quote approval tables ready
+2026-06-11T17:07:25.442288977Z [inf]  recovery_tokens table ready
+2026-06-11T17:07:25.510298326Z [inf]  ✅ is_driver column ready
+2026-06-11T17:07:25.574051962Z [inf]  ✅ crew availability window + capabilities columns ready
+2026-06-11T17:07:25.640443280Z [inf]  ✅ past_jobs_notice_seen column ready
+2026-06-11T17:07:25.706197109Z [inf]  ✅ accepted_job_types column ready
+2026-06-11T17:07:25.771145823Z [inf]  ✅ dispatch_decline_count column ready
+2026-06-11T17:07:25.837139022Z [inf]  ✅ Leads selected_package_id column ready
+2026-06-11T17:07:25.898853374Z [inf]  ✅ Leads quote dispatch columns ready
+2026-06-11T17:07:25.969588545Z [inf]  ✅ Leads square_payment_url column ready
+2026-06-11T17:07:26.310255706Z [inf]  ✅ Leads deposit_required/deposit_paid/is_quote_only columns ready
+2026-06-11T17:07:26.310303482Z [inf]  ✅ Leads order_number column ready
+2026-06-11T17:07:26.310307933Z [inf]  ✅ square_invoices.square_invoice_number column ready
+2026-06-11T17:07:26.363253499Z [inf]  ✅ Jackpot tables ready
+2026-06-11T17:07:26.426375917Z [inf]  💝 Mom hearts table ready
+2026-06-11T17:07:26.495219331Z [inf]  ⟠  ETH staking table ready
+2026-06-11T17:07:26.619788029Z [inf]  ✅ Staking treasury yield sources ready
+2026-06-11T17:07:26.689460968Z [inf]  ✅ worker_hour_overrides table ready
+2026-06-11T17:07:26.941119540Z [inf]  ✅ lead_history table ready
+2026-06-11T17:07:27.008403322Z [inf]  🗑️ trash_subscriptions table ready
+2026-06-11T17:07:27.327480289Z [inf]  📐 calibration_sessions table ready
+2026-06-11T17:07:27.327532196Z [inf]  🗑️ trash_jobs table ready
+2026-06-11T17:07:27.327537904Z [inf]  📊 page_views analytics table ready
+2026-06-11T17:07:27.396881277Z [inf]  🗺️  demand_zones table ready
+2026-06-11T17:07:27.460577312Z [inf]  ✅ Staking pool columns ready
+2026-06-11T17:07:27.717791011Z [inf]  💝 Nicolasa Jackson (Mom) account ready — balance: 0.00000000 JCMOVES
+2026-06-11T17:07:28.337141699Z [inf]  🤝 Nominees table ready
+2026-06-11T17:07:28.945132009Z [inf]  ✅ Quantum Spin jackpots seeded
+2026-06-11T17:07:29.311008005Z [inf]  ✅ Pricing values corrected to production-ready defaults
+2026-06-11T17:07:30.331174235Z [inf]  [dispatch.migrate] schema ready
+2026-06-11T17:07:30.368272485Z [inf]  [dispatch] initialized — retry cron every 2min
+2026-06-11T17:07:30.492159285Z [inf]  ✅ Flash Sale 10-spin pack already exists
+2026-06-11T17:07:30.499668543Z [inf]  [SESSION] Cookie configuration: name=jc.sid, secure=auto, sameSite=lax, environment=production
+2026-06-11T17:07:30.499676513Z [inf]  ✅ Session management setup completed
+2026-06-11T17:07:30.566183063Z [inf]  💰 Revenue allocations table ready
+2026-06-11T17:07:30.641038186Z [inf]  💵 Prepaid credit intents table ready
+2026-06-11T17:07:30.695211818Z [inf]  🎁 Wallet credit grants table ready
+2026-06-11T17:07:30.823884331Z [inf]  🎟️  Lottery tables ready
+2026-06-11T17:07:30.957633738Z [inf]  Application routes registered successfully
+2026-06-11T17:07:30.957640554Z [inf]  ✅ Task #175 payment routes mounted
+2026-06-11T17:07:30.957644487Z [inf]  ✅ Lead funnel monitor scheduled (every 15 min)
+2026-06-11T17:07:30.957648426Z [inf]  ℹ️  Lawn care re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS=true to enable)
+2026-06-11T17:07:30.957651942Z [inf]    Snow Removal re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS_SNOW=true to enable)
+2026-06-11T17:07:30.957656052Z [inf]    Junk Removal re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS_JUNK=true to enable)
+2026-06-11T17:07:30.957659880Z [inf]    Window Cleaning re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS_WINDOW=true to enable)
+2026-06-11T17:07:30.957665170Z [inf]   Jewelry reservation expiry sweep scheduled (every 10 min)
+2026-06-11T17:07:30.957669714Z [inf]    BTC_WALLET_ADDRESS not set — Bitcoin auto-verify sweep disabled
+2026-06-11T17:07:30.957673616Z [inf]  Configuring static file serving for production...
+2026-06-11T17:07:30.957676911Z [inf]  Static file serving configured successfully
+2026-06-11T17:07:30.957680537Z [inf]  JC ON THE MOVE application started successfully
+2026-06-11T17:07:31.025355881Z [inf]  ✅ booking_service_items lifecycle columns ready
+2026-06-11T17:07:31.027696330Z [inf]  ✅ Crew dispatch columns ready
+2026-06-11T17:07:31.029837881Z [inf]  ✅ idempotency_keys table ready
+2026-06-11T17:07:31.322969957Z [inf]  ✅ lead_funnel_alerts table ready
+2026-06-11T17:07:31.322975249Z [inf]  ✅ Reward shop already seeded — skipping
+2026-06-11T17:07:31.322983565Z [inf]  ✅ service_rebook_reminders table ready
+2026-06-11T17:07:31.322987903Z [inf]  ✅ Mover items migrated (2 Movers · 1 Hr + 2 Movers · 2 Hr)
+2026-06-11T17:07:31.393953356Z [inf]  ℹ️  Reward item already exists, skipping: 10-Window Wash — Free Session
+2026-06-11T17:07:31.456461746Z [inf]  ℹ️  Reward item already exists, skipping: 1 Month of Trash Valet — Free
+2026-06-11T17:07:31.516967256Z [inf]  ℹ️  Reward item already exists, skipping: Handyman Deposit — Long Distance or 2× Local
+2026-06-11T17:07:31.577987863Z [inf]  ℹ️  Reward item already exists, skipping: Tiny Junk Removal ≤ 300 lbs (Local)
+2026-06-11T17:07:31.577994226Z [inf]  ✅ Reward shop migration complete
+2026-06-11T17:07:35.955526253Z [inf]  [tier-backfill] Recomputed tier for 1 users with completed jobs
+2026-06-11T17:42:51.776773446Z [inf]  5:42:42 PM [express] GET /api/health 200 in 249ms :: {"status":"ready","service":"jc-on-the-move","t…
+2026-06-11T17:44:01.526718080Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-11T17:44:01.526723469Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: NLF3G5I2 | Has cookie: false
+2026-06-11T17:44:01.526726492Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T17:44:01.526729889Z [inf]  5:43:57 PM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-11T17:44:01.526732606Z [inf]  5:43:57 PM [express] GET /api/testimonials 200 in 256ms :: []
+2026-06-11T17:44:01.526735275Z [inf]  5:43:57 PM [express] POST /api/analytics/pageview 200 in 259ms :: {"ok":true}
+2026-06-11T19:13:51.388520351Z [inf]  7:13:45 PM [express] GET /api/.env 200 in 2ms
+2026-06-11T19:13:51.388529344Z [inf]  7:13:45 PM [express] GET /api/.env.old 200 in 1ms
+2026-06-11T19:13:51.388534505Z [inf]  7:13:45 PM [express] GET /api/.env.staging 200 in 0ms
+2026-06-11T19:13:51.388539963Z [inf]  7:13:45 PM [express] GET /api/.env.dev 200 in 1ms
+2026-06-11T19:13:51.388599765Z [inf]  7:13:42 PM [express] GET /api/.env.production 200 in 2ms
+2026-06-11T19:13:51.388603105Z [inf]  7:13:42 PM [express] GET /api/.env.local 200 in 2ms
+2026-06-11T19:13:51.388606143Z [inf]  7:13:43 PM [express] GET /api/.env.bak 200 in 3ms
+2026-06-11T19:13:51.388609479Z [inf]  7:13:43 PM [express] GET /api/v1/.env 200 in 2ms
+2026-06-11T19:13:51.388612569Z [inf]  7:13:43 PM [express] GET /api/v2/.env 200 in 3ms
+2026-06-11T19:13:51.388615656Z [inf]  7:13:43 PM [express] GET /api/.env.backup 200 in 1ms
+2026-06-11T19:13:51.388618622Z [inf]  7:13:43 PM [express] GET /api/.env.prod 200 in 0ms
+2026-06-11T19:13:51.388621491Z [inf]  7:13:45 PM [express] GET /api/v3/.env 200 in 2ms
+2026-06-11T19:13:51.388851619Z [inf]  7:13:46 PM [express] GET /api/backend/.env 200 in 2ms
+2026-06-11T19:37:47.235041015Z [err]  Error 500 on POST /: Parse Error
+2026-06-11T19:37:47.235048535Z [err]  Error 500 on POST /: Parse Error
+2026-06-11T19:40:17.061733896Z [inf]  7:40:11 PM [express] POST /api/analytics/pageview 200 in 252ms :: {"ok":true}
+2026-06-11T19:40:17.061737584Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-11T19:40:17.061740877Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: DybfBVKT | Has cookie: false
+2026-06-11T19:40:17.061744047Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T19:40:17.061747141Z [inf]  7:40:12 PM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-11T19:40:56.848751216Z [inf]  7:40:53 PM [express] GET /api/testimonials 200 in 263ms :: []
+2026-06-11T20:03:42.880994511Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T20:03:42.880998426Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-11T20:03:42.881001808Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T20:03:42.881005817Z [inf]  8:03:41 PM [express] GET /api/auth/user 401 in 125ms :: {"message":"Unauthorized"}
+2026-06-11T20:03:42.881010241Z [inf]  8:03:41 PM [express] POST /api/analytics/pageview 200 in 383ms :: {"ok":true}
+2026-06-11T20:03:49.905015611Z [inf]  [COOKIE-IN] POST /api/auth/recover/request | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T20:03:50.016373688Z [inf]  ⚠️ Recovery request for unknown email: upmichiganstatemovers@gmail.com
+2026-06-11T20:03:50.078175973Z [inf]  8:03:50 PM [express] POST /api/auth/recover/request 200 in 191ms :: {"success":true,"method":"email"…
+2026-06-11T20:15:53.359651675Z [inf]  8:15:50 PM [express] GET /api/health 200 in 249ms :: {"status":"ready","service":"jc-on-the-move","t…
+2026-06-11T20:17:43.178751301Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T20:17:43.178756220Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-11T20:17:43.178759085Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T20:17:43.178761699Z [inf]  8:17:34 PM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-11T20:50:52.923854673Z [err]  Error 500 on POST /: Parse Error
+2026-06-11T21:01:25.491060477Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-11T21:01:25.491063783Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: 6y3wP-p0 | Has cookie: false
+2026-06-11T21:01:25.491067595Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T21:01:25.491071587Z [inf]  9:01:16 PM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-11T21:01:25.491075086Z [inf]  9:01:17 PM [express] GET /api/testimonials 200 in 254ms :: []
+2026-06-11T21:01:25.491078671Z [inf]  9:01:18 PM [express] POST /api/analytics/pageview 200 in 65ms :: {"ok":true}
+2026-06-11T21:01:25.491082449Z [inf]  9:01:20 PM [express] POST /api/analytics/pageview 200 in 65ms :: {"ok":true}
+2026-06-11T23:05:11.367448224Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T23:05:11.367450994Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-11T23:05:11.367453602Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T23:05:11.367456485Z [inf]  11:05:04 PM [express] GET /api/auth/user 401 in 487ms :: {"message":"Unauthorized"}
+2026-06-11T23:05:13.391246127Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T23:05:13.393968158Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-11T23:05:13.393972031Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T23:05:13.457226904Z [inf]  11:05:13 PM [express] GET /api/auth/user 401 in 123ms :: {"message":"Unauthorized"}
+2026-06-11T23:05:13.702261626Z [inf]  11:05:13 PM [express] POST /api/analytics/pageview 200 in 375ms :: {"ok":true}
+2026-06-11T23:05:13.756003769Z [inf]  11:05:13 PM [express] GET /api/testimonials 304 in 377ms :: []
+2026-06-11T23:05:17.509842676Z [inf]  11:05:17 PM [express] POST /api/analytics/pageview 200 in 191ms :: {"ok":true}
+2026-06-11T23:05:19.416893662Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T23:05:19.627577907Z [err]  [LOGIN_DIAG] email=michigankid906@gmail.com, userId=47798367, role=business_owner, status=approved, hashPrefix=$2b$12$4FM1HlYWl/ILd, passwordLength=8, bcryptMatch=false
+2026-06-11T23:05:19.687426444Z [inf]  11:05:19 PM [express] POST /api/auth/login 401 in 400ms :: {"error":"Invalid email or password"}
+2026-06-11T23:05:21.422783467Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T23:05:21.497578397Z [err]  [LOGIN_DIAG] email=michigankid906@gmail.com, userId=47798367, role=business_owner, status=approved, hashPrefix=$2b$12$4FM1HlYWl/ILd, passwordLength=8, bcryptMatch=false
+2026-06-11T23:05:21.562102768Z [inf]  11:05:21 PM [express] POST /api/auth/login 401 in 395ms :: {"error":"Invalid email or password"}

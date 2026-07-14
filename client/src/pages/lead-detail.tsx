@@ -9,8 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Users, DollarSign, Award, TrendingUp, CheckCircle, Clock, Star, ExternalLink, Sparkles, Send, FileText, Loader2, Bitcoin, Copy, Check, Zap, ShoppingBag, AlertTriangle, UserCheck, Camera, Image, ChevronRight, PlayCircle, ChevronDown, ChevronUp, MessageSquare, Minus, Plus, RefreshCw, Hash } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Users, DollarSign, Award, TrendingUp, CheckCircle, Clock, Star, ExternalLink, Sparkles, Send, FileText, Loader2, Bitcoin, Copy, Check, Zap, ShoppingBag, AlertTriangle, UserCheck, Camera, Image, ChevronRight, PlayCircle, ChevronDown, ChevronUp, MessageSquare, Minus, Plus, RefreshCw, Hash, Archive, Trash2, X, Truck } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -68,9 +68,23 @@ type LeadQuoteSnapshot = {
   source?: string | null;
   marketplaceShapeId?: string | null;
   marketplaceShape?: { id?: string | null } | null;
+  selectedPackage?: unknown;
+  packageId?: string | null;
+  packageLabel?: string | null;
+  minPrice?: number | string | null;
+  maxPrice?: number | string | null;
+  crew?: number | string | null;
+  hours?: number | string | null;
   requestedItems?: Array<{
     serviceCode?: string | null;
     serviceLabel?: string | null;
+    packageId?: string | null;
+    packageLabel?: string | null;
+    minPrice?: number | string | null;
+    maxPrice?: number | string | null;
+    crew?: number | string | null;
+    hours?: number | string | null;
+    details?: Record<string, unknown> | null;
   }>;
   attribution?: {
     source?: string | null;
@@ -94,10 +108,15 @@ interface Lead {
   details?: string;
   source?: string | null;
   quoteSnapshot?: LeadQuoteSnapshot | null;
+  zoneSnapshot?: {
+    preview?: { matched?: boolean; quote?: { minEstimate?: number; maxEstimate?: number; rate?: { hourlyRate?: number; minimumHours?: number } | null } };
+  } | null;
   status: string;
   assignedToUserId?: string;
   createdByUserId?: string;
   truckConfig?: string;
+  truckProvider?: string;
+  truckSize?: string;
   crewSize?: number;
   basePrice?: string;
   totalPrice?: string;
@@ -207,6 +226,93 @@ function marketplacePhaseForLeadDetail(status: string | null | undefined): Marke
   return "progress";
 }
 
+type PackageDraft = {
+  id: string;
+  label: string;
+  crew: number | null;
+  hours: number | null;
+  minPrice: number | null;
+  maxPrice: number | null;
+  priceLabel?: string | null;
+  source: "quoteSnapshot" | "details" | "requestedItem";
+};
+
+function numericValue(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = typeof value === "number" ? value : parseFloat(String(value).replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function packageDraftFromUnknown(raw: unknown, source: PackageDraft["source"]): PackageDraft | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const nestedDetails = obj.details && typeof obj.details === "object" && !Array.isArray(obj.details)
+    ? obj.details as Record<string, unknown>
+    : {};
+  const id = stringValue(obj.id) || stringValue(obj.packageId) || stringValue(nestedDetails.packageId);
+  const label = stringValue(obj.label)
+    || stringValue(obj.packageLabel)
+    || stringValue(obj.serviceLabel)
+    || stringValue(nestedDetails.packageLabel)
+    || id;
+  if (!id && !label) return null;
+  return {
+    id: id || label || "selected_package",
+    label: label || id || "Selected package",
+    crew: numericValue(obj.crew ?? obj.crewSize ?? nestedDetails.crew ?? nestedDetails.crewSize),
+    hours: numericValue(obj.hours ?? obj.confirmedHours ?? nestedDetails.hours ?? nestedDetails.confirmedHours),
+    minPrice: numericValue(obj.minPrice ?? obj.basePrice ?? obj.unitPrice ?? nestedDetails.minPrice ?? nestedDetails.basePrice),
+    maxPrice: numericValue(obj.maxPrice ?? obj.totalPrice ?? obj.price ?? nestedDetails.maxPrice ?? nestedDetails.totalPrice),
+    priceLabel: stringValue(obj.priceLabel ?? nestedDetails.priceLabel),
+    source,
+  };
+}
+
+function parseLeadDetailsJson(lead: Lead): Record<string, unknown> | null {
+  if (!lead.details) return null;
+  try {
+    const parsed = JSON.parse(lead.details);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function selectedPackageDraftForLead(lead: Lead): PackageDraft | null {
+  const snapshot = leadSnapshot(lead);
+  const fromSnapshot = packageDraftFromUnknown(snapshot?.selectedPackage || snapshot, "quoteSnapshot");
+  if (fromSnapshot && (fromSnapshot.minPrice || fromSnapshot.maxPrice || fromSnapshot.crew || fromSnapshot.hours)) return fromSnapshot;
+
+  const details = parseLeadDetailsJson(lead);
+  const fromDetails = packageDraftFromUnknown(details?.selectedPackage, "details");
+  if (fromDetails) return fromDetails;
+
+  const item = leadFirstRequestedItem(lead);
+  return packageDraftFromUnknown(item, "requestedItem");
+}
+
+function hasSavedQuote(lead: Lead): boolean {
+  const price = numericValue(lead.totalPrice ?? lead.basePrice);
+  return !!(price && price > 0) || (Array.isArray(lead.orderLineItems) && lead.orderLineItems.length > 0);
+}
+
+function packageDraftPrice(draft: PackageDraft): number | null {
+  return draft.maxPrice ?? draft.minPrice ?? null;
+}
+
+function formatMoney(value: unknown): string {
+  const n = numericValue(value);
+  return n && n > 0 ? `$${n.toFixed(2)}` : "Not set";
+}
+
+function displayStatus(status: string | null | undefined): string {
+  return String(status || "new").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function DisbursementSummaryCard({ lead }: { lead: Lead }) {
   const { data, isLoading } = useQuery<{ records: DisbursementRecord[] }>({
     queryKey: [`/api/leads/${lead.id}/disbursement-summary`],
@@ -296,6 +402,9 @@ export default function LeadDetailPage() {
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [showCrewSuggestions, setShowCrewSuggestions] = useState(false);
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
+  const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const [removeIntent, setRemoveIntent] = useState<"archive" | "delete" | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [invoiceAmount, setInvoiceAmount] = useState("");
   const [invoiceDescription, setInvoiceDescription] = useState("");
   const [invoiceDeliveryMethod, setInvoiceDeliveryMethod] = useState<"email" | "sms" | "both">("email");
@@ -391,6 +500,9 @@ export default function LeadDetailPage() {
     },
   });
 
+  const packageDraft = useMemo(() => lead ? selectedPackageDraftForLead(lead) : null, [lead]);
+  const leadHasQuote = lead ? hasSavedQuote(lead) : false;
+
   // Update form when lead data loads
   useEffect(() => {
     if (lead) {
@@ -415,8 +527,8 @@ export default function LeadDetailPage() {
       const inferredBonus = members.length > 0 && (lead.crewSize ?? 0) > members.length;
       setBonusMover(inferredBonus);
       // Sync plan state from lead
-      setPlanCrewSize(lead.crewSize || 2);
-      setPlanHours(lead.confirmedHours || 3);
+      setPlanCrewSize(lead.crewSize || packageDraft?.crew || 2);
+      setPlanHours(lead.confirmedHours || packageDraft?.hours || 3);
       setPlanArrivalWindow(lead.arrivalWindow || "");
       setPlanConfirmedDate(lead.confirmedDate || lead.moveDate || "");
       setQuoteSentAt(lead.quoteSentAt || null);
@@ -427,7 +539,7 @@ export default function LeadDetailPage() {
         setPlanHasTrailer(false); // no direct field; default off on load
       }
     }
-  }, [lead, form]);
+  }, [lead, form, packageDraft]);
 
   const updateLead = useMutation({
     mutationFn: async (data: Partial<Lead>) => {
@@ -447,6 +559,64 @@ export default function LeadDetailPage() {
         description: "Failed to update lead",
         variant: "destructive",
       });
+    },
+  });
+
+  const archiveLeadMutation = useMutation({
+    mutationFn: async (intent: "archive" | "delete" = "archive") => {
+      void intent;
+      return await apiRequest("DELETE", `/api/leads/${params?.id}`);
+    },
+    onSuccess: (_response, intent) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/archived"] });
+      toast({
+        title: intent === "delete" ? "Lead removed" : "Lead archived",
+        description: "It was removed from active jobs and can be restored from Archived.",
+      });
+      setShowArchiveDialog(false);
+      setRemoveIntent(null);
+      setLocation("/leads");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Archive failed", description: error.message || "Could not archive this lead.", variant: "destructive" });
+    },
+  });
+
+  const applyPackageDraftMutation = useMutation({
+    mutationFn: async () => {
+      if (!packageDraft) throw new Error("No selected package was found for this lead.");
+      const price = packageDraftPrice(packageDraft);
+      if (!price || price <= 0) throw new Error("Selected package does not include a usable price.");
+      const lineItem: OrderLineItem = {
+        id: packageDraft.id,
+        name: packageDraft.label,
+        qty: 1,
+        unitPrice: price,
+        total: price,
+        category: "package",
+      };
+      return await apiRequest("PATCH", `/api/leads/${params?.id}/quote`, {
+        basePrice: price.toFixed(2),
+        crewSize: packageDraft.crew || lead?.crewSize || planCrewSize || 2,
+        confirmedHours: packageDraft.hours || lead?.confirmedHours || planHours || 3,
+        ...(planConfirmedDate ? { confirmedDate: planConfirmedDate } : {}),
+        ...(planArrivalWindow ? { arrivalWindow: planArrivalWindow } : {}),
+        selectedPackageId: packageDraft.id,
+        orderLineItems: [lineItem],
+        quoteNotes: [
+          lead?.quoteNotes,
+          `Package draft confirmed: ${packageDraft.label}${packageDraft.priceLabel ? ` (${packageDraft.priceLabel})` : ""}.`,
+        ].filter(Boolean).join("\n"),
+      });
+    },
+    onSuccess: async () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
+      toast({ title: "Package quote ready", description: "Review it, then send the quote and invoice when ready." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Package draft failed", description: error.message || "Could not build the package quote.", variant: "destructive" });
     },
   });
 
@@ -933,6 +1103,121 @@ export default function LeadDetailPage() {
     }
   };
 
+  const statusKey = lead.status === "confirmed" ? "available" : String(lead.status || "new").toLowerCase();
+  const quoteSent = Boolean(quoteSentAt || lead.quoteSentAt || lead.squarePaymentUrl || squarePaymentUrl);
+  const packageDraftReady = Boolean(packageDraft && !leadHasQuote);
+  const packagePrice = packageDraft ? packageDraftPrice(packageDraft) : null;
+  const selectedCrewNames = (lead.crewMembers || [])
+    .map(id => employees.find(e => e.id === id))
+    .filter(Boolean)
+    .map(emp => `${emp!.firstName || ""} ${emp!.lastName || ""}`.trim() || emp!.email);
+  const actionPending = updateStatus.isPending
+    || markAsPaidMutation.isPending
+    || sendQuoteMutation.isPending
+    || applyPackageDraftMutation.isPending;
+  const nextStep = (() => {
+    if (statusKey === "completed" || statusKey === "customer_approved" || statusKey === "payout_calculated" || statusKey === "payout_sent" || statusKey === "closed") {
+      return {
+        key: "done",
+        title: "Job complete",
+        detail: "This job is finished. Review payout and rewards in Advanced if needed.",
+        button: "Complete",
+        icon: CheckCircle,
+      };
+    }
+    if (statusKey === "in_progress") {
+      return {
+        key: "complete",
+        title: "Finish the job",
+        detail: "Mark complete when the work is done so rewards and completion steps can run.",
+        button: "Complete Job",
+        icon: CheckCircle,
+      };
+    }
+    if (["dispatched", "accepted"].includes(statusKey) || (statusKey === "available" && !leadHasQuote)) {
+      return {
+        key: "start",
+        title: "Crew can start",
+        detail: "The job is ready for field work. Start it when the crew is heading into execution.",
+        button: "Start Job",
+        icon: PlayCircle,
+      };
+    }
+    if (statusKey === "paid" || ((statusKey === "quoted" || statusKey === "available") && quoteSent)) {
+      return {
+        key: "dispatch",
+        title: "Payment is ready",
+        detail: "Mark paid and dispatch assigned crew. This sends the crew/customer dispatch notifications.",
+        button: "Mark Paid & Dispatch",
+        icon: Zap,
+      };
+    }
+    if (leadHasQuote) {
+      return {
+        key: "send_quote",
+        title: "Quote is ready",
+        detail: "Send the quote and Square invoice when the plan looks right.",
+        button: quoteSent ? "Re-send Quote & Invoice" : "Send Quote & Invoice",
+        icon: Send,
+      };
+    }
+    if (packageDraftReady) {
+      return {
+        key: "apply_package",
+        title: "Package selected",
+        detail: `Confirm ${packageDraft!.label}${packagePrice ? ` at ${formatMoney(packagePrice)}` : ""} as the draft quote.`,
+        button: "Use Package Quote",
+        icon: ShoppingBag,
+      };
+    }
+    return {
+      key: "build_quote",
+      title: "Build the quote",
+      detail: "Set the price, crew, hours, and schedule before sending anything to the customer.",
+      button: "Build Quote",
+      icon: DollarSign,
+    };
+  })();
+
+  const handleNextStep = () => {
+    switch (nextStep.key) {
+      case "apply_package":
+        applyPackageDraftMutation.mutate();
+        break;
+      case "build_quote":
+        setShowJobOrderBuilderSheet(true);
+        setShowAdvanced(true);
+        setActiveTab("quote");
+        break;
+      case "send_quote":
+        sendQuoteMutation.mutate("email");
+        break;
+      case "dispatch":
+        markAsPaidMutation.mutate();
+        break;
+      case "start":
+        updateStatus.mutate("in_progress");
+        break;
+      case "complete":
+        updateStatus.mutate("completed");
+        break;
+      default:
+        break;
+    }
+  };
+
+  const NextIcon = nextStep.icon;
+  const savedZonePreview = lead.zoneSnapshot?.preview;
+  const savedZoneEstimate = savedZonePreview?.quote;
+  const hasSavedZoneEstimate = Number.isFinite(Number(savedZoneEstimate?.minEstimate)) && Number.isFinite(Number(savedZoneEstimate?.maxEstimate));
+  const savedZoneEstimateLabel = hasSavedZoneEstimate
+    ? `$${Math.round(Number(savedZoneEstimate?.minEstimate))}–$${Math.round(Number(savedZoneEstimate?.maxEstimate))}`
+    : null;
+  const truckProviderLabel = lead.truckProvider === "jc_on_the_move" ? "JC ON THE MOVE truck"
+    : lead.truckProvider === "rental_uhaul" ? "Rental / U-Haul"
+      : lead.truckProvider === "customer" ? "Customer truck"
+        : lead.truckProvider === "none" ? "No truck needed" : null;
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-4xl mx-auto px-4 py-6">
@@ -960,6 +1245,22 @@ export default function LeadDetailPage() {
                 >
                   <Sparkles className="h-4 w-4" />
                   Crew Suggestions
+                </Button>
+              )}
+              {hasAdminAccess && !isEditing && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setRemoveIntent("archive");
+                    setShowArchiveDialog(true);
+                  }}
+                  data-testid="button-remove-lead"
+                  className="text-muted-foreground hover:text-red-300"
+                  title="Remove job request"
+                >
+                  <X className="h-4 w-4" />
+                  <span className="sr-only">Remove job request</span>
                 </Button>
               )}
               {!isEditing ? (
@@ -1021,31 +1322,149 @@ export default function LeadDetailPage() {
               </div>
             </div>
           )}
-          <MarketplaceSourceFlowStrip
-            source={marketplaceSource}
-            shapeId={marketplaceShapeId}
-            serviceCode={marketplaceServiceCode}
-            serviceLabel={marketplaceServiceLabel}
-            audience={marketplaceAudience}
-            phase={marketplacePhase}
-            className="mt-3"
-          />
-          <MarketplaceProcessGuide
-            source={marketplaceSource}
-            shapeId={marketplaceShapeId}
-            serviceCode={marketplaceServiceCode}
-            serviceLabel={marketplaceServiceLabel}
-            audience={marketplaceAudience}
-            compact
-            className="mt-3"
-          />
-          <BookingMenuIntelligenceCard
-            quoteSnapshot={lead.quoteSnapshot}
-            fallbackServiceLabel={marketplaceServiceLabel}
-            audience={marketplaceAudience}
-            className="mt-3"
-          />
         </div>
+
+        <Card className="mb-4 border-blue-500/30 bg-blue-950/10">
+          <CardContent className="pt-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="h-10 w-10 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0">
+                  <NextIcon className="h-5 w-5 text-blue-300" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-300">Next Step</p>
+                  <h2 className="text-lg font-bold text-foreground">{nextStep.title}</h2>
+                  <p className="text-sm text-muted-foreground mt-0.5">{nextStep.detail}</p>
+                  {packageDraftReady && (
+                    <p className="text-xs text-emerald-300 mt-2">
+                      Package: {packageDraft?.label} {packagePrice ? `- ${formatMoney(packagePrice)}` : ""}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Button
+                onClick={handleNextStep}
+                disabled={actionPending || nextStep.key === "done" || (nextStep.key === "send_quote" && !leadHasQuote)}
+                className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white"
+                data-testid="button-primary-next-step"
+              >
+                {actionPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <NextIcon className="h-4 w-4 mr-2" />}
+                {nextStep.button}
+              </Button>
+            </div>
+            {nextStep.key === "apply_package" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3 w-full sm:w-auto"
+                onClick={() => {
+                  setShowJobOrderBuilderSheet(true);
+                  setShowAdvanced(true);
+                  setActiveTab("quote");
+                }}
+              >
+                <DollarSign className="h-4 w-4 mr-2" />
+                Adjust Manually Instead
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="mb-4">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Job Basics</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-start gap-3">
+              <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">From</p>
+                <p className="text-sm font-medium break-words">{lead.confirmedFromAddress || lead.fromAddress}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <Calendar className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs text-muted-foreground">Date & Time</p>
+                <p className="text-sm font-medium">{lead.confirmedDate || lead.moveDate || "Not set"}{lead.arrivalWindow ? ` - ${lead.arrivalWindow}` : ""}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <DollarSign className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs text-muted-foreground">{savedZoneEstimateLabel && !(lead.totalPrice || lead.basePrice) ? "Zone estimate" : "Quote"}</p>
+                <p className="text-sm font-medium">{lead.totalPrice || lead.basePrice ? formatMoney(lead.totalPrice || lead.basePrice) : savedZoneEstimateLabel || "Not quoted"}</p>
+                {savedZoneEstimateLabel && !(lead.totalPrice || lead.basePrice) && <p className={`text-xs ${lead.isQuoteOnly || !savedZonePreview?.matched ? "text-amber-400" : "text-emerald-400"}`}>{lead.isQuoteOnly || !savedZonePreview?.matched ? "Owner review required" : "Saved with job"}</p>}
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <Users className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Crew</p>
+                <p className="text-sm font-medium truncate">
+                  {selectedCrewNames.length > 0 ? selectedCrewNames.join(", ") : `${lead.crewSize || planCrewSize || 2} mover${(lead.crewSize || planCrewSize || 2) !== 1 ? "s" : ""}`}
+                </p>
+              </div>
+            </div>
+            {(lead.confirmedHours || truckProviderLabel) && (
+              <div className="flex items-start gap-3">
+                <Truck className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Plan</p>
+                  <p className="text-sm font-medium truncate">{lead.confirmedHours ? `${lead.confirmedHours} expected hour${lead.confirmedHours === 1 ? "" : "s"}` : "Hours to confirm"}{truckProviderLabel ? ` · ${truckProviderLabel}` : ""}{lead.truckSize && lead.truckSize !== "none" ? ` · ${lead.truckSize.replace("_", " ")}` : ""}</p>
+                </div>
+              </div>
+            )}
+            {savedZonePreview?.quote?.rate && (
+              <div className="flex items-start gap-3">
+                <Clock className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                <div><p className="text-xs text-muted-foreground">Saved zone rate</p><p className="text-sm font-medium">${savedZonePreview.quote.rate.hourlyRate}/hr · {savedZonePreview.quote.rate.minimumHours} hour minimum</p></div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="mb-4">
+          <Button
+            variant="outline"
+            className="w-full justify-between"
+            onClick={() => setShowAdvanced(v => !v)}
+            data-testid="button-toggle-advanced"
+          >
+            <span className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Advanced details, quote tools, notes, and timeline
+            </span>
+            {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+        </div>
+
+        {showAdvanced && (
+          <>
+            <MarketplaceSourceFlowStrip
+              source={marketplaceSource}
+              shapeId={marketplaceShapeId}
+              serviceCode={marketplaceServiceCode}
+              serviceLabel={marketplaceServiceLabel}
+              audience={marketplaceAudience}
+              phase={marketplacePhase}
+              className="mt-3"
+            />
+            <MarketplaceProcessGuide
+              source={marketplaceSource}
+              shapeId={marketplaceShapeId}
+              serviceCode={marketplaceServiceCode}
+              serviceLabel={marketplaceServiceLabel}
+              audience={marketplaceAudience}
+              compact
+              className="mt-3"
+            />
+            <BookingMenuIntelligenceCard
+              quoteSnapshot={lead.quoteSnapshot}
+              fallbackServiceLabel={marketplaceServiceLabel}
+              audience={marketplaceAudience}
+              className="mt-3"
+            />
 
         {/* === Sticky Customer Summary Bar === */}
         {hasAdminAccess && (
@@ -1369,7 +1788,7 @@ export default function LeadDetailPage() {
                         <Mail className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                         <div>
                           <p className="text-xs text-muted-foreground">Email</p>
-                          <a href={`mailto:${lead.email}`} className="text-sm font-medium hover:underline" data-testid="link-email">{lead.email}</a>
+                          {lead.email ? <a href={`mailto:${lead.email}`} className="text-sm font-medium hover:underline" data-testid="link-email">{lead.email}</a> : <p className="text-sm font-medium text-muted-foreground">Not provided</p>}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
@@ -2248,6 +2667,8 @@ export default function LeadDetailPage() {
             )}
           </TabsContent>
         </Tabs>
+          </>
+        )}
       </div>
 
       {/* Crew Suggestions Dialog */}
@@ -2257,6 +2678,81 @@ export default function LeadDetailPage() {
         open={showCrewSuggestions}
         onOpenChange={setShowCrewSuggestions}
       />
+
+      {/* Remove Lead Dialog */}
+      <Dialog
+        open={showArchiveDialog}
+        onOpenChange={(open) => {
+          setShowArchiveDialog(open);
+          if (!open) setRemoveIntent(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {removeIntent === "delete"
+                ? <Trash2 className="h-5 w-5 text-red-400" />
+                : removeIntent === "archive"
+                  ? <Archive className="h-5 w-5 text-orange-400" />
+                  : <X className="h-5 w-5 text-red-300" />}
+              Remove job from active jobs?
+            </DialogTitle>
+            <DialogDescription>
+              This archives the job from active views. It stays recoverable from Archived Jobs.
+            </DialogDescription>
+          </DialogHeader>
+          {!removeIntent ? (
+            <div className="grid gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRemoveIntent("archive")}
+                className="flex w-full items-start gap-3 rounded-lg border border-orange-500/30 bg-orange-500/10 p-3 text-left transition hover:bg-orange-500/15"
+                data-testid="button-choose-archive-lead"
+              >
+                <Archive className="mt-0.5 h-5 w-5 flex-shrink-0 text-orange-300" />
+                <span>
+                  <span className="block font-semibold text-foreground">Archive</span>
+                  <span className="block text-sm text-muted-foreground">Best for real jobs you may need later. Removes it from active views.</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRemoveIntent("delete")}
+                className="flex w-full items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-left transition hover:bg-red-500/15"
+                data-testid="button-choose-delete-lead"
+              >
+                <Trash2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-300" />
+                <span>
+                  <span className="block font-semibold text-foreground">Delete from active jobs</span>
+                  <span className="block text-sm text-muted-foreground">Best for test leads and clutter. It still goes to Archived for recovery.</span>
+                </span>
+              </button>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowArchiveDialog(false)}>Cancel</Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setRemoveIntent(null)} disabled={archiveLeadMutation.isPending}>
+                Back
+              </Button>
+              <Button
+                onClick={() => archiveLeadMutation.mutate(removeIntent)}
+                disabled={archiveLeadMutation.isPending}
+                className={removeIntent === "delete" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-orange-600 hover:bg-orange-700 text-white"}
+                data-testid={removeIntent === "delete" ? "button-confirm-delete-lead" : "button-confirm-archive-lead"}
+              >
+                {archiveLeadMutation.isPending
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : removeIntent === "delete"
+                    ? <Trash2 className="h-4 w-4 mr-2" />
+                    : <Archive className="h-4 w-4 mr-2" />}
+                Archive job
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Send Invoice Dialog */}
       <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>

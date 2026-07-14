@@ -310,7 +310,7 @@ export function eventTypeForStatus(status: string | null | undefined): JobEventT
   if (!status) return null;
   if (status === "quote_requested" || status === "new") return "quote_requested";
   if (status === "available" || status === "open") return "job_available";
-  if (status === "assigned" || status === "accepted" || status === "in_progress") return "crew_assigned";
+  if (status === "assigned" || status === "accepted" || status === "dispatched" || status === "in_progress") return "crew_assigned";
   if (status === "completed") return "job_completed";
   return "job_updated";
 }

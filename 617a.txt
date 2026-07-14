@@ -1,0 +1,163 @@
+Here’s the clearest projection: JC ON THE MOVE should become more than a moving company website. It should become a worker-powered booking, dispatch, payout, rewards, and referral platform.
+Right now, the site can evolve into three connected experiences:
+1. Customer-Facing Site
+This should be simple, fast, and conversion-focused.
+The first screen should make it instantly clear:
+JC ON THE MOVE
+Moving. Junk Removal. Delivery. Cleanup.
+Then the customer should be able to:
+Get an estimate
+Book a job
+Upload photos
+Choose service type
+See trust signals
+Pay or authorize payment
+Track job status
+Leave a review
+The marketing angle should be direct:
+“Fast local help for moving, hauling, delivery, and cleanup.”
+
+This should feel practical, local, trustworthy, and easy. No clutter. No confusing menus. The customer should always know what to do next.
+2. Worker / Crew Experience
+This is where the site becomes powerful.
+Workers should have their own simple dashboard showing:
+Today’s jobs
+Assigned crew
+Job address
+Hours worked
+Role on job
+Estimated pay
+Bonus opportunity
+Completed jobs
+Total earned
+JCMOVES rewards
+Referral link
+This matters because workers are not just labor. They become part of the marketing engine.
+Each worker should eventually get a shareable page/link like:
+jconthemove.com/rep/matt
+That page can show:
+Their name
+Services they can help book
+Referral code
+Booking button
+Earnings/rewards opportunity
+Trust badge: “JC ON THE MOVE verified worker”
+This makes every worker a marketer.
+3. Admin Command Center
+This is the business cockpit.
+Admin should be able to see:
+Leads
+Booked jobs
+Assigned workers
+Revenue
+Labor cost
+Expenses
+Net profit
+Profit per labor hour
+Worker payouts
+Referral payouts
+Rewards issued
+Job status
+The main business metric should stay exactly what we discussed:
+Profit Per Labor Hour
+That tells you if the business is actually getting stronger job by job.
+The admin experience should eventually feel like:
+“I can see every job, every dollar, every worker, every referral, and every payout from one place.”
+
+That is the north star.
+What It Should Look Like
+Visually, I would push the site toward a clean, strong local-service brand:
+White / black / green / gold accents
+Real job photos
+Bold service buttons
+Mobile-first layout
+Worker cards
+Simple dashboards
+Clear money numbers
+No overly decorative clutter
+Strong calls to action
+The customer side should feel trustworthy and quick.
+The worker side should feel like opportunity.
+The admin side should feel like control.
+How To Get There
+I would build this in phases:
+Phase 1: Make the Live Site Convert
+Focus on customers first.
+Tighten homepage messaging
+Make booking obvious
+Add service pages for moving, junk removal, delivery, cleanup
+Add photo upload estimate flow
+Add trust/review sections
+Add clear phone/text buttons
+Make mobile perfect
+Phase 2: Make Jobs Operational
+This is where the business becomes systemized.
+Lead to booked job flow
+Job status tracking
+Crew assignments
+Hours worked
+Customer approval
+Payment status
+Admin job dashboard
+Phase 3: Make Worker Pay Automatic
+This is the payout system we integrated.
+Guaranteed hourly pay
+Profit-sharing preview
+Net job profit
+Crew bonus pool
+Referral payout
+Growth fund
+Manual payout status
+Admin override for unprofitable jobs
+No automatic payout should happen until:
+Job Status = Customer Approved
+That rule protects the company.
+Phase 4: Turn Workers Into Marketers
+This is the growth layer.
+Worker referral pages
+Referral codes
+Worker leaderboard
+Commission tracking
+“Book with this rep” links
+Social-share assets
+QR codes for flyers/business cards
+This lets every worker bring in jobs and get rewarded.
+Phase 5: Add Automation
+Once the manual system works cleanly:
+Stripe Connect payouts
+Referral partner payouts
+JCMOVES rewards ledger
+SMS notifications
+Email automation
+Review requests
+Customer follow-ups
+Performance dashboards
+Do not automate messy processes too early. First make the manual flow reliable, then automate it.
+My Recommended Direction
+The site should become:
+A booking site for customers.
+A money dashboard for workers.
+A profit machine for admin.
+A referral engine for growth.
+That is the cleanest version of what we have been building.
+The next practical move should be to polish the live customer journey and worker marketing journey together:
+Homepage sells the service.
+Booking flow captures jobs.
+Admin assigns workers.
+Workers see jobs and pay.
+Customers approve completed work.
+Admin finalizes payout.
+Workers and referral partners get rewarded.
+Everyone has a reason to bring in the next job.
+
+6:53 PM
+
+
+
+
+
+
+
+
+
+Add to chatAsk in side chat

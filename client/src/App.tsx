@@ -137,6 +137,8 @@ const DemolitionPage = lazy(() => import("@/pages/demolition"));
 const PricingPage = lazy(() => import("@/pages/pricing"));
 const HubPage = lazy(() => import("@/pages/hub"));
 const MarketingRepPage = lazy(() => import("@/pages/marketing-rep"));
+const MarketingOnboardingPage = lazy(() => import("@/pages/marketing-onboarding"));
+const TutorialsPage = lazy(() => import("@/pages/tutorials"));
 
 // Thin fallback shown while a lazy page chunk is downloading
 function PageLoader() {
@@ -495,6 +497,7 @@ function AuthenticatedApp() {
               <Route path="/crew/reviews"><CrewReviewsPage /></Route>
               <Route path="/crew/marketing"><CrewEarningsPage marketingOnly /></Route>
               <Route path="/crew/earnings"><CrewEarningsPage /></Route>
+              <Route path="/crew/tutorials"><TutorialsPage /></Route>
               <Route><Redirect to="/crew" /></Route>
             </Switch>
           </CrewLayout>
@@ -535,6 +538,7 @@ function AuthenticatedApp() {
               <Route path="/admin/cashouts"><AdminCashoutsPage /></Route>
               <Route path="/admin/launch-checklist"><AdminLaunchChecklistPage /></Route>
               <Route path="/admin/schedule"><AdminSchedulePage /></Route>
+              <Route path="/admin/tutorials"><TutorialsPage /></Route>
               {/* Legacy admin URL redirects */}
               <Route path="/admin/calibrate"><Redirect to="/admin/pricing" /></Route>
               <Route path="/admin/pricing-calibration"><Redirect to="/admin/pricing" /></Route>
@@ -562,9 +566,9 @@ function AuthenticatedApp() {
           <Route path="/dashboard">
             <Redirect to="/admin" />
           </Route>
-          {/* Task #169 — /employee/add-job consolidated into /book?worker=1 */}
+          {/* Employee add-job route uses the same staff intake form as every calendar entry. */}
           <Route path="/employee/add-job">
-            <Redirect to="/book?worker=1" />
+            <Redirect to="/leads?tab=add" />
           </Route>
           <Route path="/employee/dashboard">
             <RouteGuard allowedRoles={['admin', 'employee', 'business_owner']}>
@@ -606,6 +610,11 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/profile">
             <PageWrapper component={ProfilePage} />
+          </Route>
+          <Route path="/tutorials">
+            <RouteGuard allowedRoles={['admin', 'employee', 'business_owner']}>
+              <PageWrapper component={TutorialsPage} />
+            </RouteGuard>
           </Route>
           <Route path="/customer-portal">
             <RouteGuard allowedRoles={['customer', 'admin']} allowPending={true}>
@@ -816,8 +825,9 @@ function Router() {
       <Route path="/get-started" component={OnboardingPage} />
 
       {/* Public site (original marketing page) */}
-      <Route path="/home">{() => <PublicHomePage />}</Route>
-      <Route path="/network/:slug" component={MarketingRepPage} />
+        <Route path="/home">{() => <PublicHomePage />}</Route>
+        <Route path="/marketing-onboarding" component={MarketingOnboardingPage} />
+        <Route path="/network/:slug" component={MarketingRepPage} />
       <Route path="/rep/:slug" component={MarketingRepPage} />
       <Route path="/matt"><Redirect to="/network/matt" /></Route>
       <Route path="/troy"><Redirect to="/network/troy" /></Route>

@@ -1,0 +1,383 @@
+2026-06-17T22:23:44.011596637Z [inf]  Starting Container
+2026-06-17T22:23:44.142902404Z [err]  npm warn config production Use `--omit=dev` instead.
+2026-06-17T22:23:44.142905624Z [inf]  
+2026-06-17T22:23:44.142908874Z [inf]  > rest-express@1.0.0 start
+2026-06-17T22:23:44.142911774Z [inf]  > cross-env NODE_ENV=production node dist/index.js
+2026-06-17T22:23:44.142915774Z [inf]  
+2026-06-17T22:23:44.760832951Z [inf]  [env-check] production env vars:
+2026-06-17T22:23:44.760835621Z [inf]    OK DATABASE_URL (required) - PostgreSQL database connection
+2026-06-17T22:23:44.760837961Z [inf]    OK SESSION_SECRET (required) - session cookies and JWT signing fallback
+2026-06-17T22:23:44.760840441Z [inf]    OK SQUARE_ACCESS_TOKEN (required) - Square card invoicing + customer search
+2026-06-17T22:23:44.760843100Z [inf]    OK SQUARE_ENVIRONMENT (required) - Square sandbox vs production switch
+2026-06-17T22:23:44.760845750Z [inf]    OPTIONAL BTC_WALLET_ADDRESS (optional) - Bitcoin payment auto-verify sweep + customer pay-with-BTC display
+2026-06-17T22:23:44.760849520Z [inf]    OPTIONAL ADMIN_EMAIL (optional) - admin quote/lead notification recipient; falls back to COMPANY_EMAIL
+2026-06-17T22:23:44.760852110Z [inf]    OK COMPANY_EMAIL (optional) - company sender/recipient fallback for transactional email
+2026-06-17T22:23:44.760854990Z [inf]    OK GMAIL_USER (optional) - Gmail sender address for free email notifications
+2026-06-17T22:23:44.760857380Z [inf]    OK GMAIL_APP_PASSWORD (optional) - Gmail app password for SMTP email notifications
+2026-06-17T22:23:44.760859970Z [inf]    OPTIONAL SENDGRID_API_KEY (optional) - SendGrid fallback email delivery when Gmail OAuth is not configured
+2026-06-17T22:23:44.760862820Z [inf]    OK GOOGLE_OAUTH_CLIENT_ID (optional) - Google login OAuth client ID
+2026-06-17T22:23:44.760865280Z [inf]    OK GOOGLE_OAUTH_CLIENT_SECRET (optional) - Google login OAuth client secret
+2026-06-17T22:23:44.760868170Z [inf]    OK GOOGLE_OAUTH_REDIRECT_URI (optional) - Google login callback URL; defaults to APP_URL/api/auth/google/callback
+2026-06-17T22:23:44.760870811Z [inf]    OPTIONAL GOOGLE_APPLICATION_CREDENTIALS (optional) - Google Cloud service-account file for object storage
+2026-06-17T22:23:44.760873401Z [inf]    OPTIONAL GOOGLE_APPLICATION_CREDENTIALS_JSON (optional) - Google Cloud service-account JSON for object storage
+2026-06-17T22:23:44.761667523Z [inf]    OPTIONAL GOOGLE_CLOUD_PROJECT_ID (optional) - Google Cloud project ID for storage
+2026-06-17T22:23:44.761670413Z [inf]    OPTIONAL ADMIN_PHONE_NUMBER (optional) - admin SMS notification recipient
+2026-06-17T22:23:44.761672952Z [inf]    OPTIONAL TWILIO_ACCOUNT_SID (optional) - Twilio SMS account for admin/crew notifications
+2026-06-17T22:23:44.761675702Z [inf]    OPTIONAL TWILIO_AUTH_TOKEN (optional) - Twilio API auth paired with TWILIO_ACCOUNT_SID
+2026-06-17T22:23:44.761678442Z [inf]    OPTIONAL TWILIO_PHONE_NUMBER (optional) - Twilio sender phone number; alternatively use TWILIO_MESSAGING_SERVICE_SID
+2026-06-17T22:23:44.761681062Z [inf]    OPTIONAL TWILIO_MESSAGING_SERVICE_SID (optional) - Twilio sender messaging service; alternatively use TWILIO_PHONE_NUMBER
+2026-06-17T22:23:44.761683702Z [inf]  Starting server on port 8080...
+2026-06-17T22:23:44.761686352Z [inf]  Initializing application server...
+2026-06-17T22:23:44.793198636Z [inf]  [db] DATABASE_URL fingerprint=ad691447ef07 host=ep-divine-band-aft2830l.c-2.us-west-2.aws.neon.tech database=neondb
+2026-06-17T22:23:44.803824713Z [err]  SENDGRID_API_KEY environment variable not set. SendGrid fallback will be disabled.
+2026-06-17T22:23:44.806893973Z [err]  MOONSHOT_TOKEN_ADDRESS not configured
+2026-06-17T22:23:44.812634377Z [inf]  🔗 SolanaTransferService initialized
+2026-06-17T22:23:44.812636887Z [inf]  📍 RPC: https://api.mainnet-beta.solana.com
+2026-06-17T22:23:44.812639547Z [inf]  🪙 Token Mint: BHZW4jds7NSe5Fqvw9Z4pvt423EJSx63k8MT11F2moon
+2026-06-17T22:23:44.812642077Z [err]  ⚠️ Primary Treasury: TREASURY_WALLET_PRIVATE_KEY not configured
+2026-06-17T22:23:44.812644427Z [err]  ⚠️ JC MOVES BANKS: JCMOVES_BANKS_PRIVATE_KEY not configured
+2026-06-17T22:23:44.812647467Z [err]  ⚠️ IN GOD WE TRUST: IN_GOD_WE_TRUST_PRIVATE_KEY not configured
+2026-06-17T22:23:44.812650237Z [err]  ⚠️ VITE_SOLANA_RPC_URL not set. Using public Solana RPC endpoint (rate limited). Set VITE_SOLANA_RPC_URL in deployment secrets for better performance.
+2026-06-17T22:23:44.812652357Z [inf]  🔄 JupiterSwapService initialized
+2026-06-17T22:23:44.840075940Z [inf]  Gmail email service available (primary)
+2026-06-17T22:23:44.862460452Z [inf]  JC ON THE MOVE HTTP listener started
+2026-06-17T22:23:44.862475132Z [inf]  Serving on http://0.0.0.0:8080
+2026-06-17T22:23:44.981475724Z [inf]  ✅ Task #185 demand history columns ready
+2026-06-17T22:23:44.981479424Z [inf]  ✅ Lawn care tables ready
+2026-06-17T22:23:44.981482674Z [inf]  ✅ Task #175 payment columns ready
+2026-06-17T22:23:45.003183113Z [inf]  ✅ job_trade_requests table ready
+2026-06-17T22:23:45.139757144Z [inf]  ✅ Loyalty tier columns ready
+2026-06-17T22:23:45.139759844Z [inf]  users auth/profile columns ready
+2026-06-17T22:23:45.139762754Z [inf]  worker authority and quote approval tables ready
+2026-06-17T22:23:45.139766394Z [inf]  recovery_tokens table ready
+2026-06-17T22:23:45.139768944Z [inf]  ✅ is_driver column ready
+2026-06-17T22:23:45.157867078Z [inf]  ✅ crew availability window + capabilities columns ready
+2026-06-17T22:23:45.187516359Z [inf]  ✅ past_jobs_notice_seen column ready
+2026-06-17T22:23:45.211681494Z [inf]  ✅ accepted_job_types column ready
+2026-06-17T22:23:45.239235765Z [inf]  job payout system tables ready
+2026-06-17T22:23:45.266455131Z [inf]  ✅ dispatch_decline_count column ready
+2026-06-17T22:23:45.300389151Z [inf]  ✅ Leads selected_package_id column ready
+2026-06-17T22:23:45.317754792Z [inf]  ✅ Leads quote dispatch columns ready
+2026-06-17T22:23:45.347884709Z [inf]  ✅ Leads square_payment_url column ready
+2026-06-17T22:23:45.374835226Z [inf]  ✅ Leads order_number column ready
+2026-06-17T22:23:45.399736674Z [inf]  ✅ square_invoices.square_invoice_number column ready
+2026-06-17T22:23:45.426664482Z [inf]  ✅ Leads deposit_required/deposit_paid/is_quote_only columns ready
+2026-06-17T22:23:45.502232717Z [inf]  ✅ Jackpot tables ready
+2026-06-17T22:23:45.530476722Z [inf]  💝 Mom hearts table ready
+2026-06-17T22:23:45.552605156Z [inf]  ⟠  ETH staking table ready
+2026-06-17T22:23:45.601569401Z [inf]  ✅ Staking treasury yield sources ready
+2026-06-17T22:23:45.626198640Z [inf]  ✅ worker_hour_overrides table ready
+2026-06-17T22:23:45.728324937Z [inf]  ✅ lead_history table ready
+2026-06-17T22:23:45.754902988Z [inf]  🗑️ trash_subscriptions table ready
+2026-06-17T22:23:45.776878774Z [inf]  🗑️ trash_jobs table ready
+2026-06-17T22:23:45.805282608Z [inf]  📊 page_views analytics table ready
+2026-06-17T22:23:45.829108886Z [inf]  📐 calibration_sessions table ready
+2026-06-17T22:23:45.904157776Z [inf]  🗺️  demand_zones table ready
+2026-06-17T22:23:45.929233542Z [inf]  ✅ Staking pool columns ready
+2026-06-17T22:23:46.159414901Z [inf]  💝 Nicolasa Jackson (Mom) account ready — balance: 13319.09495687 JCMOVES
+2026-06-17T22:23:46.159418761Z [inf]  🤝 Nominees table ready
+2026-06-17T22:23:46.418339182Z [inf]  ✅ Promo code MATTMOVES linked to dawsonsdad8176@gmail.com
+2026-06-17T22:23:46.539715991Z [inf]  ✅ Promo code TIM linked to timothymewbourn3@gmail.com
+2026-06-17T22:23:46.596146412Z [inf]  ✅ Promo code TIMMOVES linked to timothymewbourn3@gmail.com
+2026-06-17T22:23:46.646050226Z [inf]  ✅ Promo code TIMTHEMOVER linked to timothymewbourn3@gmail.com
+2026-06-17T22:23:46.933628098Z [inf]  marketing network reps ready
+2026-06-17T22:23:46.991348556Z [inf]  ✅ Quantum Spin jackpots seeded
+2026-06-17T22:23:47.154014963Z [inf]  ✅ Pricing values corrected to production-ready defaults
+2026-06-17T22:23:47.520237569Z [inf]  [dispatch.migrate] schema ready
+2026-06-17T22:23:47.543663301Z [inf]  [dispatch] initialized — retry cron every 2min
+2026-06-17T22:23:47.594184550Z [inf]  ✅ Flash Sale 10-spin pack already exists
+2026-06-17T22:23:47.604739707Z [inf]  [SESSION] Cookie configuration: name=jc.sid, secure=auto, sameSite=lax, environment=production
+2026-06-17T22:23:47.604742257Z [inf]  ✅ Session management setup completed
+2026-06-17T22:23:47.635567057Z [inf]  💰 Revenue allocations table ready
+2026-06-17T22:23:47.656356244Z [inf]  💵 Prepaid credit intents table ready
+2026-06-17T22:23:47.684001035Z [inf]  🎁 Wallet credit grants table ready
+2026-06-17T22:23:47.734042069Z [inf]  🎟️  Lottery tables ready
+2026-06-17T22:23:47.786768876Z [inf]  Application routes registered successfully
+2026-06-17T22:23:47.786777866Z [inf]  ✅ Task #175 payment routes mounted
+2026-06-17T22:23:47.786780616Z [inf]  ✅ Lead funnel monitor scheduled (every 15 min)
+2026-06-17T22:23:47.786783555Z [inf]  ℹ️  Lawn care re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS=true to enable)
+2026-06-17T22:23:47.786786755Z [inf]    Snow Removal re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS_SNOW=true to enable)
+2026-06-17T22:23:47.786791705Z [inf]    Junk Removal re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS_JUNK=true to enable)
+2026-06-17T22:23:47.786794735Z [inf]    Window Cleaning re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS_WINDOW=true to enable)
+2026-06-17T22:23:47.786797775Z [inf]   Jewelry reservation expiry sweep scheduled (every 10 min)
+2026-06-17T22:23:47.786800435Z [inf]    BTC_WALLET_ADDRESS not set — Bitcoin auto-verify sweep disabled
+2026-06-17T22:23:47.786803095Z [inf]  Configuring static file serving for production...
+2026-06-17T22:23:47.786805375Z [inf]  Static file serving configured successfully
+2026-06-17T22:23:47.786808135Z [inf]  JC ON THE MOVE application started successfully
+2026-06-17T22:23:47.818271739Z [inf]  ✅ idempotency_keys table ready
+2026-06-17T22:23:47.818276479Z [inf]  ✅ Crew dispatch columns ready
+2026-06-17T22:23:47.818281359Z [inf]  ✅ booking_service_items lifecycle columns ready
+2026-06-17T22:23:47.900926155Z [inf]  ✅ service_rebook_reminders table ready
+2026-06-17T22:23:47.900930105Z [inf]  ✅ lead_funnel_alerts table ready
+2026-06-17T22:23:47.905544270Z [inf]  ✅ Reward shop already seeded — skipping
+2026-06-17T22:23:47.934645987Z [inf]  ✅ Mover items migrated (2 Movers · 1 Hr + 2 Movers · 2 Hr)
+2026-06-17T22:23:47.985180955Z [inf]  ℹ️  Reward item already exists, skipping: 10-Window Wash — Free Session
+2026-06-17T22:23:48.016437401Z [inf]  ℹ️  Reward item already exists, skipping: 1 Month of Trash Valet — Free
+2026-06-17T22:23:48.138632522Z [inf]  ℹ️  Reward item already exists, skipping: Handyman Deposit — Long Distance or 2× Local
+2026-06-17T22:23:48.138635272Z [inf]  ℹ️  Reward item already exists, skipping: Tiny Junk Removal ≤ 300 lbs (Local)
+2026-06-17T22:23:48.138637722Z [inf]  ✅ Reward shop migration complete
+2026-06-17T22:24:28.054559280Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:24:28.054564260Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:24:28.054568450Z [inf]  10:24:20 PM [express] POST /api/crew/heartbeat 200 in 625ms :: {"success":true,"expired":false}
+2026-06-17T22:25:28.063862379Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:25:28.063865159Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:25:28.063867619Z [inf]  10:25:20 PM [express] POST /api/crew/heartbeat 200 in 493ms :: {"success":true,"expired":false}
+2026-06-17T22:26:28.073999212Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:26:28.074003612Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:26:28.074006702Z [inf]  10:26:20 PM [express] POST /api/crew/heartbeat 200 in 535ms :: {"success":true,"expired":false}
+2026-06-17T22:27:28.081254001Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:27:28.081259351Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:27:28.081262201Z [inf]  10:27:20 PM [express] POST /api/crew/heartbeat 200 in 496ms :: {"success":true,"expired":false}
+2026-06-17T22:28:28.093736586Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:28:28.093739646Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:28:28.093742966Z [inf]  10:28:20 PM [express] POST /api/crew/heartbeat 200 in 475ms :: {"success":true,"expired":false}
+2026-06-17T22:29:28.107355496Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:29:28.107358696Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:29:28.107361326Z [inf]  10:29:20 PM [express] POST /api/crew/heartbeat 200 in 487ms :: {"success":true,"expired":false}
+2026-06-17T22:30:28.110196841Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:30:28.110202881Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:30:28.110207441Z [inf]  10:30:20 PM [express] POST /api/crew/heartbeat 200 in 477ms :: {"success":true,"expired":false}
+2026-06-17T22:31:28.151357908Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:31:28.151361658Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:31:28.151365328Z [inf]  10:31:20 PM [express] POST /api/crew/heartbeat 200 in 474ms :: {"success":true,"expired":false}
+2026-06-17T22:32:28.105152886Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:32:28.105156696Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:32:28.105159956Z [inf]  10:32:19 PM [express] POST /api/crew/heartbeat 200 in 490ms :: {"success":true,"expired":false}
+2026-06-17T22:33:28.106105852Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:33:28.106112532Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:33:28.106117112Z [inf]  10:33:20 PM [express] POST /api/crew/heartbeat 200 in 500ms :: {"success":true,"expired":false}
+2026-06-17T22:34:28.108231892Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:34:28.108234962Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:34:28.108239292Z [inf]  10:34:19 PM [express] POST /api/crew/heartbeat 200 in 478ms :: {"success":true,"expired":false}
+2026-06-17T22:35:28.121528569Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:35:28.121531419Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:35:28.121533979Z [inf]  10:35:19 PM [express] POST /api/crew/heartbeat 200 in 467ms :: {"success":true,"expired":false}
+2026-06-17T22:36:28.129295946Z [inf]  10:36:20 PM [express] POST /api/crew/heartbeat 200 in 479ms :: {"success":true,"expired":false}
+2026-06-17T22:36:28.129316575Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:36:28.129323035Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:37:28.130168139Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:37:28.130172699Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:37:28.130175299Z [inf]  10:37:19 PM [express] POST /api/crew/heartbeat 200 in 474ms :: {"success":true,"expired":false}
+2026-06-17T22:38:28.159518886Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:38:28.159522936Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:38:28.159526626Z [inf]  10:38:19 PM [express] POST /api/crew/heartbeat 200 in 482ms :: {"success":true,"expired":false}
+2026-06-17T22:39:28.245868208Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:39:28.245879268Z [inf]  10:39:20 PM [express] POST /api/crew/heartbeat 200 in 491ms :: {"success":true,"expired":false}
+2026-06-17T22:39:28.245987046Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:40:28.163394739Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:40:28.163397479Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:40:28.163400059Z [inf]  10:40:20 PM [express] POST /api/crew/heartbeat 200 in 510ms :: {"success":true,"expired":false}
+2026-06-17T22:41:28.166238409Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:41:28.166243969Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:41:28.166248059Z [inf]  10:41:20 PM [express] POST /api/crew/heartbeat 200 in 517ms :: {"success":true,"expired":false}
+2026-06-17T22:42:28.173945549Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:42:28.173952949Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:42:28.173957099Z [inf]  10:42:20 PM [express] POST /api/crew/heartbeat 200 in 491ms :: {"success":true,"expired":false}
+2026-06-17T22:43:28.186799289Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:43:28.186804109Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:43:28.186806968Z [inf]  10:43:20 PM [express] POST /api/crew/heartbeat 200 in 493ms :: {"success":true,"expired":false}
+2026-06-17T22:44:28.195660507Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:44:28.195664967Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:44:28.195668307Z [inf]  10:44:19 PM [express] POST /api/crew/heartbeat 200 in 468ms :: {"success":true,"expired":false}
+2026-06-17T22:45:28.204211546Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:45:28.204215606Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:45:28.204218356Z [inf]  10:45:20 PM [express] POST /api/crew/heartbeat 200 in 469ms :: {"success":true,"expired":false}
+2026-06-17T22:46:28.217417128Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:46:28.217422127Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:46:28.217425927Z [inf]  10:46:20 PM [express] POST /api/crew/heartbeat 200 in 472ms :: {"success":true,"expired":false}
+2026-06-17T22:47:28.148321006Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:47:28.148325506Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:47:28.148328876Z [inf]  10:47:19 PM [express] POST /api/crew/heartbeat 200 in 468ms :: {"success":true,"expired":false}
+2026-06-17T22:48:28.154723309Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:48:28.154728489Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:48:28.154731349Z [inf]  10:48:20 PM [express] POST /api/crew/heartbeat 200 in 490ms :: {"success":true,"expired":false}
+2026-06-17T22:49:28.160262400Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:49:28.160269479Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:49:28.160273689Z [inf]  10:49:20 PM [express] POST /api/crew/heartbeat 200 in 521ms :: {"success":true,"expired":false}
+2026-06-17T22:50:28.155782769Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:50:28.155787939Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:50:28.155791199Z [inf]  10:50:19 PM [express] POST /api/crew/heartbeat 200 in 484ms :: {"success":true,"expired":false}
+2026-06-17T22:51:28.165020405Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:51:28.165024005Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:51:28.165026424Z [inf]  10:51:20 PM [express] POST /api/crew/heartbeat 200 in 477ms :: {"success":true,"expired":false}
+2026-06-17T22:52:28.173421560Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:52:28.173425000Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:52:28.173427470Z [inf]  10:52:20 PM [express] POST /api/crew/heartbeat 200 in 485ms :: {"success":true,"expired":false}
+2026-06-17T22:53:28.173904076Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:53:28.173907356Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:53:28.173910326Z [inf]  10:53:20 PM [express] POST /api/crew/heartbeat 200 in 531ms :: {"success":true,"expired":false}
+2026-06-17T22:54:28.295533701Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:54:28.295543201Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:54:28.295547081Z [inf]  10:54:20 PM [express] POST /api/crew/heartbeat 200 in 537ms :: {"success":true,"expired":false}
+2026-06-17T22:55:28.217466344Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:55:28.217470924Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:55:28.217474744Z [inf]  10:55:20 PM [express] POST /api/crew/heartbeat 200 in 492ms :: {"success":true,"expired":false}
+2026-06-17T22:56:28.225573914Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:56:28.225580354Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:56:28.225584204Z [inf]  10:56:20 PM [express] POST /api/crew/heartbeat 200 in 489ms :: {"success":true,"expired":false}
+2026-06-17T22:57:28.241870527Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:57:28.241873337Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:57:28.241875627Z [inf]  10:57:20 PM [express] POST /api/crew/heartbeat 200 in 506ms :: {"success":true,"expired":false}
+2026-06-17T22:58:28.249428524Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:58:28.249433924Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:58:28.249437244Z [inf]  10:58:19 PM [express] POST /api/crew/heartbeat 200 in 474ms :: {"success":true,"expired":false}
+2026-06-17T22:59:28.259160961Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T22:59:28.259165671Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T22:59:28.259168981Z [inf]  10:59:20 PM [express] POST /api/crew/heartbeat 200 in 499ms :: {"success":true,"expired":false}
+2026-06-17T23:00:28.274849460Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:00:28.274856370Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:00:28.274860440Z [inf]  11:00:20 PM [express] POST /api/crew/heartbeat 200 in 504ms :: {"success":true,"expired":false}
+2026-06-17T23:01:28.282862460Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:01:28.282865440Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:01:28.282868610Z [inf]  11:01:20 PM [express] POST /api/crew/heartbeat 200 in 468ms :: {"success":true,"expired":false}
+2026-06-17T23:02:28.213545140Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:02:28.213550940Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:02:28.213554610Z [inf]  11:02:19 PM [express] POST /api/crew/heartbeat 200 in 462ms :: {"success":true,"expired":false}
+2026-06-17T23:03:28.217419467Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:03:28.217430757Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:03:28.217435067Z [inf]  11:03:20 PM [express] POST /api/crew/heartbeat 200 in 484ms :: {"success":true,"expired":false}
+2026-06-17T23:04:28.227824030Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:04:28.227830060Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:04:28.227834050Z [inf]  11:04:20 PM [express] POST /api/crew/heartbeat 200 in 555ms :: {"success":true,"expired":false}
+2026-06-17T23:05:28.234239526Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:05:28.234246336Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:05:28.234250826Z [inf]  11:05:20 PM [express] POST /api/crew/heartbeat 200 in 483ms :: {"success":true,"expired":false}
+2026-06-17T23:06:28.245274709Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:06:28.245280909Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:06:28.245284299Z [inf]  11:06:20 PM [express] POST /api/crew/heartbeat 200 in 504ms :: {"success":true,"expired":false}
+2026-06-17T23:07:28.260089724Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:07:28.260093764Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:07:28.260097965Z [inf]  11:07:19 PM [express] POST /api/crew/heartbeat 200 in 467ms :: {"success":true,"expired":false}
+2026-06-17T23:08:28.294464741Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:08:28.294469991Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:08:28.294474081Z [inf]  11:08:19 PM [express] POST /api/crew/heartbeat 200 in 461ms :: {"success":true,"expired":false}
+2026-06-17T23:09:28.399912609Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:09:28.399914949Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:09:28.399917329Z [inf]  11:09:19 PM [express] POST /api/crew/heartbeat 200 in 476ms :: {"success":true,"expired":false}
+2026-06-17T23:10:28.321526317Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:10:28.321533147Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:10:28.321537197Z [inf]  11:10:20 PM [express] POST /api/crew/heartbeat 200 in 494ms :: {"success":true,"expired":false}
+2026-06-17T23:11:28.329728802Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:11:28.329733382Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:11:28.329736153Z [inf]  11:11:19 PM [express] POST /api/crew/heartbeat 200 in 467ms :: {"success":true,"expired":false}
+2026-06-17T23:12:28.348063743Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:12:28.348074913Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:12:28.348079333Z [inf]  11:12:19 PM [express] POST /api/crew/heartbeat 200 in 471ms :: {"success":true,"expired":false}
+2026-06-17T23:13:28.352258245Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:13:28.352264075Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:13:28.352268535Z [inf]  11:13:19 PM [express] POST /api/crew/heartbeat 200 in 468ms :: {"success":true,"expired":false}
+2026-06-17T23:14:28.375353470Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:14:28.375358440Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:14:28.375361890Z [inf]  11:14:20 PM [express] POST /api/crew/heartbeat 200 in 471ms :: {"success":true,"expired":false}
+2026-06-17T23:15:28.383492487Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:15:28.383496247Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:15:28.383500937Z [inf]  11:15:20 PM [express] POST /api/crew/heartbeat 200 in 481ms :: {"success":true,"expired":false}
+2026-06-17T23:16:28.398488523Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:16:28.398493263Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:16:28.398497353Z [inf]  11:16:20 PM [express] POST /api/crew/heartbeat 200 in 477ms :: {"success":true,"expired":false}
+2026-06-17T23:17:28.450059485Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:17:28.450064585Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:17:28.450067735Z [inf]  11:17:20 PM [express] POST /api/crew/heartbeat 200 in 477ms :: {"success":true,"expired":false}
+2026-06-17T23:18:28.352876101Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:18:28.352892151Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:18:28.352895161Z [inf]  11:18:19 PM [express] POST /api/crew/heartbeat 200 in 476ms :: {"success":true,"expired":false}
+2026-06-17T23:19:28.360969811Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:19:28.360979591Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:19:28.360982831Z [inf]  11:19:20 PM [express] POST /api/crew/heartbeat 200 in 491ms :: {"success":true,"expired":false}
+2026-06-17T23:20:28.378202521Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:20:28.378207611Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:20:28.378210901Z [inf]  11:20:19 PM [express] POST /api/crew/heartbeat 200 in 483ms :: {"success":true,"expired":false}
+2026-06-17T23:21:28.386968387Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:21:28.386973837Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:21:28.386976687Z [inf]  11:21:19 PM [express] POST /api/crew/heartbeat 200 in 473ms :: {"success":true,"expired":false}
+2026-06-17T23:22:28.390024276Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:22:28.390028676Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:22:28.390031366Z [inf]  11:22:20 PM [express] POST /api/crew/heartbeat 200 in 468ms :: {"success":true,"expired":false}
+2026-06-17T23:23:28.398178491Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:23:28.398182081Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:23:28.398184511Z [inf]  11:23:19 PM [express] POST /api/crew/heartbeat 200 in 468ms :: {"success":true,"expired":false}
+2026-06-17T23:24:28.408667879Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:24:28.408676469Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:24:28.408680059Z [inf]  11:24:20 PM [express] POST /api/crew/heartbeat 200 in 509ms :: {"success":true,"expired":false}
+2026-06-17T23:25:28.443480326Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:25:28.443490106Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:25:28.443495786Z [inf]  11:25:20 PM [express] POST /api/crew/heartbeat 200 in 469ms :: {"success":true,"expired":false}
+2026-06-17T23:26:28.375378839Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:26:28.375382209Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:26:28.375384809Z [inf]  11:26:20 PM [express] POST /api/crew/heartbeat 200 in 472ms :: {"success":true,"expired":false}
+2026-06-17T23:27:28.374218267Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:27:28.374222687Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:27:28.374225787Z [inf]  11:27:20 PM [express] POST /api/crew/heartbeat 200 in 494ms :: {"success":true,"expired":false}
+2026-06-17T23:28:28.383227353Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:28:28.383232173Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:28:28.383235913Z [inf]  11:28:19 PM [express] POST /api/crew/heartbeat 200 in 469ms :: {"success":true,"expired":false}
+2026-06-17T23:29:28.388560946Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:29:28.388563276Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:29:28.388566566Z [inf]  11:29:20 PM [express] POST /api/crew/heartbeat 200 in 502ms :: {"success":true,"expired":false}
+2026-06-17T23:30:28.397852908Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:30:28.397859527Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:30:28.397864107Z [inf]  11:30:20 PM [express] POST /api/crew/heartbeat 200 in 514ms :: {"success":true,"expired":false}
+2026-06-17T23:31:28.410828326Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:31:28.410834576Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:31:28.410838236Z [inf]  11:31:20 PM [express] POST /api/crew/heartbeat 200 in 468ms :: {"success":true,"expired":false}
+2026-06-17T23:32:28.428895811Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:32:28.428900351Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:32:28.428903221Z [inf]  11:32:20 PM [express] POST /api/crew/heartbeat 200 in 494ms :: {"success":true,"expired":false}
+2026-06-17T23:33:28.580067008Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:33:28.580076218Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:33:28.580079918Z [inf]  11:33:19 PM [express] POST /api/crew/heartbeat 200 in 465ms :: {"success":true,"expired":false}
+2026-06-17T23:34:28.701373151Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:34:28.701380611Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:34:28.701384671Z [inf]  11:34:19 PM [express] POST /api/crew/heartbeat 200 in 477ms :: {"success":true,"expired":false}
+2026-06-17T23:35:28.649424623Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:35:28.649429383Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:35:28.649432963Z [inf]  11:35:20 PM [express] POST /api/crew/heartbeat 200 in 488ms :: {"success":true,"expired":false}
+2026-06-17T23:36:28.664925046Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:36:28.664928766Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:36:28.664931366Z [inf]  11:36:20 PM [express] POST /api/crew/heartbeat 200 in 477ms :: {"success":true,"expired":false}
+2026-06-17T23:37:28.669205834Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:37:28.669210074Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:37:28.669212814Z [inf]  11:37:20 PM [express] POST /api/crew/heartbeat 200 in 474ms :: {"success":true,"expired":false}
+2026-06-17T23:38:28.677512215Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:38:28.677516735Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:38:28.677520085Z [inf]  11:38:20 PM [express] POST /api/crew/heartbeat 200 in 498ms :: {"success":true,"expired":false}
+2026-06-17T23:39:28.686423916Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:39:28.686431146Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:39:28.686436416Z [inf]  11:39:20 PM [express] POST /api/crew/heartbeat 200 in 469ms :: {"success":true,"expired":false}
+2026-06-17T23:40:28.693039321Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:40:28.693043221Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:40:28.693046931Z [inf]  11:40:20 PM [express] POST /api/crew/heartbeat 200 in 495ms :: {"success":true,"expired":false}
+2026-06-17T23:41:28.713377975Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:41:28.713388595Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:41:28.713393345Z [inf]  11:41:20 PM [express] POST /api/crew/heartbeat 200 in 481ms :: {"success":true,"expired":false}
+2026-06-17T23:42:28.628144754Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:42:28.628148534Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:42:28.628151734Z [inf]  11:42:20 PM [express] POST /api/crew/heartbeat 200 in 486ms :: {"success":true,"expired":false}
+2026-06-17T23:43:08.631835601Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3As3-Sbau5jip8c029gdhdL1jsjVMQwYOh.ymOLFh%2Fi5sBjM5dlynLRn4ZMlo%2FjbXQaQBQTuOC8qIg"
+2026-06-17T23:43:08.631839561Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: s3-Sbau5 | Has cookie: true
+2026-06-17T23:43:08.631842961Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:43:08.631845671Z [inf]  [AUTH CHECK] ✅ User authenticated (allow pending): employee status: approved
+2026-06-17T23:43:08.631848171Z [inf]  📤 Returning user data for michigankid906@gmail.com (role: employee, tosAccepted: true)
+2026-06-17T23:43:08.631850541Z [inf]  11:43:02 PM [express] GET /api/auth/user 200 in 450ms :: {"id":"48383454","email":"michigankid906@gma…
+2026-06-17T23:43:08.631852981Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:43:08.631855221Z [inf]  11:43:02 PM [express] POST /api/crew/heartbeat 200 in 467ms :: {"success":true,"expired":false}
+2026-06-17T23:43:08.631857291Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:43:08.631860231Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:43:08.631862881Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:43:08.631865141Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:43:08.631867341Z [inf]  11:43:02 PM [express] GET /api/leads/job-board 304 in 107ms :: [{"id":"399db1e2-62a9-4321-b466-7ebd08…
+2026-06-17T23:43:08.631869381Z [inf]  11:43:02 PM [express] GET /api/trash/jobs 304 in 140ms :: []
+2026-06-17T23:43:08.631872061Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:43:08.631874351Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:43:08.631876441Z [inf]  [AUTH CHECK] 🔑 JWT auth — userId: 48383454
+2026-06-17T23:43:08.631878481Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:43:08.632293833Z [inf]  11:43:02 PM [express] GET /api/payment-status/361a59a3-8846-48c4-9e6b-50d1d9a16b44 304 in 229ms :: {"…
+2026-06-17T23:43:08.632297143Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:43:08.632299773Z [inf]  11:43:02 PM [express] GET /api/payment-status/5073d011-d8ad-405f-ab17-233b61923e35 304 in 325ms :: {"…
+2026-06-17T23:43:08.632303233Z [inf]  11:43:02 PM [express] GET /api/payment-status/7611908a-0569-4957-a717-3918e09e49c6 304 in 335ms :: {"…
+2026-06-17T23:43:08.632305403Z [inf]  11:43:02 PM [express] GET /api/payment-status/e3e9b895-50fd-4f37-8bc2-e657c08b7555 304 in 345ms :: {"…
+2026-06-17T23:43:08.632307943Z [inf]  11:43:02 PM [express] GET /api/payment-status/399db1e2-62a9-4321-b466-7ebd08e82f5b 304 in 342ms :: {"…
+2026-06-17T23:43:08.632310533Z [inf]  11:43:02 PM [express] GET /api/mining/status 304 in 349ms :: {"currentSession":{"id":"3761411e-5f57-4…
+2026-06-17T23:43:08.632313213Z [inf]  11:43:02 PM [express] GET /api/rewards/history 304 in 365ms :: {"rewards":[{"id":"3b1b2891-1458-463c-…
+2026-06-17T23:43:08.632315643Z [inf]  [AUTH CHECK] ✅ User authenticated and approved: employee
+2026-06-17T23:43:08.632318103Z [inf]  11:43:02 PM [express] GET /api/leads/my-jobs 304 in 513ms :: [{"id":"9f7e83c4-6dd7-4bc2-89a8-14d431a2…

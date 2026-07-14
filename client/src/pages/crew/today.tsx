@@ -26,6 +26,7 @@ import { LevelBadge } from "@/components/LevelBadge";
 import { WorkerBadge } from "@/components/WorkerBadge";
 import { ConfettiBurst } from "@/components/ConfettiBurst";
 import { getWorkerLevel, type LoyaltyTierKey } from "@/lib/loyalty";
+import { useAdminViewMode } from "@/hooks/useAdminViewMode";
 import ProcessFlowCard, { type ProcessFlowStep } from "@/components/ProcessFlowCard";
 import MarketplaceSourceFlowStrip from "@/components/MarketplaceSourceFlowStrip";
 import MarketplaceShapeBadge from "@/components/MarketplaceShapeBadge";
@@ -308,9 +309,10 @@ function CrewPositioningCard({ hasAcceptedJobs }: { hasAcceptedJobs: boolean }) 
 
 export default function CrewTodayPage() {
   const { user } = useAuth();
+  const { isCrewPreview } = useAdminViewMode();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const isAdmin = ["admin", "business_owner"].includes(user?.role || "");
+  const isAdmin = ["admin", "business_owner"].includes(user?.role || "") && !isCrewPreview;
 
   const dayOfYear = getDayOfYear();
   const scriptureOfDay = SCRIPTURES[dayOfYear % SCRIPTURES.length];
@@ -383,7 +385,7 @@ export default function CrewTodayPage() {
   }
 
   function quickAddJobHref(dateStr: string) {
-    return `/book?worker=1&mode=worker&service=moving&date=${dateStr}&step=configure`;
+    return `/leads?tab=add&date=${dateStr}`;
   }
 
   function goToPrevCalMonth() {

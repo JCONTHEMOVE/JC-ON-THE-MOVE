@@ -6,6 +6,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,7 +14,7 @@ import {
   MapPin, Calendar, Loader2, ChevronRight, Briefcase, Coins, Users,
   CheckCircle2, ClipboardList, Plus, Truck, Clock, ArrowLeftRight,
   Star, AlertCircle, ChevronDown, Navigation, Play, Flag, XCircle, DollarSign,
-  Archive, Trash2
+  Archive, Trash2, Pencil, Save
 } from "lucide-react";
 import { useLocation } from "wouter";
 import type { User } from "@shared/schema";
@@ -32,6 +33,7 @@ import SmartBookingGuidanceCard from "@/components/SmartBookingGuidanceCard";
 import { BookingMenuIntelligenceCard } from "@/components/BookingMenuIntelligenceCard";
 import { extractBookingMenuIntelligence, extractSmartBookingAnswersFromQuoteSnapshot } from "@/lib/booking-menu-intelligence";
 import type { SmartBookingAnswers } from "@shared/smartBookingEngine";
+import { useAdminViewMode } from "@/hooks/useAdminViewMode";
 
 const SERVICE_ICONS: Record<string, string> = {
   residential: "🚛", commercial: "🏢", junk: "🗑️", snow: "❄️",
@@ -156,7 +158,10 @@ type JobBoardLead = {
   crewMembers: string[] | null;
   firstName?: string;
   lastName?: string;
+  phone?: string | null;
+  email?: string | null;
   dispatchNotes?: string | null;
+  dispatchState?: string | null;
   quoteSnapshot?: unknown;
   bonus?: { amount: number; reasons: string[] } | null;
 };
@@ -182,6 +187,7 @@ type EnrichedLead = {
   crewMembers: string[] | null;
   firstName: string;
   lastName: string;
+  email?: string | null;
   dispatchNotes: string | null;
   phone?: string | null;
   dispatchState?: string | null;
@@ -205,6 +211,122 @@ type TradeRequestStatus = {
   status: string;
   requesterNote: string | null;
 };
+
+type AdminJobStatus =
+  | "new"
+  | "contacted"
+  | "quoted"
+  | "confirmed"
+  | "available"
+  | "accepted"
+  | "dispatched"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "quote_requested";
+
+type JobEditForm = {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+  date: string;
+  arrivalWindow: string;
+  fromAddress: string;
+  toAddress: string;
+  confirmedHours: string;
+  crewSize: string;
+  basePrice: string;
+  totalPrice: string;
+  details: string;
+  dispatchNotes: string;
+  status: AdminJobStatus;
+  crewMemberIds: string[];
+};
+
+const ADMIN_STATUS_OPTIONS: { value: AdminJobStatus; label: string }[] = [
+  { value: "quote_requested", label: "Quote requested" },
+  { value: "new", label: "New" },
+  { value: "contacted", label: "Contacted" },
+  { value: "quoted", label: "Quoted" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "available", label: "Available to crew" },
+  { value: "accepted", label: "Crew full / accepted" },
+  { value: "dispatched", label: "Dispatched" },
+  { value: "in_progress", label: "In progress" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
+function dateInputValue(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.includes("T") ? value.slice(0, 10) : value;
+}
+
+function moneyText(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "";
+  const parsed = Number(String(value).replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed.toFixed(2) : "";
+}
+
+function statusForForm(value: string | null | undefined): AdminJobStatus {
+  return ADMIN_STATUS_OPTIONS.some(option => option.value === value)
+    ? value as AdminJobStatus
+    : "quote_requested";
+}
+
+function numberOrNull(value: string): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+}
+
+function moneyOrNull(value: string): string | null {
+  const parsed = Number(String(value).replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed.toFixed(2) : null;
+}
+
+function dispatchStateForLeadStatus(status: AdminJobStatus): string | null {
+  if (status === "completed") return "completed";
+  if (status === "in_progress") return "en_route";
+  if (status === "accepted" || status === "dispatched") return "assigned";
+  if (status === "available" || status === "confirmed" || status === "quoted" || status === "quote_requested" || status === "new") return "pending";
+  if (status === "cancelled") return "failed";
+  return null;
+}
+
+function buildJobEditForm(lead: JobBoardLead | EnrichedLead): JobEditForm {
+  return {
+    firstName: lead.firstName || "",
+    lastName: lead.lastName || "",
+    phone: lead.phone || "",
+    email: lead.email || "",
+    date: dateInputValue(lead.confirmedDate || lead.moveDate),
+    arrivalWindow: lead.arrivalWindow || "",
+    fromAddress: lead.fromAddress || "",
+    toAddress: lead.toAddress || "",
+    confirmedHours: lead.confirmedHours ? String(lead.confirmedHours) : "",
+    crewSize: String(lead.crewSize || 2),
+    basePrice: moneyText(lead.basePrice),
+    totalPrice: moneyText(lead.totalPrice),
+    details: lead.details || "",
+    dispatchNotes: lead.dispatchNotes || "",
+    status: statusForForm(lead.status),
+    crewMemberIds: Array.isArray(lead.crewMembers) ? lead.crewMembers : [],
+  };
+}
+
+function leadNeedsAdminInfo(lead: JobBoardLead | EnrichedLead): boolean {
+  const tbdText = [lead.fromAddress, lead.toAddress, lead.arrivalWindow, lead.dispatchNotes, lead.details]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    !dateInputValue(lead.confirmedDate || lead.moveDate) ||
+    !lead.arrivalWindow ||
+    !lead.confirmedHours ||
+    !lead.fromAddress ||
+    /\bTBD\b|exact address|local job/i.test(tbdText)
+  );
+}
 
 function PremiumBadge({ label, color }: { label: string; color: string }) {
   return (
@@ -696,25 +818,41 @@ function JobDetailSheet({
   onClose,
   lead,
   isAssigned,
+  isAdmin,
   myId,
   employees,
   tradeRequests,
+  onLeadUpdated,
 }: {
   open: boolean;
   onClose: () => void;
   lead: JobBoardLead | EnrichedLead | null;
   isAssigned: boolean;
+  isAdmin: boolean;
   myId: string;
   employees: User[];
   tradeRequests: TradeRequestStatus[];
+  onLeadUpdated: (lead: JobBoardLead | EnrichedLead) => void;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showTradeForm, setShowTradeForm] = useState(false);
   const [tradeTargetId, setTradeTargetId] = useState("");
   const [tradeNote, setTradeNote] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState<JobEditForm | null>(null);
 
   const myTradeRequest = tradeRequests.find(r => r.leadId === lead?.id && r.requesterId === myId) || null;
+
+  useEffect(() => {
+    if (!lead) {
+      setEditForm(null);
+      setEditOpen(false);
+      return;
+    }
+    setEditForm(buildJobEditForm(lead));
+    setEditOpen(isAdmin && leadNeedsAdminInfo(lead));
+  }, [lead?.id, isAdmin]);
 
   const tradeMutation = useMutation({
     mutationFn: async () => {
@@ -741,6 +879,85 @@ function JobDetailSheet({
     },
   });
 
+  const saveJobMutation = useMutation({
+    mutationFn: async () => {
+      if (!lead || !editForm) throw new Error("No job selected");
+
+      const date = editForm.date.trim();
+      const fromAddress = editForm.fromAddress.trim();
+      if (!fromAddress) {
+        throw new Error("Pickup address is required. Use a clear TBD note if the exact address is not known yet.");
+      }
+
+      const selectedCrew = editForm.crewMemberIds;
+      const crewSize = numberOrNull(editForm.crewSize) || Math.max(1, selectedCrew.length || 2);
+      const confirmedHours = numberOrNull(editForm.confirmedHours);
+      const statusChanged = editForm.status !== statusForForm(lead.status);
+      const dispatchState = statusChanged ? dispatchStateForLeadStatus(editForm.status) : lead.dispatchState || null;
+
+      const payload: Record<string, unknown> = {
+        firstName: editForm.firstName.trim() || lead.firstName || "Customer",
+        lastName: editForm.lastName.trim() || lead.lastName || "Job",
+        phone: editForm.phone.trim() || lead.phone || "TBD",
+        confirmedDate: date || null,
+        moveDate: date || null,
+        arrivalWindow: editForm.arrivalWindow.trim() || null,
+        fromAddress,
+        confirmedFromAddress: fromAddress,
+        toAddress: editForm.toAddress.trim() || null,
+        confirmedToAddress: editForm.toAddress.trim() || null,
+        details: editForm.details.trim() || null,
+        dispatchNotes: editForm.dispatchNotes.trim() || null,
+        confirmedHours,
+        crewSize,
+        crewMembers: selectedCrew,
+        assignedToUserId: selectedCrew[0] || null,
+        basePrice: moneyOrNull(editForm.basePrice),
+        totalPrice: moneyOrNull(editForm.totalPrice),
+      };
+
+      if (editForm.email.trim()) {
+        payload.email = editForm.email.trim();
+      }
+      if (dispatchState) {
+        payload.dispatchState = dispatchState;
+      }
+
+      const updateRes = await apiRequest("PATCH", `/api/leads/${lead.id}`, payload);
+      if (!updateRes.ok) {
+        const err = await updateRes.json().catch(() => ({ error: "Failed to save job details" }));
+        throw new Error(err.error || err.message || "Failed to save job details");
+      }
+      let updated = await updateRes.json();
+
+      if (statusChanged) {
+        const statusRes = await apiRequest("PATCH", `/api/leads/${lead.id}/status/force`, {
+          status: editForm.status,
+          note: `Admin job editor: ${lead.status} -> ${editForm.status}`,
+        });
+        if (!statusRes.ok) {
+          const err = await statusRes.json().catch(() => ({ error: "Job details saved, but status update failed" }));
+          throw new Error(err.error || err.message || "Job details saved, but status update failed");
+        }
+        updated = await statusRes.json();
+      }
+
+      return updated as JobBoardLead | EnrichedLead;
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/job-board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
+      onLeadUpdated(updated);
+      setEditForm(buildJobEditForm(updated));
+      setEditOpen(false);
+      toast({ title: "Job updated", description: "The crew job details and status are saved." });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Save failed", description: e.message, variant: "destructive" });
+    },
+  });
+
   if (!lead) return null;
 
   const effectiveDate = lead.confirmedDate || lead.moveDate;
@@ -761,6 +978,9 @@ function JobDetailSheet({
   const crewEmployees = crewMembersArr
     .map(id => employees.find(e => e.id === id))
     .filter(Boolean) as User[];
+
+  const editorNeedsInfo = leadNeedsAdminInfo(lead);
+  const selectedCrewCount = editForm?.crewMemberIds.length || 0;
 
   const availableForTrade = employees.filter(
     e => e.id !== myId && !crewMembersArr.includes(e.id) && e.status === "approved"
@@ -794,6 +1014,289 @@ function JobDetailSheet({
         </SheetHeader>
 
         <div className="pt-4 space-y-5">
+          {isAdmin && editForm && (
+            <div className="rounded-xl border border-blue-500/30 bg-blue-950/20 p-3 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-blue-300">Admin job editor</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Fill the TBD fields, crew, pay, and status without leaving this job.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {editorNeedsInfo && (
+                    <Badge className="bg-orange-500/15 text-orange-200 border-orange-500/30 text-[10px]">
+                      Needs info
+                    </Badge>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setEditOpen(open => !open)}
+                    className="border-blue-500/40 text-blue-200 hover:bg-blue-500/10 hover:text-white"
+                    data-testid="button-toggle-admin-job-editor"
+                  >
+                    <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                    {editOpen ? "Hide" : "Edit"}
+                  </Button>
+                </div>
+              </div>
+
+              {!editOpen ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="rounded-lg bg-slate-950/40 border border-slate-800 p-2">
+                    <p className="text-slate-500 uppercase tracking-wide">Status</p>
+                    <p className="mt-0.5 text-white font-semibold capitalize">{lead.status.replaceAll("_", " ")}</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-950/40 border border-slate-800 p-2">
+                    <p className="text-slate-500 uppercase tracking-wide">Date</p>
+                    <p className="mt-0.5 text-white font-semibold">{formatDateShort(effectiveDate)}</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-950/40 border border-slate-800 p-2">
+                    <p className="text-slate-500 uppercase tracking-wide">Arrival</p>
+                    <p className="mt-0.5 text-white font-semibold">{lead.arrivalWindow || "TBD"}</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-950/40 border border-slate-800 p-2">
+                    <p className="text-slate-500 uppercase tracking-wide">Crew</p>
+                    <p className="mt-0.5 text-white font-semibold">{crewMembersArr.length}/{lead.crewSize || 2}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      First name
+                      <Input
+                        value={editForm.firstName}
+                        onChange={e => setEditForm(form => form ? { ...form, firstName: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Last name
+                      <Input
+                        value={editForm.lastName}
+                        onChange={e => setEditForm(form => form ? { ...form, lastName: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Phone
+                      <Input
+                        value={editForm.phone}
+                        onChange={e => setEditForm(form => form ? { ...form, phone: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Email
+                      <Input
+                        value={editForm.email}
+                        onChange={e => setEditForm(form => form ? { ...form, email: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Date
+                      <Input
+                        type="date"
+                        value={editForm.date}
+                        onChange={e => setEditForm(form => form ? { ...form, date: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Arrival
+                      <Input
+                        value={editForm.arrivalWindow}
+                        placeholder="8 AM - 9 AM"
+                        onChange={e => setEditForm(form => form ? { ...form, arrivalWindow: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Hours
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={editForm.confirmedHours}
+                        onChange={e => setEditForm(form => form ? { ...form, confirmedHours: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Status
+                      <select
+                        value={editForm.status}
+                        onChange={e => setEditForm(form => form ? { ...form, status: e.target.value as AdminJobStatus } : form)}
+                        className="mt-1 h-10 w-full rounded-md border border-slate-700 bg-slate-950/60 px-3 text-sm text-white outline-none focus:border-blue-500"
+                      >
+                        {ADMIN_STATUS_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Pickup
+                      <Textarea
+                        value={editForm.fromAddress}
+                        onChange={e => setEditForm(form => form ? { ...form, fromAddress: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white text-sm resize-none"
+                        rows={2}
+                      />
+                    </label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Dropoff / delivery
+                      <Textarea
+                        value={editForm.toAddress}
+                        onChange={e => setEditForm(form => form ? { ...form, toAddress: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white text-sm resize-none"
+                        rows={2}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Crew needed
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={editForm.crewSize}
+                        onChange={e => setEditForm(form => form ? { ...form, crewSize: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Base price
+                      <Input
+                        inputMode="decimal"
+                        value={editForm.basePrice}
+                        onChange={e => setEditForm(form => form ? { ...form, basePrice: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Total price
+                      <Input
+                        inputMode="decimal"
+                        value={editForm.totalPrice}
+                        onChange={e => setEditForm(form => form ? { ...form, totalPrice: e.target.value } : form)}
+                        className="mt-1 bg-slate-950/60 border-slate-700 text-white"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Crew assigned ({selectedCrewCount}/{editForm.crewSize || 2})
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={selectedCrewCount === 0}
+                        onClick={() => setEditForm(form => form ? { ...form, crewSize: String(Math.max(1, form.crewMemberIds.length)) } : form)}
+                        className="h-8 border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/10 hover:text-white text-xs"
+                      >
+                        Set crew full
+                      </Button>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                      {employees.map(emp => {
+                        const checked = editForm.crewMemberIds.includes(emp.id);
+                        return (
+                          <button
+                            key={emp.id}
+                            type="button"
+                            onClick={() => setEditForm(form => {
+                              if (!form) return form;
+                              const exists = form.crewMemberIds.includes(emp.id);
+                              return {
+                                ...form,
+                                crewMemberIds: exists
+                                  ? form.crewMemberIds.filter(id => id !== emp.id)
+                                  : [...form.crewMemberIds, emp.id],
+                              };
+                            })}
+                            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                              checked
+                                ? "border-blue-500/50 bg-blue-500/15 text-white"
+                                : "border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-600"
+                            }`}
+                          >
+                            <span className={`h-4 w-4 rounded border flex-shrink-0 ${checked ? "border-blue-400 bg-blue-500" : "border-slate-600"}`} />
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">{emp.firstName} {emp.lastName}</span>
+                              <span className="block truncate text-[10px] text-slate-500">{emp.email}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Job details
+                    <Textarea
+                      value={editForm.details}
+                      onChange={e => setEditForm(form => form ? { ...form, details: e.target.value } : form)}
+                      className="mt-1 bg-slate-950/60 border-slate-700 text-white text-sm resize-none"
+                      rows={3}
+                    />
+                  </label>
+
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Dispatch notes
+                    <Textarea
+                      value={editForm.dispatchNotes}
+                      onChange={e => setEditForm(form => form ? { ...form, dispatchNotes: e.target.value } : form)}
+                      className="mt-1 bg-slate-950/60 border-slate-700 text-white text-sm resize-none"
+                      rows={3}
+                    />
+                  </label>
+
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => saveJobMutation.mutate()}
+                      disabled={saveJobMutation.isPending}
+                      className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold"
+                      data-testid="button-save-admin-job-editor"
+                    >
+                      {saveJobMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Save className="h-4 w-4 mr-2" />
+                          Save job
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setEditForm(buildJobEditForm(lead));
+                        setEditOpen(false);
+                      }}
+                      className="border-slate-700 text-slate-300 hover:text-white"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <JobLifecycleRail lead={lead} />
           <SmartBookingGuidanceCard
             answers={guidanceAnswers}
@@ -1030,6 +1533,7 @@ function JobDetailSheet({
 
 export default function CrewJobsPage() {
   const { user } = useAuth();
+  const { isCrewPreview } = useAdminViewMode();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [location, navigate] = useLocation();
@@ -1037,7 +1541,7 @@ export default function CrewJobsPage() {
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobBoardLead | EnrichedLead | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const isAdmin = ["admin", "business_owner"].includes(user?.role || "");
+  const isAdmin = ["admin", "business_owner"].includes(user?.role || "") && !isCrewPreview;
 
   const { data: boardJobs = [], isLoading: boardLoading } = useQuery<JobBoardLead[]>({
     queryKey: ["/api/leads/job-board"],
@@ -1261,7 +1765,7 @@ export default function CrewJobsPage() {
           <h1 className="text-2xl font-black text-white">Jobs</h1>
           <p className="text-slate-400 text-sm">Job board & your assignments</p>
         </div>
-        <Button size="sm" className="bg-blue-600 hover:bg-blue-500" onClick={() => navigate("/book?worker=1")}>
+        <Button size="sm" className="bg-blue-600 hover:bg-blue-500" onClick={() => navigate("/leads?tab=add")}>
           <Plus className="h-4 w-4 mr-1" /> Add Lead
         </Button>
       </div>
@@ -1413,9 +1917,13 @@ export default function CrewJobsPage() {
         onClose={() => { setDetailOpen(false); setSelectedJob(null); }}
         lead={selectedJob}
         isAssigned={isAssigned}
+        isAdmin={isAdmin}
         myId={user?.id || ""}
         employees={employees}
         tradeRequests={myTradeRequests}
+        onLeadUpdated={(updated) => {
+          setSelectedJob(prev => prev?.id === updated.id ? { ...prev, ...updated } : updated);
+        }}
       />
     </div>
   );

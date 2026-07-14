@@ -22,7 +22,7 @@ import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
 import { eq, desc, sql, and, gte, lte, or, ilike, inArray, isNull } from 'drizzle-orm';
 import { db, pool } from './db';
-import { rewards, walletAccounts, walletPayouts, cashoutRequests, fundingDeposits, reserveTransactions, treasuryAccounts, users, leads, swapRequests, treasurySwapRules, bitcoinPayments, stakes, stakingTiers, contacts, notifications, walletTransactions, jewelryItems, shopItems, giftCards, miningSessions, miningClaims, treasuryWithdrawals, tokenConversions, rewardSettings, recoveryTokens, promoCodes, reviews, rewardCategories, rewardItems, rewardRedemptions, buybackFund, laborQuotes, jobTradeRequests, workerProfiles, quoteApprovals, quoteConsensusVotes, quoteAttributions, marketingReps, marketingCallEvents, insertMarketingRepSchema, jobPayoutSettings, referralPartners, jobAssignments, jobPayoutCalculations, jobWorkerPayouts } from '@shared/schema';
+import { rewards, walletAccounts, walletPayouts, cashoutRequests, fundingDeposits, reserveTransactions, treasuryAccounts, users, leads, swapRequests, treasurySwapRules, bitcoinPayments, stakes, stakingTiers, contacts, notifications, walletTransactions, jewelryItems, shopItems, giftCards, miningSessions, miningClaims, treasuryWithdrawals, tokenConversions, rewardSettings, recoveryTokens, promoCodes, reviews, reviewTipAllocations, rewardCategories, rewardItems, rewardRedemptions, buybackFund, laborQuotes, jobTradeRequests, workerProfiles, quoteApprovals, quoteConsensusVotes, quoteAttributions, marketingReps, marketingCallEvents, insertMarketingRepSchema, jobPayoutSettings, referralPartners, jobAssignments, jobPayoutCalculations, jobWorkerPayouts } from '@shared/schema';
 import { DEFAULT_MARKETING_REPS } from '@shared/marketingNetwork';
 import {
   getRouteDayDiscountEligibility,
@@ -42,6 +42,16 @@ import { calculateMovingTravelCharge } from "@shared/movingPricing";
 import { TRASH_VALET_TRAVEL_THRESHOLD_MILES, TRASH_VALET_OUT_OF_AREA_MINIMUM } from "@shared/trashValetPricing";
 import { calculateJumpStartQuote } from "@shared/jumpStartPricing";
 import { walletService } from "./services/wallet";
+import {
+  createBitPayCheckoutIntent,
+  cryptoPaymentsEnabled,
+  cryptoPaymentsProvider,
+  extractBitPayInvoiceId,
+  fetchBitPayInvoice,
+  mapBitPayInvoiceStatus,
+  parseBitPayWebhookBody,
+  validateOptionalBitPayWebhookSignature,
+} from "./services/cryptoPayments";
 import { solanaMonitor } from "./services/solana-monitor";
 import type { BlockchainStatus } from "./services/bitcoinPaymentVerifier";
 import { crewSuggestionService } from "./services/crew-suggestions";
@@ -64,6 +74,7 @@ import lawnCareRouter from "./routes/lawnCare";
 import serviceRebookRouter from "./routes/serviceRebookReminders";
 import serviceRebookPublicRouter from "./routes/serviceRebookPublic";
 import marketingWebhookRemindersRouter from "./routes/marketingWebhookReminders";
+import { createMarketingExecutionRouter } from "./routes/marketingExecution";
 import bookingsRouter from "./routes/bookings";
 import pipelineRouter from "./routes/pipeline";
 import aiBookingRouter from "./routes/aiBooking";
@@ -84,6 +95,126 @@ const CHATBOT_DRIVE_BASE_LAT = 46.4539;
 const CHATBOT_DRIVE_BASE_LNG = -90.1715;
 const CHATBOT_JUNK_TRAVEL_TIER_MILES = 25;
 const CHATBOT_JUNK_TRAVEL_CHARGE_PER_TIER = 50;
+
+const staffJobIntakeSchema = z.object({
+  customerName: z.string().trim().min(1, "Customer name is required").max(120),
+  phone: z.string().trim().min(7, "A customer phone number is required").max(32),
+  email: z.union([z.string().trim().email("Enter a valid email address"), z.literal("")]).optional()
+    .transform((value) => value?.trim() || ""),
+  serviceCode: z.enum(["load_unload", "pack_unpack", "delivery", "ubox", "junk", "commercial"]),
+  fromAddress: z.string().trim().min(4, "Pickup or service address is required").max(300),
+  toAddress: z.string().trim().max(300).optional().transform((value) => value || ""),
+  zip: z.string().trim().regex(/^\d{5}(?:-\d{4})?$/, "Enter a 5-digit service ZIP code"),
+  moveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a job date"),
+  arrivalWindow: z.string().trim().max(100).optional().transform((value) => value || ""),
+  crewSize: z.coerce.number().int().min(1).max(12),
+  expectedHours: z.coerce.number().int().min(1).max(24),
+  truckProvider: z.enum(["jc_on_the_move", "customer", "rental_uhaul", "none"]),
+  truckSize: z.enum(["none", "15_ft", "20_ft", "26_ft", "custom"]),
+  internalNotes: z.string().trim().max(4000).optional().transform((value) => value || ""),
+});
+
+const STAFF_JOB_SERVICE_TYPES: Record<z.infer<typeof staffJobIntakeSchema>["serviceCode"], string> = {
+  load_unload: "residential",
+  pack_unpack: "residential",
+  delivery: "residential",
+  ubox: "residential",
+  junk: "junk",
+  commercial: "commercial",
+};
+
+const STAFF_JOB_ZONE_CODES: Record<z.infer<typeof staffJobIntakeSchema>["serviceCode"], "load_unload" | "pack_unpack" | "delivery" | "ubox"> = {
+  load_unload: "load_unload",
+  pack_unpack: "pack_unpack",
+  delivery: "delivery",
+  ubox: "ubox",
+  // Junk and commercial jobs use the moving-labor rate as a preliminary labor
+  // estimate. Disposal, special equipment, and job-specific charges still go
+  // through an owner quote review.
+  junk: "load_unload",
+  commercial: "load_unload",
+};
+
+function staffTruckConfig(provider: z.infer<typeof staffJobIntakeSchema>["truckProvider"]) {
+  if (provider === "jc_on_the_move") return "company_truck";
+  if (provider === "customer") return "customer_truck";
+  if (provider === "rental_uhaul") return "rental_truck";
+  return "no_truck";
+}
+
+function splitStaffCustomerName(customerName: string) {
+  const [firstName, ...lastName] = customerName.trim().split(/\s+/);
+  return { firstName, lastName: lastName.join(" ") };
+}
+
+type CleanupLeadRow = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  serviceType: string;
+  fromAddress: string;
+  moveDate: string | null;
+  confirmedDate: string | null;
+  details: string | null;
+  source: string | null;
+  createdAt: Date | string | null;
+};
+
+function cleanupCategoryForLead(lead: CleanupLeadRow) {
+  const name = `${lead.firstName || ""} ${lead.lastName || ""}`.trim();
+  const marker = `${name}\n${lead.email || ""}\n${lead.details || ""}\n${lead.source || ""}\n${lead.fromAddress || ""}`.toLowerCase();
+  const explicitlySafeTest =
+    /\[(?:test|qa)[^\]]*(?:safe to archive|archive)\]/i.test(lead.details || "") ||
+    /\btest\s+(?:customerflow|api|lead)\b/i.test(name) ||
+    /\btest\s+flow\b.*\bsafe\s+to\s+archive\b/i.test(lead.details || "");
+  if (explicitlySafeTest) return "unmistakable_test" as const;
+
+  const synthetic = /@[^\s]+\.(?:local|test)\b|\b(?:test|demo|sample|seed|synthetic|internal)\b/.test(marker);
+  if (synthetic) return "internal_synthetic" as const;
+
+  const scheduledDate = String(lead.confirmedDate || lead.moveDate || "").slice(0, 10);
+  const today = getEasternDateStr();
+  if (scheduledDate && scheduledDate < today) return "past_dated" as const;
+  return null;
+}
+
+type JcMovesUsdBonusPack = {
+  id: string;
+  name: string;
+  amountUsd: number;
+  bonusTokens: number;
+};
+
+const JCMOVES_USD_BONUS_PACKS: JcMovesUsdBonusPack[] = [
+  { id: "moving_help_100_bonus", name: "$100 Moving Help Bonus Pack", amountUsd: 100, bonusTokens: 1000 },
+  { id: "moving_help_250_bonus", name: "$250 Moving Help Bonus Pack", amountUsd: 250, bonusTokens: 2500 },
+  { id: "moving_help_500_bonus", name: "$500 Moving Help Bonus Pack", amountUsd: 500, bonusTokens: 5000 },
+  { id: "moving_help_1000_bonus", name: "$1,000 Moving Help Bonus Pack", amountUsd: 1000, bonusTokens: 10000 },
+];
+
+const JCMOVES_USD_BONUS_PACK_BY_ID = new Map(
+  JCMOVES_USD_BONUS_PACKS.map((pack) => [pack.id, pack])
+);
+
+function resolveJcMovesUsdBonusPack(rawPackId: unknown, rawAmountUsd: unknown) {
+  const requestedPackId = typeof rawPackId === "string" ? rawPackId.trim() : "";
+  const pack = requestedPackId ? JCMOVES_USD_BONUS_PACK_BY_ID.get(requestedPackId) : null;
+  const requestedAmountUsd = parseFloat(String(rawAmountUsd ?? (pack ? String(pack.amountUsd) : "0")));
+  if (requestedPackId && !pack) {
+    return { error: "Unknown JCMOVES USD pack" } as const;
+  }
+  if (pack && Number.isFinite(requestedAmountUsd) && Math.abs(requestedAmountUsd - pack.amountUsd) > 0.005) {
+    return { error: `This bonus pack is fixed at $${pack.amountUsd}` } as const;
+  }
+  return {
+    pack,
+    amountUsd: pack ? pack.amountUsd : requestedAmountUsd,
+    packId: pack?.id ?? null,
+    bonusTokens: pack?.bonusTokens ?? 0,
+  } as const;
+}
 
 function safeMarketingTracking(raw: unknown) {
   const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
@@ -248,6 +379,9 @@ async function ensureRewardSettingsSeeded() {
         { settingKey: "shop_purchase", label: "Shop Purchase Reward", description: "Tokens awarded to buyer after a community shop purchase", tokenAmount: "100.00", isActive: true },
         { settingKey: "jewelry_purchase", label: "Jewelry Purchase Reward", description: "Tokens awarded after a Nature Made Jewls purchase", tokenAmount: "150.00", isActive: true },
         { settingKey: "customer_quote_completed", label: "Job Completion Bonus", description: "Flat JCMOVES bonus awarded to customer when their job is marked completed", tokenAmount: "1500.00", isActive: true },
+        { settingKey: "customer_review_submitted", label: "Customer Review Bonus", description: "JCMOVES awarded to a customer after reviewing a completed job", tokenAmount: "250.00", isActive: true },
+        { settingKey: "worker_4_star_review_bonus", label: "Worker 4-Star Review Bonus", description: "JCMOVES awarded to each assigned mover when a completed-job customer review is 4 stars", tokenAmount: "250.00", isActive: true },
+        { settingKey: "worker_5_star_review_bonus", label: "Worker 5-Star Review Bonus", description: "JCMOVES awarded to each assigned mover when a completed-job customer review is 5 stars", tokenAmount: "500.00", isActive: true },
         { settingKey: "redemption_auto_approve_threshold", label: "Redemption Auto-Approve Threshold", description: "Redemptions under this token amount are auto-approved. At or above this amount are held for manual admin review.", tokenAmount: "5000.00", isActive: true },
         { settingKey: "moving_completion_bonus", label: "Moving Job Bonus", description: "Extra JCMOVES awarded to customers when a moving job is completed", tokenAmount: "500.00", isActive: true },
         { settingKey: "junk_removal_completion_bonus", label: "Junk Removal Bonus", description: "Extra JCMOVES awarded to customers when a junk removal job is completed", tokenAmount: "300.00", isActive: true },
@@ -281,6 +415,18 @@ async function ensureRewardSettingsSeeded() {
       if (!hasCompletionBonus) {
         await db.insert(rewardSettings).values({ settingKey: "customer_quote_completed", label: "Job Completion Bonus", description: "Flat JCMOVES bonus awarded to customer when their job is marked completed", tokenAmount: "1500.00", isActive: true });
         console.log("✅ customer_quote_completed setting inserted — 1500 JCMOVES flat completion bonus");
+      }
+      const reviewBonusDefaults = [
+        { settingKey: "customer_review_submitted", label: "Customer Review Bonus", description: "JCMOVES awarded to a customer after reviewing a completed job", tokenAmount: "250.00" },
+        { settingKey: "worker_4_star_review_bonus", label: "Worker 4-Star Review Bonus", description: "JCMOVES awarded to each assigned mover when a completed-job customer review is 4 stars", tokenAmount: "250.00" },
+        { settingKey: "worker_5_star_review_bonus", label: "Worker 5-Star Review Bonus", description: "JCMOVES awarded to each assigned mover when a completed-job customer review is 5 stars", tokenAmount: "500.00" },
+      ];
+      for (const bonus of reviewBonusDefaults) {
+        const has = existing.find(s => s.settingKey === bonus.settingKey);
+        if (!has) {
+          await db.insert(rewardSettings).values({ ...bonus, isActive: true });
+          console.log(`âœ… ${bonus.settingKey} setting inserted â€” ${bonus.tokenAmount} JCMOVES`);
+        }
       }
       // Ensure auto-approve threshold exists
       const hasAutoApproveThreshold = existing.find(s => s.settingKey === 'redemption_auto_approve_threshold');
@@ -1638,6 +1784,19 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
     console.error('⚠️ Leads deposit columns migration error (non-fatal):', migErr);
   }
 
+  // Unified staff intake stores the selected truck separately from the legacy
+  // truck_config value. Both stay populated so older dispatch screens remain
+  // compatible while calendar-created jobs show the exact customer-facing data.
+  try {
+    await pool.query(`
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS truck_provider TEXT;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS truck_size TEXT;
+    `);
+    console.log('✅ Leads staff intake truck columns ready');
+  } catch (migErr) {
+    console.error('⚠️ Leads staff intake truck migration error (non-fatal):', migErr);
+  }
+
   // Schema migration: spin_results extended columns + jackpots + spin_config tables
   try {
     await pool.query(`
@@ -2080,6 +2239,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
   const { ensureNomineesTable } = await import("./services/nominees");
   await ensureNomineesTable();
   await ensureRewardSettingsSeeded();
+  await ensureReviewTipAllocationsTable();
   await seedDefaultPromoCodes();
   await linkEmployeePromoCodes();
   await seedMarketingNetwork();
@@ -8427,6 +8587,87 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
     }
   });
 
+  // Unified staff job intake. This intentionally only creates an unassigned
+  // available job; it does not dispatch crew, notify workers, or create payout
+  // records. The pricing snapshot is recalculated server-side before saving so
+  // the card, calendar, and lead detail all agree on the estimate shown to staff.
+  app.post("/api/leads/staff-job", isAuthenticated, requireApprovedEmployee, async (req: any, res) => {
+    try {
+      const input = staffJobIntakeSchema.parse(req.body);
+      const { previewZoneQuote } = await import("./marketplace/zonePricing");
+      const zoneServiceCode = STAFF_JOB_ZONE_CODES[input.serviceCode];
+      const estimate = await previewZoneQuote({
+        zip: input.zip,
+        serviceCode: zoneServiceCode,
+        crewSize: input.crewSize,
+        hours: input.expectedHours,
+      });
+      const { firstName, lastName } = splitStaffCustomerName(input.customerName);
+      const actorId = req.currentUser?.id ?? req.user?.id ?? (req.session as any)?.userId ?? null;
+      const requiresOwnerReview = !estimate.matched || input.serviceCode === "junk" || input.serviceCode === "commercial";
+      const estimateNote = estimate.matched
+        ? `Zone estimate saved: $${estimate.quote.minEstimate}–$${estimate.quote.maxEstimate}. Confirm any special-item, disposal, or access charges before sending a final quote.`
+        : "Out-of-zone estimate saved for owner quote review. Do not present this range as a guaranteed price.";
+
+      const [lead] = await db.insert(leads).values({
+        firstName,
+        lastName,
+        // The staff form deliberately records a blank value when the caller has
+        // no email instead of inventing a .local placeholder address.
+        email: input.email,
+        phone: input.phone,
+        serviceType: STAFF_JOB_SERVICE_TYPES[input.serviceCode],
+        fromAddress: input.fromAddress,
+        toAddress: input.toAddress || null,
+        moveDate: input.moveDate,
+        confirmedDate: input.moveDate,
+        arrivalWindow: input.arrivalWindow || null,
+        details: input.internalNotes || null,
+        source: "staff_job_form",
+        status: "available",
+        createdByUserId: actorId,
+        truckConfig: staffTruckConfig(input.truckProvider),
+        truckProvider: input.truckProvider,
+        truckSize: input.truckSize,
+        crewSize: input.crewSize,
+        confirmedHours: input.expectedHours,
+        isQuoteOnly: requiresOwnerReview,
+        quoteNotes: estimateNote,
+        quoteSnapshot: {
+          staffJob: {
+            customerName: input.customerName,
+            serviceCode: input.serviceCode,
+            pickupZip: input.zip,
+            expectedHours: input.expectedHours,
+            truckProvider: input.truckProvider,
+            truckSize: input.truckSize,
+            createdAt: new Date().toISOString(),
+          },
+        },
+        zoneSnapshot: {
+          version: 1,
+          source: "staff_job_form",
+          serviceCode: zoneServiceCode,
+          requestedHours: input.expectedHours,
+          requestedCrewSize: input.crewSize,
+          pickupZip: input.zip,
+          preview: estimate,
+        },
+      }).returning();
+
+      res.status(201).json({
+        lead,
+        estimate,
+        requiresOwnerReview,
+        message: requiresOwnerReview
+          ? "Job saved for calendar visibility and owner quote review."
+          : "Available calendar job saved with its zone estimate.",
+      });
+    } catch (error) {
+      respondLeadError(res, error, { route: "leads_staff_job", errorCode: "STAFF_JOB_CREATE_FAILED" });
+    }
+  });
+
   // Admin: Employee approval management
   app.get('/api/admin/employees/pending', isAuthenticated, requireBusinessOwner, async (req, res) => {
     try {
@@ -8845,6 +9086,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
     "confirmed":      "in_progress",  // legacy alias: confirmed = available
     "available":      "in_progress",
     "accepted":       "in_progress",  // crew-full accepted jobs progress to in_progress
+    "dispatched":     "in_progress",  // paid + dispatched jobs can start from the lead page
     "in_progress":    "completed",
     "completed":      "customer_approved",
     "customer_approved": "payout_calculated",
@@ -8860,9 +9102,33 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
     );
   }
 
+  const cleanMoneyValue = (value: unknown) => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+    const text = String(value ?? "").replace(/,/g, "").trim();
+    if (!text) return undefined;
+    const matches = text.match(/\d+(?:\.\d{1,2})?/g);
+    if (!matches?.length) return undefined;
+    const values = matches.map(Number).filter(Number.isFinite);
+    if (!values.length) return undefined;
+    if (values.length >= 2 && /(?:-|\u2013|\u2014|\bto\b)/i.test(text)) {
+      return Math.round(((values[0] + values[1]) / 2) * 100) / 100;
+    }
+    return Math.round(values[0] * 100) / 100;
+  };
+
+  const moneyField = (message: string) => z.preprocess(cleanMoneyValue, z.number().positive(message));
+  const convertLineItemSchema = z.object({
+    id: z.string().trim().min(1).max(120),
+    name: z.string().trim().min(1).max(160),
+    qty: z.coerce.number().positive().max(999).default(1),
+    unitPrice: moneyField("Line item price is required"),
+    total: moneyField("Line item total is required"),
+    category: z.string().trim().max(80).optional(),
+  }).passthrough();
+
   const convertLeadToJobSchema = z.object({
-    basePrice: z.coerce.number().positive("Base price is required"),
-    totalPrice: z.coerce.number().positive().optional(),
+    basePrice: moneyField("Base price is required"),
+    totalPrice: moneyField("Total price is required").optional(),
     tokenAllocation: z.coerce.number().min(0).optional(),
     confirmedDate: z.string().trim().min(1, "Confirmed date is required"),
     arrivalWindow: z.string().trim().max(80).optional(),
@@ -8872,6 +9138,11 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
     confirmedFromAddress: z.string().trim().max(500).optional(),
     confirmedToAddress: z.string().trim().max(500).optional(),
     quoteNotes: z.string().trim().max(2000).optional(),
+    dispatchNotes: z.string().trim().max(2000).optional(),
+    selectedPackageId: z.string().trim().max(120).optional(),
+    orderLineItems: z.array(convertLineItemSchema).max(24).optional(),
+    quoteSnapshot: z.record(z.any()).optional(),
+    sourceAction: z.string().trim().max(80).optional(),
   });
 
   app.post("/api/leads/:id/convert-to-job", isAuthenticated, requireEmployee, async (req: any, res) => {
@@ -8903,14 +9174,29 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
 
       const data = parsed.data;
       const money = (value: number) => value.toFixed(2);
+      const basePrice = Math.round(data.basePrice * 100) / 100;
+      const totalPrice = Math.round((data.totalPrice ?? data.basePrice) * 100) / 100;
+      const confirmedHours = data.confirmedHours != null
+        ? Math.max(1, Math.ceil(data.confirmedHours))
+        : existingLead.confirmedHours ?? null;
+      const sanitizedLineItems = (data.orderLineItems || []).map((item) => ({
+        ...item,
+        qty: Math.round(Number(item.qty) * 100) / 100,
+        unitPrice: Math.round(Number(item.unitPrice) * 100) / 100,
+        total: Math.round(Number(item.total) * 100) / 100,
+      }));
+      const currentSnapshot = existingLead.quoteSnapshot && typeof existingLead.quoteSnapshot === "object" && !Array.isArray(existingLead.quoteSnapshot)
+        ? existingLead.quoteSnapshot as Record<string, unknown>
+        : {};
+      const sourceAction = data.sourceAction || "lead_convert_to_job";
       const updateData: Record<string, any> = {
         status: "available",
-        basePrice: money(data.basePrice),
-        totalPrice: money(data.totalPrice ?? data.basePrice),
+        basePrice: money(basePrice),
+        totalPrice: money(totalPrice),
         confirmedDate: data.confirmedDate,
         arrivalWindow: data.arrivalWindow || null,
         crewSize: data.crewSize,
-        confirmedHours: data.confirmedHours ?? existingLead.confirmedHours ?? null,
+        confirmedHours,
         crewMembers: data.crewMembers,
         confirmedFromAddress: data.confirmedFromAddress || existingLead.fromAddress,
         confirmedToAddress: data.confirmedToAddress || existingLead.toAddress || null,
@@ -8920,14 +9206,51 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       if (data.tokenAllocation !== undefined) {
         updateData.tokenAllocation = String(data.tokenAllocation);
       }
+      if (data.selectedPackageId) {
+        updateData.selectedPackageId = data.selectedPackageId;
+      }
+      if (sanitizedLineItems.length > 0) {
+        updateData.orderLineItems = sanitizedLineItems;
+      }
       if (data.quoteNotes) {
         updateData.quoteNotes = data.quoteNotes;
+      }
+      if (data.dispatchNotes !== undefined) {
+        updateData.dispatchNotes = data.dispatchNotes || null;
+      }
+      if (data.quoteSnapshot || data.selectedPackageId || sanitizedLineItems.length > 0 || data.dispatchNotes) {
+        updateData.quoteSnapshot = {
+          ...currentSnapshot,
+          ...(data.quoteSnapshot || {}),
+          adminSmallJobIntake: {
+            ...((data.quoteSnapshot as any)?.adminSmallJobIntake || {}),
+            source: sourceAction,
+            selectedPackageId: data.selectedPackageId || null,
+            basePrice: money(basePrice),
+            totalPrice: money(totalPrice),
+            crewSize: data.crewSize,
+            confirmedHours,
+            arrivalWindow: data.arrivalWindow || null,
+            dispatchNotes: data.dispatchNotes || null,
+            lineItemCount: sanitizedLineItems.length,
+            convertedAt: new Date().toISOString(),
+            convertedByUserId: user?.id ?? null,
+          },
+        };
       }
 
       const [updatedLead] = await db.update(leads).set(updateData).where(eq(leads.id, id)).returning();
       if (!updatedLead) return res.status(404).json({ error: "Lead not found" });
 
-      await writeLeadHistory(id, existingLead.status, "available", user?.id ?? null, "Converted to available job from employee dashboard");
+      await writeLeadHistory(
+        id,
+        existingLead.status,
+        "available",
+        user?.id ?? null,
+        sourceAction === "text_lead_fast_path"
+          ? "Text-message lead booked from small-job admin intake"
+          : "Converted to available job from employee dashboard",
+      );
 
       try {
         const employees = await storage.getEmployees();
@@ -8956,10 +9279,12 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
 
       await emitJobEvent("job_available", updatedLead, {
         actorId: user?.id ?? null,
-        source: "lead_convert_to_job",
+        source: sourceAction,
         previousStatus: existingLead.status,
         status: "available",
-        note: "Converted to available job from employee dashboard.",
+        note: sourceAction === "text_lead_fast_path"
+          ? "Text-message lead booked from small-job admin intake."
+          : "Converted to available job from employee dashboard.",
       });
 
       try {
@@ -9013,7 +9338,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       const { status, note } = req.body;
       const actorId = (req.session as any)?.userId ?? req.user?.id ?? null;
 
-      const VALID_LEAD_STATUSES = ["new", "contacted", "quoted", "confirmed", "available", "accepted", "in_progress", "completed", "customer_approved", "payout_calculated", "payout_sent", "closed", "cancelled", "quote_requested"];
+      const VALID_LEAD_STATUSES = ["new", "contacted", "quoted", "confirmed", "available", "accepted", "dispatched", "in_progress", "completed", "customer_approved", "payout_calculated", "payout_sent", "closed", "cancelled", "quote_requested"];
       if (!status || !VALID_LEAD_STATUSES.includes(status)) {
         return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_LEAD_STATUSES.join(", ")}` });
       }
@@ -9021,8 +9346,36 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       const existingLead = await storage.getLead(id);
       if (!existingLead) return res.status(404).json({ error: "Lead not found" });
 
-      const updatedLead = await storage.updateLeadStatus(id, status);
+      let updatedLead = await storage.updateLeadStatus(id, status);
       if (!updatedLead) return res.status(404).json({ error: "Lead not found" });
+
+      const now = new Date();
+      const dispatchPatch: Record<string, any> = {};
+      if (status === "completed") {
+        dispatchPatch.dispatchState = "completed";
+        dispatchPatch.enRouteAt = existingLead.enRouteAt || now;
+        dispatchPatch.onSiteAt = existingLead.onSiteAt || now;
+        dispatchPatch.completedAt = existingLead.completedAt || now;
+      } else if (status === "in_progress") {
+        dispatchPatch.dispatchState = existingLead.dispatchState === "on_site" ? "on_site" : "en_route";
+        dispatchPatch.enRouteAt = existingLead.enRouteAt || now;
+      } else if (status === "accepted" || status === "dispatched") {
+        dispatchPatch.dispatchState = "assigned";
+        dispatchPatch.dispatchOfferedTo = null;
+        dispatchPatch.dispatchOfferExpiresAt = null;
+      } else if (status === "available" || status === "confirmed" || status === "quoted" || status === "quote_requested" || status === "new") {
+        dispatchPatch.dispatchState = "pending";
+        dispatchPatch.dispatchOfferedTo = null;
+        dispatchPatch.dispatchOfferExpiresAt = null;
+      } else if (status === "cancelled") {
+        dispatchPatch.dispatchState = "failed";
+        dispatchPatch.dispatchOfferedTo = null;
+        dispatchPatch.dispatchOfferExpiresAt = null;
+      }
+
+      if (Object.keys(dispatchPatch).length > 0) {
+        updatedLead = await storage.updateLeadQuote(id, dispatchPatch) || updatedLead;
+      }
 
       await writeLeadHistory(id, existingLead.status, status, actorId, note || "Admin force override");
       const eventType = eventTypeForStatus(status);
@@ -9034,6 +9387,15 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           status,
           note: note || "Admin force override",
         });
+      }
+
+      if (status === "completed" && existingLead.status !== "completed") {
+        try {
+          const { runCompletionStep } = await import('./pipeline/steps/completion.step');
+          await runCompletionStep(id);
+        } catch (completionError) {
+          console.error("Admin force completion pipeline failed:", completionError);
+        }
       }
 
       res.json(updatedLead);
@@ -9052,7 +9414,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       const { status } = req.body;
       const actorId = (req.session as any)?.userId ?? req.user?.id ?? null;
 
-      const VALID_LEAD_STATUSES = ["new", "contacted", "quoted", "confirmed", "available", "accepted", "in_progress", "completed", "customer_approved", "payout_calculated", "payout_sent", "closed", "cancelled", "quote_requested"];
+      const VALID_LEAD_STATUSES = ["new", "contacted", "quoted", "confirmed", "available", "accepted", "dispatched", "in_progress", "completed", "customer_approved", "payout_calculated", "payout_sent", "closed", "cancelled", "quote_requested"];
       if (!status || !VALID_LEAD_STATUSES.includes(status)) {
         return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_LEAD_STATUSES.join(", ")}` });
       }
@@ -9325,27 +9687,61 @@ Thank you for your business!
   // PUBLIC REVIEW / TIP ROUTES (no auth required — token based)
   // =====================
 
+  type ReviewCrewMember = {
+    id: string;
+    name: string;
+    firstName: string | null;
+    lastName: string | null;
+    profileImageUrl: string | null;
+  };
+
+  type TipMethod = "cart" | "bitcoin" | "jcmoves" | "jcmoves_usd";
+
+  type NormalizedTipAllocation = {
+    workerId: string;
+    workerName: string | null;
+    amountUsd: number;
+    tokenAmount: number;
+  };
+
+  class ReviewTipError extends Error {
+    status: number;
+
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+    }
+  }
+
+  async function getReviewCrewMembers(lead: any): Promise<ReviewCrewMember[]> {
+    const employees: ReviewCrewMember[] = [];
+    const seenIds = new Set<string>();
+    for (const eid of getReviewCrewIds(lead)) {
+      if (seenIds.has(eid)) continue;
+      seenIds.add(eid);
+      const emp = await storage.getUser(eid);
+      if (!emp || emp.role === "customer") continue;
+      const firstName = emp.firstName || "";
+      const lastName = emp.lastName || "";
+      const name = `${firstName} ${lastName}`.trim() || emp.username || emp.email || "Crew Member";
+      employees.push({
+        id: emp.id,
+        name,
+        firstName: firstName || null,
+        lastName: lastName || null,
+        profileImageUrl: emp.profileImageUrl || null,
+      });
+    }
+    return employees;
+  }
+
   async function getJobInfoByLead(lead: any) {
     const serviceLabels: Record<string, string> = {
       residential: "Residential Moving", commercial: "Commercial Moving",
       junk: "Junk Removal", snow: "Snow Removal", cleaning: "Move In/Out Cleaning",
       handyman: "Handyman", demolition: "Light Demolition", flooring: "Flooring", painting: "Painting",
     };
-    const employees: Array<{ id: string; name: string }> = [];
-    const crewIds: string[] = [
-      ...(lead.crewMembers || []),
-      ...(lead.acceptedByEmployees || []),
-      ...(lead.assignedToUserId ? [lead.assignedToUserId] : []),
-    ];
-    const seenIds = new Set<string>();
-    for (const eid of crewIds) {
-      if (seenIds.has(eid)) continue;
-      seenIds.add(eid);
-      const emp = await storage.getUser(eid);
-      if (emp && emp.role === 'employee') {
-        employees.push({ id: emp.id, name: `${emp.firstName} ${emp.lastName}`.trim() });
-      }
-    }
+    const employees = await getReviewCrewMembers(lead);
     return {
       jobId: lead.id,
       customerName: `${lead.firstName}`,
@@ -9357,7 +9753,369 @@ Thank you for your business!
     };
   }
 
+  function getReviewCrewIds(lead: any): string[] {
+    const ids = [
+      ...(Array.isArray(lead.crewMembers) ? lead.crewMembers : []),
+      ...(Array.isArray(lead.acceptedByEmployees) ? lead.acceptedByEmployees : []),
+      ...(lead.assignedToUserId ? [lead.assignedToUserId] : []),
+    ].map((id) => String(id || "").trim()).filter(Boolean);
+    return Array.from(new Set(ids)).filter((id) => id !== "staking-treasury-system");
+  }
+
+  async function getRewardSettingAmount(settingKey: string, fallback: number): Promise<number> {
+    const [setting] = await db
+      .select()
+      .from(rewardSettings)
+      .where(eq(rewardSettings.settingKey, settingKey))
+      .limit(1);
+    if (!setting) return fallback;
+    if (!setting.isActive) return 0;
+    const amount = Number(setting.tokenAmount);
+    return Number.isFinite(amount) ? amount : fallback;
+  }
+
+  async function rewardLedgerExists(userId: string, rewardType: string, referenceId: string): Promise<boolean> {
+    const existing = await db
+      .select({ id: rewards.id })
+      .from(rewards)
+      .where(and(
+        eq(rewards.userId, userId),
+        eq(rewards.rewardType, rewardType),
+        eq(rewards.referenceId, referenceId),
+      ))
+      .limit(1);
+    return existing.length > 0;
+  }
+
+  async function resolveLeadCustomerUserId(lead: any, preferredUserId?: string | null): Promise<string | null> {
+    if (preferredUserId) return preferredUserId;
+    if (lead.userId) return String(lead.userId);
+    const email = String(lead.email || "").trim();
+    if (!email) return null;
+    const user = await storage.getUserByEmail(email).catch(() => null);
+    return user?.id || null;
+  }
+
+  async function awardCustomerReviewBonus(lead: any, review: any, preferredUserId?: string | null) {
+    const customerUserId = await resolveLeadCustomerUserId(lead, preferredUserId);
+    if (!customerUserId) return { awarded: false, userId: null, tokens: 0, reason: "customer_account_not_found" };
+
+    const rewardType = "customer_review_submitted";
+    const referenceId = review.id;
+    if (await rewardLedgerExists(customerUserId, rewardType, referenceId)) {
+      return { awarded: false, userId: customerUserId, tokens: 0, reason: "already_awarded" };
+    }
+
+    const tokens = await getRewardSettingAmount(rewardType, 250);
+    if (tokens <= 0) return { awarded: false, userId: customerUserId, tokens: 0, reason: "disabled_or_zero" };
+
+    await storage.creditWalletTokens(customerUserId, tokens, {
+      rewardType,
+      referenceId,
+      metadata: {
+        leadId: lead.id,
+        reviewId: review.id,
+        rating: review.rating,
+        source: "completed_job_review",
+      },
+    });
+    return { awarded: true, userId: customerUserId, tokens };
+  }
+
+  async function awardCrewReviewBonuses(lead: any, review: any) {
+    if (Number(review.rating) < 4) return [];
+    const awards = [];
+    for (const crewId of getReviewCrewIds(lead)) {
+      if (await rewardLedgerExists(crewId, "customer_rating_bonus", review.id)) {
+        awards.push({ awarded: false, userId: crewId, tokens: 0, reason: "already_awarded" });
+        continue;
+      }
+      const result = await gamificationService.awardHighRatingBonus(crewId, review.id, Number(review.rating));
+      awards.push({
+        awarded: result.success && Number(result.tokensAwarded) > 0,
+        userId: crewId,
+        tokens: Number(result.tokensAwarded || 0),
+        points: result.points,
+        error: result.error,
+      });
+    }
+    if (awards.some((award) => award.awarded)) {
+      await storage.markReviewAsRewarded(review.id);
+    }
+    return awards;
+  }
+
   // POST: Customer self-service job lookup (public — no auth required)
+  function getRequestUserId(req: any): string | null {
+    return req?.user?.id || req?.session?.userId || null;
+  }
+
+  function normalizeTipMethod(value: unknown): TipMethod | null {
+    if (typeof value !== "string") return null;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "cart" || normalized === "bitcoin" || normalized === "jcmoves" || normalized === "jcmoves_usd") {
+      return normalized;
+    }
+    return null;
+  }
+
+  function isInternalTipMethod(method: TipMethod): boolean {
+    return method === "jcmoves" || method === "jcmoves_usd";
+  }
+
+  function tipCurrency(method: TipMethod): string {
+    if (method === "jcmoves") return "JCMOVES";
+    if (method === "jcmoves_usd") return "JCMOVES_USD";
+    if (method === "bitcoin") return "BTC";
+    return "USD";
+  }
+
+  function parsePositiveAmount(value: unknown): number {
+    const parsed = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+    return parsed;
+  }
+
+  function roundMoney(value: number): number {
+    return Math.round(value * 100) / 100;
+  }
+
+  function roundTokens(value: number): number {
+    return Math.round(value * 100000000) / 100000000;
+  }
+
+  async function normalizeReviewTipAllocations(lead: any, body: any, method: TipMethod): Promise<NormalizedTipAllocation[]> {
+    const crewIds = getReviewCrewIds(lead);
+    const crewMembers = await getReviewCrewMembers(lead);
+    const crewNameById = new Map(crewMembers.map((member) => [member.id, member.name]));
+    const allowedCrewIds = new Set(crewIds);
+    const allocations: NormalizedTipAllocation[] = [];
+    const rawAllocations = Array.isArray(body?.tipAllocations) ? body.tipAllocations : [];
+
+    for (const raw of rawAllocations) {
+      const workerId = String(raw?.workerId || "").trim();
+      if (!workerId || !allowedCrewIds.has(workerId)) continue;
+      const amountUsd = method === "jcmoves" ? 0 : roundMoney(parsePositiveAmount(raw?.amountUsd ?? raw?.amount));
+      const tokenAmount = method === "jcmoves" ? roundTokens(parsePositiveAmount(raw?.tokenAmount ?? raw?.tokens ?? raw?.amount)) : 0;
+      if (method === "jcmoves" ? tokenAmount <= 0 : amountUsd <= 0) continue;
+      allocations.push({
+        workerId,
+        workerName: crewNameById.get(workerId) || (typeof raw?.workerName === "string" ? raw.workerName.trim() : null),
+        amountUsd,
+        tokenAmount,
+      });
+    }
+
+    if (allocations.length > 0) {
+      const seen = new Set<string>();
+      return allocations.filter((allocation) => {
+        if (seen.has(allocation.workerId)) return false;
+        seen.add(allocation.workerId);
+        return true;
+      });
+    }
+
+    if (crewIds.length === 0) return [];
+
+    if (method === "jcmoves") {
+      const perMoverTokens = roundTokens(parsePositiveAmount(body?.tokenTipPerMover ?? body?.tipTokenPerMover ?? body?.tokenAmountPerMover));
+      if (perMoverTokens <= 0) return [];
+      return crewIds.map((workerId) => ({
+        workerId,
+        workerName: crewNameById.get(workerId) || null,
+        amountUsd: 0,
+        tokenAmount: perMoverTokens,
+      }));
+    }
+
+    const explicitPerMover = parsePositiveAmount(body?.tipPerMover);
+    const totalUsd = roundMoney(parsePositiveAmount(body?.tipAmount));
+    const perMoverUsd = roundMoney(explicitPerMover || (totalUsd > 0 ? totalUsd / crewIds.length : 0));
+    if (perMoverUsd <= 0) return [];
+    return crewIds.map((workerId) => ({
+      workerId,
+      workerName: crewNameById.get(workerId) || null,
+      amountUsd: perMoverUsd,
+      tokenAmount: 0,
+    }));
+  }
+
+  async function ensureWalletAccountInTx(tx: any, userId: string): Promise<void> {
+    await tx.insert(walletAccounts).values({ userId }).onConflictDoNothing();
+  }
+
+  async function createReviewTipAllocationsInTx(
+    tx: any,
+    args: {
+      lead: any;
+      review: any;
+      body: any;
+      customerUserId: string | null;
+      authenticatedUserId: string | null;
+    },
+  ) {
+    const method = normalizeTipMethod(args.body?.tipMethod);
+    if (!method) {
+      return { method: null, status: "none", allocations: [], totalUsd: 0, totalTokens: 0 };
+    }
+
+    const allocations = await normalizeReviewTipAllocations(args.lead, args.body, method);
+    const totalUsd = roundMoney(allocations.reduce((sum, allocation) => sum + allocation.amountUsd, 0));
+    const totalTokens = roundTokens(allocations.reduce((sum, allocation) => sum + allocation.tokenAmount, 0));
+
+    if (allocations.length === 0) {
+      if (isInternalTipMethod(method)) {
+        throw new ReviewTipError(400, "Select at least one assigned mover before tipping with JCMOVES.");
+      }
+      return { method, status: "legacy_unallocated", allocations: [], totalUsd, totalTokens };
+    }
+
+    const now = new Date();
+    const baseRows = allocations.map((allocation) => ({
+      reviewId: args.review.id,
+      leadId: args.lead.id,
+      customerUserId: args.customerUserId,
+      workerId: allocation.workerId,
+      workerName: allocation.workerName,
+      tipMethod: method,
+      currency: tipCurrency(method),
+      amountUsd: allocation.amountUsd.toFixed(2),
+      tokenAmount: allocation.tokenAmount.toFixed(8),
+      metadata: {
+        reviewId: args.review.id,
+        leadId: args.lead.id,
+        source: "review_page_tip",
+      },
+    }));
+
+    if (!isInternalTipMethod(method)) {
+      const inserted = await tx.insert(reviewTipAllocations).values(
+        baseRows.map((row) => ({
+          ...row,
+          status: "pending_payment",
+          confirmedAt: null,
+        })),
+      ).returning();
+      return { method, status: "pending_payment", allocations: inserted, totalUsd, totalTokens };
+    }
+
+    if (!args.customerUserId) {
+      throw new ReviewTipError(401, "Sign in to use JCMOVES wallet tipping.");
+    }
+    if (!args.authenticatedUserId) {
+      throw new ReviewTipError(401, "Sign in to use JCMOVES wallet tipping.");
+    }
+    if (args.authenticatedUserId !== args.customerUserId) {
+      throw new ReviewTipError(403, "Use the customer account tied to this job to tip with JCMOVES.");
+    }
+
+    await ensureWalletAccountInTx(tx, args.customerUserId);
+    for (const allocation of allocations) {
+      await ensureWalletAccountInTx(tx, allocation.workerId);
+    }
+
+    if (method === "jcmoves") {
+      const debitRows = await tx
+        .update(walletAccounts)
+        .set({
+          tokenBalance: sql`COALESCE(${walletAccounts.tokenBalance}, '0')::numeric - ${totalTokens.toFixed(8)}::numeric`,
+          lastActivity: now,
+        })
+        .where(and(
+          eq(walletAccounts.userId, args.customerUserId),
+          sql`COALESCE(${walletAccounts.tokenBalance}, '0')::numeric >= ${totalTokens.toFixed(8)}::numeric`,
+        ))
+        .returning({ tokenBalance: walletAccounts.tokenBalance });
+      if (debitRows.length === 0) {
+        throw new ReviewTipError(400, "Insufficient JCMOVES balance for this crew tip.");
+      }
+
+      const inserted = [];
+      for (const row of baseRows) {
+        const amount = Number(row.tokenAmount);
+        await tx
+          .update(walletAccounts)
+          .set({
+            tokenBalance: sql`COALESCE(${walletAccounts.tokenBalance}, '0')::numeric + ${amount.toFixed(8)}::numeric`,
+            totalEarned: sql`COALESCE(${walletAccounts.totalEarned}, '0')::numeric + ${amount.toFixed(8)}::numeric`,
+            lastActivity: now,
+          })
+          .where(eq(walletAccounts.userId, row.workerId));
+        const [allocation] = await tx.insert(reviewTipAllocations).values({
+          ...row,
+          status: "confirmed",
+          confirmedAt: now,
+        }).returning();
+        inserted.push(allocation);
+        await tx.insert(rewards).values({
+          userId: row.workerId,
+          rewardType: "crew_tip_jcmoves",
+          tokenAmount: amount.toFixed(8),
+          cashValue: "0.00",
+          status: "confirmed",
+          earnedDate: now,
+          referenceId: allocation.id,
+          metadata: {
+            reviewId: args.review.id,
+            leadId: args.lead.id,
+            customerUserId: args.customerUserId,
+            source: "review_tip",
+          },
+        });
+      }
+      return { method, status: "confirmed", allocations: inserted, totalUsd, totalTokens };
+    }
+
+    const debitRows = await tx
+      .update(walletAccounts)
+      .set({
+        cashBalance: sql`COALESCE(${walletAccounts.cashBalance}, '0')::numeric - ${totalUsd.toFixed(2)}::numeric`,
+        lastActivity: now,
+      })
+      .where(and(
+        eq(walletAccounts.userId, args.customerUserId),
+        sql`COALESCE(${walletAccounts.cashBalance}, '0')::numeric >= ${totalUsd.toFixed(2)}::numeric`,
+      ))
+      .returning({ cashBalance: walletAccounts.cashBalance });
+    if (debitRows.length === 0) {
+      throw new ReviewTipError(400, "Insufficient JCMOVES USD balance for this crew tip.");
+    }
+
+    const inserted = [];
+    for (const row of baseRows) {
+      const amount = Number(row.amountUsd);
+      await tx
+        .update(walletAccounts)
+        .set({
+          cashBalance: sql`COALESCE(${walletAccounts.cashBalance}, '0')::numeric + ${amount.toFixed(2)}::numeric`,
+          lastActivity: now,
+        })
+        .where(eq(walletAccounts.userId, row.workerId));
+      const [allocation] = await tx.insert(reviewTipAllocations).values({
+        ...row,
+        status: "confirmed",
+        confirmedAt: now,
+      }).returning();
+      inserted.push(allocation);
+      await tx.insert(rewards).values({
+        userId: row.workerId,
+        rewardType: "crew_tip_jcmoves_usd",
+        tokenAmount: "0.00000000",
+        cashValue: amount.toFixed(2),
+        status: "confirmed",
+        earnedDate: now,
+        referenceId: allocation.id,
+        metadata: {
+          reviewId: args.review.id,
+          leadId: args.lead.id,
+          customerUserId: args.customerUserId,
+          source: "review_tip",
+        },
+      });
+    }
+    return { method, status: "confirmed", allocations: inserted, totalUsd, totalTokens };
+  }
+
   app.post("/api/review/lookup", async (req, res) => {
     try {
       const { search } = req.body; // phone, email, or job ID
@@ -9518,12 +10276,16 @@ Thank you for your business!
     }
   });
 
-  async function submitPublicReview(lead: any, body: any, res: any) {
+  async function submitPublicReview(lead: any, req: any, res: any) {
+    const body = req.body || {};
     const { rating, comment, moverNames, wouldRecommend, numberOfMovers, tipPerMover, tipAmount } = body;
     if (!rating || rating < 1 || rating > 5) return res.status(400).json({ error: "Rating must be 1–5" });
 
-    const employeeId = lead.assignedToUserId || 'staking-treasury-system';
-    const userId = lead.userId || '47798367';
+    const crewIds = getReviewCrewIds(lead);
+    const employeeId = crewIds[0] || 'staking-treasury-system';
+    const customerUserId = await resolveLeadCustomerUserId(lead);
+    const userId = customerUserId || '47798367';
+    const authenticatedUserId = getRequestUserId(req);
 
     try {
       const existing = await db.select().from(reviews)
@@ -9531,25 +10293,45 @@ Thank you for your business!
       if (existing.length > 0) return res.status(400).json({ error: "A review was already submitted for this job" });
     } catch {}
 
-    const [review] = await db.insert(reviews).values({
-      leadId: lead.id,
-      userId,
-      employeeId,
-      rating,
-      comment: comment || null,
-      wouldRecommend: wouldRecommend !== false,
-      moverNames: moverNames || null,
-      numberOfMovers: numberOfMovers || null,
-      tipAmount: tipAmount ? tipAmount.toString() : null,
-      tipPerMover: tipPerMover ? tipPerMover.toString() : null,
-      isPublic: true,
-    }).returning();
-
-    if (rating >= 4 && employeeId !== 'staking-treasury-system') {
-      try { await gamificationService.awardHighRatingBonus(employeeId, review.id, rating); } catch {}
+    let review: any;
+    let tipSummary: any;
+    try {
+      const result = await db.transaction(async (tx) => {
+        const [createdReview] = await tx.insert(reviews).values({
+          leadId: lead.id,
+          userId,
+          employeeId,
+          rating,
+          comment: comment || null,
+          wouldRecommend: wouldRecommend !== false,
+          moverNames: moverNames || null,
+          numberOfMovers: numberOfMovers || null,
+          tipAmount: tipAmount ? tipAmount.toString() : null,
+          tipPerMover: tipPerMover ? tipPerMover.toString() : null,
+          isPublic: true,
+        }).returning();
+        const createdTipSummary = await createReviewTipAllocationsInTx(tx, {
+          lead,
+          review: createdReview,
+          body,
+          customerUserId,
+          authenticatedUserId,
+        });
+        return { review: createdReview, tipSummary: createdTipSummary };
+      });
+      review = result.review;
+      tipSummary = result.tipSummary;
+    } catch (error) {
+      if (error instanceof ReviewTipError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      throw error;
     }
 
-    res.json({ success: true, review });
+    const customerReviewBonus = await awardCustomerReviewBonus(lead, review, customerUserId);
+    const crewReviewBonuses = await awardCrewReviewBonuses(lead, review);
+
+    res.json({ success: true, review, tipSummary, bonuses: { customer: customerReviewBonus, crew: crewReviewBonuses } });
   }
 
   // POST submit review by token (public)
@@ -9557,7 +10339,7 @@ Thank you for your business!
     try {
       const [lead] = await db.select().from(leads).where(eq(leads.reviewToken, req.params.token)).limit(1);
       if (!lead) return res.status(404).json({ error: "Invalid review link" });
-      await submitPublicReview(lead, req.body, res);
+      await submitPublicReview(lead, req, res);
     } catch (err) {
       console.error("Error submitting review by token:", err);
       res.status(500).json({ error: err instanceof Error ? err.message : "Failed to submit review" });
@@ -9569,7 +10351,7 @@ Thank you for your business!
     try {
       const lead = await storage.getLead(req.params.jobId);
       if (!lead || lead.status !== 'completed') return res.status(404).json({ error: "Job not found" });
-      await submitPublicReview(lead, req.body, res);
+      await submitPublicReview(lead, req, res);
     } catch (err) {
       console.error("Error submitting review by jobId:", err);
       res.status(500).json({ error: err instanceof Error ? err.message : "Failed to submit review" });
@@ -10002,6 +10784,61 @@ Thank you for your business!
     } catch (error) {
       console.error("Error unarchiving lead:", error);
       res.status(500).json({ error: "Failed to restore lead" });
+    }
+  });
+
+  // Owner-only cleanup review. It never archives on GET: the client receives a
+  // clearly grouped preview and explicitly submits the selected IDs. Only rows
+  // marked as unmistakable test records are preselected by the UI.
+  app.get("/api/admin/leads/cleanup-preview", isAuthenticated, requireBusinessOwner, async (_req, res) => {
+    try {
+      const activeLeads = await db.select({
+        id: leads.id,
+        firstName: leads.firstName,
+        lastName: leads.lastName,
+        email: leads.email,
+        phone: leads.phone,
+        serviceType: leads.serviceType,
+        fromAddress: leads.fromAddress,
+        moveDate: leads.moveDate,
+        confirmedDate: leads.confirmedDate,
+        details: leads.details,
+        source: leads.source,
+        createdAt: leads.createdAt,
+      }).from(leads).where(isNull(leads.archivedAt)).orderBy(desc(leads.createdAt));
+
+      const candidates = activeLeads
+        .map((lead) => ({ ...lead, category: cleanupCategoryForLead(lead as CleanupLeadRow) }))
+        .filter((lead) => lead.category !== null);
+      const grouped = {
+        unmistakableTest: candidates.filter((lead) => lead.category === "unmistakable_test"),
+        internalSynthetic: candidates.filter((lead) => lead.category === "internal_synthetic"),
+        pastDated: candidates.filter((lead) => lead.category === "past_dated"),
+      };
+      res.json({
+        ...grouped,
+        defaultSelectedIds: grouped.unmistakableTest.map((lead) => lead.id),
+      });
+    } catch (error) {
+      console.error("Error preparing lead cleanup preview:", error);
+      res.status(500).json({ error: "Failed to prepare cleanup preview" });
+    }
+  });
+
+  app.post("/api/admin/leads/cleanup-archive", isAuthenticated, requireBusinessOwner, async (req, res) => {
+    try {
+      const { ids } = z.object({ ids: z.array(z.string().min(1)).min(1).max(100) }).parse(req.body);
+      let archived = 0;
+      for (const id of [...new Set(ids)]) {
+        if (await storage.deleteLead(id)) archived += 1;
+      }
+      res.json({ success: true, archived, requested: ids.length });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Select one or more jobs to archive", issues: error.issues });
+      }
+      console.error("Error archiving cleanup leads:", error);
+      res.status(500).json({ error: "Failed to archive selected jobs" });
     }
   });
 
@@ -10476,13 +11313,9 @@ Thank you for your business!
         return res.status(401).json({ error: "User not authenticated" });
       }
 
-      const reviewData = insertReviewSchema.parse({
-        ...req.body,
-        userId, // Always use authenticated user's ID
-      });
-
       // Verify the lead exists and is completed
-      const lead = await storage.getLead(reviewData.leadId);
+      const leadId = z.string().min(1).parse(req.body?.leadId);
+      const lead = await storage.getLead(leadId);
       if (!lead) {
         return res.status(404).json({ error: "Job not found" });
       }
@@ -10497,21 +11330,37 @@ Thank you for your business!
         return res.status(403).json({ error: "You can only review your own jobs" });
       }
 
+      const crewIds = getReviewCrewIds(lead);
+      const employeeId = crewIds[0];
+      if (!employeeId) {
+        return res.status(400).json({ error: "No crew assigned to this job" });
+      }
+
+      const reviewData = insertReviewSchema.parse({
+        ...req.body,
+        userId, // Always use authenticated user's ID
+        employeeId,
+      });
+
       // Check if user already reviewed this job
       const existingReview = await storage.getReviewByLeadAndUser(reviewData.leadId, userId);
       if (existingReview) {
         return res.status(400).json({ error: "You have already reviewed this job" });
       }
 
-      // Set employeeId from the lead's assignment
-      const employeeId = lead.assignedToUserId;
-      if (!employeeId) {
-        return res.status(400).json({ error: "No employee assigned to this job" });
-      }
-
-      const review = await storage.createReview({
-        ...reviewData,
-        employeeId,
+      const { review, tipSummary } = await db.transaction(async (tx) => {
+        const [createdReview] = await tx.insert(reviews).values({
+          ...reviewData,
+          employeeId,
+        }).returning();
+        const createdTipSummary = await createReviewTipAllocationsInTx(tx, {
+          lead,
+          review: createdReview,
+          body: req.body,
+          customerUserId: userId,
+          authenticatedUserId: userId,
+        });
+        return { review: createdReview, tipSummary: createdTipSummary };
       });
 
       // Update employee stats with new review
@@ -10522,17 +11371,17 @@ Thank you for your business!
       });
 
       // Award bonus tokens for high ratings (4 or 5 stars)
-      if (review.rating >= 4 && !review.rewardedAt) {
-        const bonusAmount = review.rating === 5 ? 500 : 250; // 500 tokens for 5 stars, 250 for 4 stars
-        await gamificationService.awardHighRatingBonus(employeeId, review.id, review.rating);
-        await storage.markReviewAsRewarded(review.id);
-      }
+      const customerReviewBonus = await awardCustomerReviewBonus(lead, review, userId);
+      const crewReviewBonuses = await awardCrewReviewBonuses(lead, review);
 
-      res.json({ success: true, review });
+      res.json({ success: true, review, tipSummary, bonuses: { customer: customerReviewBonus, crew: crewReviewBonuses } });
     } catch (error) {
       console.error("Error creating review:", error);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid review data", details: error.errors });
+      }
+      if (error instanceof ReviewTipError) {
+        return res.status(error.status).json({ error: error.message });
       }
       res.status(500).json({ error: "Failed to create review" });
     }
@@ -19914,12 +20763,14 @@ Thank you for your business!
           const paymentId = typeof payment?.id === "string" ? payment.id : undefined;
           if (status === "COMPLETED" && orderId && paymentId) {
             const { rows } = await pool.query(
-              `SELECT id, user_id, amount_usd, status FROM prepaid_credit_intents WHERE square_order_id = $1 LIMIT 1`,
+              `SELECT id, user_id, amount_usd, status, pack_id, bonus_tokens, bonus_awarded_at
+               FROM prepaid_credit_intents WHERE square_order_id = $1 LIMIT 1`,
               [orderId]
             );
             if (rows.length && rows[0].status !== 'paid') {
               const intent = rows[0];
               await creditJcMovesUsdFromPrepaid(intent.user_id, parseFloat(intent.amount_usd), paymentId);
+              await awardPrepaidCreditBonusTokens(intent, paymentId);
               await pool.query(
                 `UPDATE prepaid_credit_intents
                  SET status='paid', square_payment_id=$1, paid_at=NOW()
@@ -19927,6 +20778,8 @@ Thank you for your business!
                 [paymentId, intent.id]
               );
               console.log(`[Square webhook] Prepaid credit minted for intent ${intent.id} ($${intent.amount_usd})`);
+            } else if (rows.length) {
+              await awardPrepaidCreditBonusTokens(rows[0], paymentId);
             }
           }
         } catch (prepaidErr) {
@@ -26078,6 +26931,8 @@ Thank you for your business!
   // ── JCMOVES Prepaid Credit Top-Up ─────────────────────────────────────────────
   await ensurePrepaidIntentsTable();
   console.log('💵 Prepaid credit intents table ready');
+  await ensureCryptoPaymentIntentsTable();
+  console.log('🪙 Crypto payment intents table ready');
 
   // ── Task #199 — Bundle shop-card grants ───────────────────────────────────────
   await ensureWalletCreditGrantsTable();
@@ -26093,7 +26948,9 @@ Thank you for your business!
       const userId = (req.session as any).userId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
-      const amountUsd = parseFloat(req.body?.amountUsd ?? "0");
+      const packResult = resolveJcMovesUsdBonusPack(req.body?.packId, req.body?.amountUsd);
+      if ("error" in packResult) return res.status(400).json({ error: packResult.error });
+      const { pack, amountUsd, packId, bonusTokens } = packResult;
       if (!Number.isFinite(amountUsd) || amountUsd < 5) {
         return res.status(400).json({ error: "Minimum top-up is $5" });
       }
@@ -26127,9 +26984,9 @@ Thank you for your business!
 
       // Insert intent first so we have an id
       const { rows: intentRows } = await pool.query(
-        `INSERT INTO prepaid_credit_intents (user_id, amount_usd, status)
-         VALUES ($1, $2, 'pending') RETURNING id`,
-        [userId, amountUsd.toFixed(2)]
+        `INSERT INTO prepaid_credit_intents (user_id, amount_usd, status, pack_id, bonus_tokens)
+         VALUES ($1, $2, 'pending', $3, $4) RETURNING id`,
+        [userId, amountUsd.toFixed(2), packId, bonusTokens.toFixed(8)]
       );
       const intentId = intentRows[0].id as number;
 
@@ -26139,7 +26996,9 @@ Thank you for your business!
       const linkResp: SquarePaymentLinkResponse = await client.checkout.paymentLinks.create({
         idempotencyKey: randomUUID(),
         quickPay: {
-          name: `JCMOVES USD Credit Top-Up ($${amountUsd.toFixed(2)})`,
+          name: pack
+            ? `${pack.name} + ${bonusTokens.toLocaleString()} JCMOVES`
+            : `JCMOVES USD Credit Top-Up ($${amountUsd.toFixed(2)})`,
           priceMoney: { amount: amountCents, currency: "USD" },
           locationId,
         },
@@ -26148,7 +27007,9 @@ Thank you for your business!
           allowTipping: false,
           merchantSupportEmail: "upmichiganstatemovers@gmail.com",
         },
-        paymentNote: `Prepaid JCMOVES USD credit (intent ${intentId}, user ${userId})`,
+        paymentNote: pack
+          ? `Prepaid JCMOVES USD bonus pack ${pack.id} (intent ${intentId}, user ${userId}, bonus ${bonusTokens} JCMOVES)`
+          : `Prepaid JCMOVES USD credit (intent ${intentId}, user ${userId})`,
       });
 
       const paymentLink: SquarePaymentLink | undefined = linkResp.result?.paymentLink ?? linkResp.paymentLink;
@@ -26168,6 +27029,8 @@ Thank you for your business!
         success: true,
         intentId,
         checkoutUrl: paymentLink.url,
+        packId,
+        bonusTokens,
       });
     } catch (err: any) {
       console.error("[prepaid-checkout] error:", err);
@@ -26191,7 +27054,14 @@ Thank you for your business!
       if (!rows.length) return res.status(404).json({ error: "Intent not found" });
       const intent = rows[0];
       if (intent.status === 'paid') {
-        return res.json({ success: true, alreadyMinted: true });
+        if (intent.square_payment_id) {
+          await awardPrepaidCreditBonusTokens(intent, intent.square_payment_id);
+        }
+        return res.json({
+          success: true,
+          alreadyMinted: true,
+          bonusTokens: parseFloat(intent.bonus_tokens ?? "0") || 0,
+        });
       }
       // Look up Square payments matching the order id
       if (!intent.square_order_id) {
@@ -26238,13 +27108,18 @@ Thank you for your business!
       }
 
       await creditJcMovesUsdFromPrepaid(userId, parseFloat(intent.amount_usd), paymentId);
+      const bonusAwarded = await awardPrepaidCreditBonusTokens(intent, paymentId);
       await pool.query(
         `UPDATE prepaid_credit_intents
          SET status='paid', square_payment_id=$1, paid_at=NOW()
          WHERE id=$2`,
         [paymentId, intentId]
       );
-      res.json({ success: true });
+      res.json({
+        success: true,
+        bonusTokens: parseFloat(intent.bonus_tokens ?? "0") || 0,
+        bonusAwarded,
+      });
     } catch (err: any) {
       console.error("[prepaid-reconcile] error:", err);
       res.status(500).json({ error: err?.message || "Reconcile failed" });
@@ -26253,6 +27128,190 @@ Thank you for your business!
 
   // Admin treasury — prepaid credit purchased / redeemed / outstanding liability.
   // outstandingLiabilityUsd = totalPurchasedUsd − totalRedeemedUsd  (what we owe customers).
+  app.post("/api/crypto/prepaid-checkout", isAuthenticated, async (req: any, res) => {
+    let intentId: number | null = null;
+    try {
+      const userId = (req.session as any).userId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      if (!cryptoPaymentsEnabled()) {
+        return res.status(503).json({ error: "Crypto checkout is not enabled yet" });
+      }
+
+      const provider = cryptoPaymentsProvider();
+      const packResult = resolveJcMovesUsdBonusPack(req.body?.packId, req.body?.amountUsd);
+      if ("error" in packResult) return res.status(400).json({ error: packResult.error });
+      const { pack, amountUsd, packId, bonusTokens } = packResult;
+      if (!pack || !packId) {
+        return res.status(400).json({ error: "Crypto checkout is available for bonus packs only" });
+      }
+      if (!Number.isFinite(amountUsd) || amountUsd < 5 || amountUsd > 10000) {
+        return res.status(400).json({ error: "Invalid checkout amount" });
+      }
+
+      const { rows: userRows } = await pool.query(
+        `SELECT first_name, last_name, email FROM users WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      const customer = userRows[0] ?? {};
+      const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ").trim();
+      const baseUrl = getRequestBaseUrl(req);
+
+      const { rows: intentRows } = await pool.query(
+        `INSERT INTO crypto_payment_intents
+           (user_id, provider, amount_usd, currency, status, reference_type, pack_id, bonus_tokens, metadata)
+         VALUES ($1, $2, $3, 'USD', 'pending', 'jcmoves_usd_prepaid', $4, $5, $6::jsonb)
+         RETURNING id`,
+        [
+          userId,
+          provider,
+          amountUsd.toFixed(2),
+          packId,
+          bonusTokens.toFixed(8),
+          JSON.stringify({
+            source: "wallet_add_credit",
+            packId,
+            packName: pack.name,
+            serviceCreditCurrency: "JCMOVES_USD",
+          }),
+        ]
+      );
+      intentId = intentRows[0].id as number;
+      const referenceId = `crypto-prepaid-${intentId}`;
+
+      const checkout = await createBitPayCheckoutIntent({
+        amountUsd,
+        userId,
+        referenceType: "jcmoves_usd_prepaid",
+        referenceId,
+        itemDesc: `${pack.name} + ${bonusTokens.toLocaleString()} JCMOVES`,
+        redirectUrl: `${baseUrl}/wallet?crypto=success&intent=${intentId}`,
+        closeUrl: `${baseUrl}/wallet/add-credit?crypto=cancelled&intent=${intentId}`,
+        notificationUrl: `${baseUrl}/api/webhooks/crypto/bitpay`,
+        customer: {
+          name: customerName || customer.email || "JC ON THE MOVE customer",
+          email: customer.email || null,
+        },
+        metadata: {
+          cryptoIntentId: intentId,
+          packId,
+          bonusTokens,
+          serviceCreditCurrency: "JCMOVES_USD",
+        },
+      });
+
+      await pool.query(
+        `UPDATE crypto_payment_intents
+         SET provider_invoice_id = $1,
+             provider_invoice_token = $2,
+             provider_checkout_url = $3,
+             provider_status = $4,
+             reference_id = $5,
+             raw_provider_payload = $6::jsonb,
+             updated_at = NOW()
+         WHERE id = $7`,
+        [
+          checkout.providerInvoiceId,
+          checkout.providerInvoiceToken,
+          checkout.checkoutUrl,
+          checkout.providerStatus,
+          referenceId,
+          JSON.stringify(checkout.raw),
+          intentId,
+        ]
+      );
+
+      res.json({
+        success: true,
+        intentId,
+        provider,
+        providerInvoiceId: checkout.providerInvoiceId,
+        checkoutUrl: checkout.checkoutUrl,
+        packId,
+        bonusTokens,
+      });
+    } catch (err: any) {
+      if (intentId) {
+        await pool.query(
+          `UPDATE crypto_payment_intents SET status = 'failed', updated_at = NOW() WHERE id = $1`,
+          [intentId]
+        ).catch(() => {});
+      }
+      console.error("[crypto prepaid checkout] error:", err);
+      res.status(500).json({ error: err?.message || "Failed to start crypto checkout" });
+    }
+  });
+
+  app.post("/api/webhooks/crypto/bitpay", async (req: any, res) => {
+    try {
+      const rawBody = rawRequestBodyBuffer(req.body);
+      if (!validateOptionalBitPayWebhookSignature(rawBody, req.headers)) {
+        return res.status(401).json({ error: "Invalid webhook signature" });
+      }
+
+      const payload = parseBitPayWebhookBody(req.body);
+      const providerInvoiceId = extractBitPayInvoiceId(payload);
+      if (!providerInvoiceId) {
+        return res.status(400).json({ error: "Missing invoice id" });
+      }
+
+      const { rows } = await pool.query<CryptoPaymentIntentRow>(
+        `SELECT * FROM crypto_payment_intents
+         WHERE provider = 'bitpay' AND provider_invoice_id = $1
+         LIMIT 1`,
+        [providerInvoiceId]
+      );
+      if (!rows.length) {
+        return res.status(202).json({ received: true, matched: false });
+      }
+
+      const intent = rows[0];
+      const invoice = await fetchBitPayInvoice(providerInvoiceId, intent.provider_invoice_token);
+      const result = await settleCryptoPaymentIntentFromProviderInvoice(intent, invoice, "bitpay_webhook");
+      res.json({ received: true, matched: true, ...result });
+    } catch (err) {
+      console.error("[bitpay webhook] error:", err);
+      res.status(500).json({ error: "Webhook processing failed" });
+    }
+  });
+
+  app.post("/api/crypto/prepaid-reconcile", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const intentId = parseInt(req.body?.intentId ?? "0", 10);
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      if (!intentId) return res.status(400).json({ error: "Missing intentId" });
+
+      const { rows } = await pool.query<CryptoPaymentIntentRow>(
+        `SELECT * FROM crypto_payment_intents WHERE id = $1 AND user_id = $2 LIMIT 1`,
+        [intentId, userId]
+      );
+      if (!rows.length) return res.status(404).json({ error: "Intent not found" });
+      const intent = rows[0];
+
+      if (intent.status === "paid") {
+        if (intent.provider_invoice_id) {
+          await awardCryptoPrepaidBonusTokens(intent, intent.provider, intent.provider_invoice_id);
+        }
+        return res.json({
+          success: true,
+          alreadyMinted: true,
+          bonusTokens: parseFloat(String(intent.bonus_tokens ?? "0")) || 0,
+        });
+      }
+
+      if (intent.provider !== "bitpay" || !intent.provider_invoice_id) {
+        return res.json({ success: false, pending: true });
+      }
+
+      const invoice = await fetchBitPayInvoice(intent.provider_invoice_id, intent.provider_invoice_token);
+      const result = await settleCryptoPaymentIntentFromProviderInvoice(intent, invoice, "crypto_reconcile");
+      res.json(result);
+    } catch (err: any) {
+      console.error("[crypto prepaid reconcile] error:", err);
+      res.status(500).json({ error: err?.message || "Crypto reconcile failed" });
+    }
+  });
+
   app.get("/api/admin/treasury/prepaid-credit", isAuthenticated, requireBusinessOwner, async (_req, res) => {
     try {
       const { rows } = await pool.query<{ total_usd: string; count: string }>(
@@ -27636,6 +28695,7 @@ Thank you for your business!
   app.use("/api/admin/service-rebook", serviceRebookRouter);
   app.use("/api/service-rebook", serviceRebookPublicRouter);
   app.use("/api", marketingWebhookRemindersRouter);
+  app.use("/api", await createMarketingExecutionRouter());
 
   // Multi-Service Booking Foundation (Task #128) — parent bookings table,
   // pricing engine, and the catalog/bundle merchandising endpoints used by
@@ -27655,6 +28715,33 @@ Thank you for your business!
 }
 
 // ── Revenue split helpers ─────────────────────────────────────────────────────
+
+async function ensureReviewTipAllocationsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS review_tip_allocations (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      review_id VARCHAR NOT NULL REFERENCES reviews(id),
+      lead_id VARCHAR NOT NULL REFERENCES leads(id),
+      customer_user_id VARCHAR REFERENCES users(id),
+      worker_id VARCHAR NOT NULL REFERENCES users(id),
+      worker_name TEXT,
+      tip_method TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      amount_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+      token_amount NUMERIC(18,8) NOT NULL DEFAULT 0.00000000,
+      status TEXT NOT NULL DEFAULT 'pending_payment',
+      metadata JSONB,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      confirmed_at TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_tip_allocations_review ON review_tip_allocations(review_id);
+    CREATE INDEX IF NOT EXISTS idx_review_tip_allocations_lead ON review_tip_allocations(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_review_tip_allocations_worker ON review_tip_allocations(worker_id);
+    CREATE INDEX IF NOT EXISTS idx_review_tip_allocations_customer ON review_tip_allocations(customer_user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS unique_review_tip_allocation
+      ON review_tip_allocations(review_id, worker_id, tip_method);
+  `);
+}
 
 async function ensureRevenueAllocationsTable() {
   await pool.query(`
@@ -27878,6 +28965,391 @@ async function creditJcMovesUsdFromPrepaid(
   }
 }
 
+async function creditJcMovesUsdFromConfirmedPayment(
+  userId: string,
+  amountUsd: number,
+  options: {
+    source: string;
+    referenceId: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+    console.warn(`[JCMOVES USD confirmed] Refused invalid mint amount=${amountUsd} (user ${userId}, source ${options.source})`);
+    return;
+  }
+  if (!userId || typeof userId !== "string" || !options.referenceId || typeof options.referenceId !== "string") {
+    console.warn(`[JCMOVES USD confirmed] Refused mint with invalid identifiers user=${userId} reference=${options.referenceId}`);
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO wallet_accounts (user_id, token_balance, cash_balance)
+       VALUES ($1, '0', '0.00')
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId]
+    );
+    const inserted = await client.query(
+      `INSERT INTO rewards (user_id, reward_type, token_amount, cash_value, status, reference_id, metadata)
+       VALUES ($1, 'jcmoves_usd_mint', '0', $2, 'confirmed', $3, $4::jsonb)
+       ON CONFLICT (reference_id) WHERE reward_type = 'jcmoves_usd_mint' AND reference_id IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [
+        userId,
+        amountUsd.toFixed(2),
+        options.referenceId,
+        JSON.stringify({ source: options.source, ...(options.metadata ?? {}) }),
+      ]
+    );
+    if (inserted.rowCount === 0) {
+      await client.query("ROLLBACK");
+      console.log(`[JCMOVES USD confirmed] Already minted for reference ${options.referenceId}`);
+      return;
+    }
+
+    const { rows: updatedRows } = await client.query(
+      `UPDATE wallet_accounts
+       SET cash_balance = cash_balance + $1
+       WHERE user_id = $2
+       RETURNING cash_balance`,
+      [amountUsd.toFixed(2), userId]
+    );
+    const balanceAfter = updatedRows[0]?.cash_balance ?? amountUsd.toFixed(2);
+    await client.query(
+      `INSERT INTO wallet_transactions (transaction_type, amount, balance_after, status, metadata)
+       VALUES ('jcmoves_usd_mint', $1, $2, 'confirmed', $3::jsonb)`,
+      [
+        amountUsd.toFixed(2),
+        balanceAfter,
+        JSON.stringify({
+          userId,
+          source: options.source,
+          referenceId: options.referenceId,
+          currency: "JCMOVES_USD",
+          ...(options.metadata ?? {}),
+        }),
+      ]
+    );
+    await client.query("COMMIT");
+    console.log(`[JCMOVES USD confirmed] Minted $${amountUsd.toFixed(2)} credit for user ${userId} (${options.referenceId})`);
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+    console.error("creditJcMovesUsdFromConfirmedPayment failed:", err);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+type PrepaidCreditBonusIntent = {
+  id: number | string;
+  user_id: string;
+  amount_usd: string | number;
+  pack_id?: string | null;
+  bonus_tokens?: string | number | null;
+};
+
+async function awardPrepaidCreditBonusTokens(
+  intent: PrepaidCreditBonusIntent,
+  squarePaymentId: string,
+): Promise<boolean> {
+  const userId = typeof intent.user_id === "string" ? intent.user_id : "";
+  const bonusTokens = parseFloat(String(intent.bonus_tokens ?? "0"));
+  if (!userId || !Number.isFinite(bonusTokens) || bonusTokens <= 0) return false;
+  if (!squarePaymentId || typeof squarePaymentId !== "string") {
+    console.warn(`[JCMOVES USD bonus pack] Refused bonus without Square payment id for intent ${intent.id}`);
+    return false;
+  }
+
+  const refId = `prepaid_bonus:${squarePaymentId}`;
+  const amountUsd = parseFloat(String(intent.amount_usd ?? "0"));
+  const packId = typeof intent.pack_id === "string" && intent.pack_id ? intent.pack_id : "prepaid_bonus_pack";
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO wallet_accounts (user_id, token_balance, cash_balance)
+       VALUES ($1, '0', '0.00')
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId]
+    );
+
+    const insertReward = await client.query(
+      `INSERT INTO rewards (user_id, reward_type, token_amount, cash_value, status, reference_id, metadata)
+       VALUES ($1, 'jcmoves_usd_bonus_pack', $2, '0.00', 'confirmed', $3, $4::jsonb)
+       ON CONFLICT (reference_id) WHERE reward_type = 'jcmoves_usd_bonus_pack' AND reference_id IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [
+        userId,
+        bonusTokens.toFixed(8),
+        refId,
+        JSON.stringify({
+          source: "jcmoves_usd_bonus_pack",
+          packId,
+          intentId: String(intent.id),
+          amountUsd: Number.isFinite(amountUsd) ? amountUsd.toFixed(2) : null,
+          squarePaymentId,
+          currency: "JCMOVES",
+          serviceCreditCurrency: "JCMOVES_USD",
+        }),
+      ]
+    );
+
+    if (insertReward.rowCount === 0) {
+      await client.query(
+        `UPDATE prepaid_credit_intents
+         SET bonus_awarded_at = COALESCE(bonus_awarded_at, NOW())
+         WHERE id = $1`,
+        [intent.id]
+      );
+      await client.query("COMMIT");
+      console.log(`[JCMOVES USD bonus pack] Already awarded ${bonusTokens} JCMOVES for payment ${squarePaymentId}`);
+      return false;
+    }
+
+    await client.query(
+      `UPDATE wallet_accounts
+       SET token_balance = COALESCE(token_balance, 0)::numeric + $1::numeric,
+           total_earned = COALESCE(total_earned, 0)::numeric + $1::numeric,
+           last_activity = NOW()
+       WHERE user_id = $2`,
+      [bonusTokens.toFixed(8), userId]
+    );
+    await client.query(
+      `UPDATE prepaid_credit_intents
+       SET bonus_awarded_at = NOW()
+       WHERE id = $1`,
+      [intent.id]
+    );
+    await client.query("COMMIT");
+    console.log(`[JCMOVES USD bonus pack] Awarded ${bonusTokens} JCMOVES to user ${userId} for prepaid intent ${intent.id}`);
+    return true;
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+    console.error("[JCMOVES USD bonus pack] Award failed:", err);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function awardCryptoPrepaidBonusTokens(
+  intent: PrepaidCreditBonusIntent,
+  provider: string,
+  providerPaymentReference: string,
+): Promise<boolean> {
+  const userId = typeof intent.user_id === "string" ? intent.user_id : "";
+  const bonusTokens = parseFloat(String(intent.bonus_tokens ?? "0"));
+  if (!userId || !Number.isFinite(bonusTokens) || bonusTokens <= 0) return false;
+  if (!providerPaymentReference || typeof providerPaymentReference !== "string") {
+    console.warn(`[JCMOVES USD crypto bonus pack] Refused bonus without provider payment reference for intent ${intent.id}`);
+    return false;
+  }
+
+  const refId = `crypto_bonus:${provider}:${providerPaymentReference}`;
+  const amountUsd = parseFloat(String(intent.amount_usd ?? "0"));
+  const packId = typeof intent.pack_id === "string" && intent.pack_id ? intent.pack_id : "crypto_bonus_pack";
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO wallet_accounts (user_id, token_balance, cash_balance)
+       VALUES ($1, '0', '0.00')
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId]
+    );
+
+    const insertReward = await client.query(
+      `INSERT INTO rewards (user_id, reward_type, token_amount, cash_value, status, reference_id, metadata)
+       VALUES ($1, 'jcmoves_usd_bonus_pack', $2, '0.00', 'confirmed', $3, $4::jsonb)
+       ON CONFLICT (reference_id) WHERE reward_type = 'jcmoves_usd_bonus_pack' AND reference_id IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [
+        userId,
+        bonusTokens.toFixed(8),
+        refId,
+        JSON.stringify({
+          source: "jcmoves_usd_crypto_bonus_pack",
+          provider,
+          providerPaymentReference,
+          packId,
+          intentId: String(intent.id),
+          amountUsd: Number.isFinite(amountUsd) ? amountUsd.toFixed(2) : null,
+          currency: "JCMOVES",
+          serviceCreditCurrency: "JCMOVES_USD",
+        }),
+      ]
+    );
+
+    if (insertReward.rowCount === 0) {
+      await client.query(
+        `UPDATE crypto_payment_intents
+         SET bonus_awarded_at = COALESCE(bonus_awarded_at, NOW())
+         WHERE id = $1`,
+        [intent.id]
+      );
+      await client.query("COMMIT");
+      console.log(`[JCMOVES USD crypto bonus pack] Already awarded ${bonusTokens} JCMOVES for ${provider}:${providerPaymentReference}`);
+      return false;
+    }
+
+    await client.query(
+      `UPDATE wallet_accounts
+       SET token_balance = COALESCE(token_balance, 0)::numeric + $1::numeric,
+           total_earned = COALESCE(total_earned, 0)::numeric + $1::numeric,
+           last_activity = NOW()
+       WHERE user_id = $2`,
+      [bonusTokens.toFixed(8), userId]
+    );
+    await client.query(
+      `UPDATE crypto_payment_intents
+       SET bonus_awarded_at = NOW()
+       WHERE id = $1`,
+      [intent.id]
+    );
+    await client.query("COMMIT");
+    console.log(`[JCMOVES USD crypto bonus pack] Awarded ${bonusTokens} JCMOVES to user ${userId} for crypto intent ${intent.id}`);
+    return true;
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+    console.error("[JCMOVES USD crypto bonus pack] Award failed:", err);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+type CryptoPaymentIntentRow = PrepaidCreditBonusIntent & {
+  provider: string;
+  provider_invoice_id?: string | null;
+  provider_invoice_token?: string | null;
+  status?: string | null;
+  provider_status?: string | null;
+  reference_type?: string | null;
+  reference_id?: string | null;
+};
+
+function getRequestBaseUrl(req: Request) {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const protocol = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  const host = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost || req.headers.host;
+  return `${protocol || req.protocol || "https"}://${host}`;
+}
+
+function rawRequestBodyBuffer(body: unknown) {
+  if (Buffer.isBuffer(body)) return body;
+  if (typeof body === "string") return Buffer.from(body, "utf8");
+  return Buffer.from(JSON.stringify(body ?? {}), "utf8");
+}
+
+async function settleCryptoPaymentIntentFromProviderInvoice(
+  intent: CryptoPaymentIntentRow,
+  providerInvoice: Record<string, unknown>,
+  source: string,
+) {
+  const provider = intent.provider || "bitpay";
+  const providerInvoiceId = typeof providerInvoice.id === "string"
+    ? providerInvoice.id
+    : String(intent.provider_invoice_id ?? "");
+  if (!providerInvoiceId) {
+    throw new Error("Missing provider invoice id");
+  }
+
+  const amountUsd = parseFloat(String(intent.amount_usd ?? "0"));
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+    throw new Error("Invalid crypto payment amount");
+  }
+  const providerPrice = parseFloat(String(providerInvoice.price ?? ""));
+  if (Number.isFinite(providerPrice) && Math.abs(providerPrice - amountUsd) > 0.005) {
+    throw new Error("Provider invoice amount does not match intent amount");
+  }
+
+  const mapping = mapBitPayInvoiceStatus(providerInvoice.status);
+  const rawProviderPayload = JSON.stringify({ source, providerInvoice });
+  const terminalWithoutCredit = mapping.terminal && !mapping.creditEligible;
+  await pool.query(
+    `UPDATE crypto_payment_intents
+     SET provider_status = $1,
+         status = CASE WHEN $2::boolean THEN $3 ELSE status END,
+         raw_provider_payload = $4::jsonb,
+         updated_at = NOW()
+     WHERE id = $5`,
+    [
+      mapping.providerStatus,
+      terminalWithoutCredit,
+      mapping.intentStatus,
+      rawProviderPayload,
+      intent.id,
+    ]
+  );
+
+  const bonusTokens = parseFloat(String(intent.bonus_tokens ?? "0")) || 0;
+  if (!mapping.creditEligible) {
+    return {
+      success: false,
+      pending: !mapping.terminal,
+      status: mapping.intentStatus,
+      providerStatus: mapping.providerStatus,
+      bonusTokens,
+    };
+  }
+
+  if (intent.status === "paid") {
+    const bonusAwarded = await awardCryptoPrepaidBonusTokens(intent, provider, providerInvoiceId);
+    return {
+      success: true,
+      alreadyMinted: true,
+      status: "paid",
+      providerStatus: mapping.providerStatus,
+      bonusTokens,
+      bonusAwarded,
+    };
+  }
+
+  const transactionCurrency = typeof providerInvoice.transactionCurrency === "string"
+    ? providerInvoice.transactionCurrency
+    : typeof providerInvoice.currency === "string"
+      ? providerInvoice.currency
+      : null;
+  await creditJcMovesUsdFromConfirmedPayment(intent.user_id, amountUsd, {
+    source: "crypto_prepaid",
+    referenceId: `crypto:${provider}:${providerInvoiceId}`,
+    metadata: {
+      provider,
+      providerInvoiceId,
+      cryptoIntentId: String(intent.id),
+      providerStatus: mapping.providerStatus,
+      transactionCurrency,
+      packId: intent.pack_id ?? null,
+      serviceCreditCurrency: "JCMOVES_USD",
+    },
+  });
+  const bonusAwarded = await awardCryptoPrepaidBonusTokens(intent, provider, providerInvoiceId);
+  await pool.query(
+    `UPDATE crypto_payment_intents
+     SET status = 'paid',
+         provider_status = $1,
+         credited_at = COALESCE(credited_at, NOW()),
+         paid_at = COALESCE(paid_at, NOW()),
+         raw_provider_payload = $2::jsonb,
+         updated_at = NOW()
+     WHERE id = $3`,
+    [mapping.providerStatus, rawProviderPayload, intent.id]
+  );
+
+  return {
+    success: true,
+    status: "paid",
+    providerStatus: mapping.providerStatus,
+    bonusTokens,
+    bonusAwarded,
+  };
+}
+
 async function ensureWalletCreditGrantsTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS wallet_credit_grants (
@@ -27921,6 +29393,9 @@ async function ensurePrepaidIntentsTable() {
       created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
       paid_at       TIMESTAMP
     );
+    ALTER TABLE prepaid_credit_intents ADD COLUMN IF NOT EXISTS pack_id TEXT;
+    ALTER TABLE prepaid_credit_intents ADD COLUMN IF NOT EXISTS bonus_tokens NUMERIC(18,8) NOT NULL DEFAULT 0;
+    ALTER TABLE prepaid_credit_intents ADD COLUMN IF NOT EXISTS bonus_awarded_at TIMESTAMP;
     CREATE INDEX IF NOT EXISTS idx_prepaid_intents_order ON prepaid_credit_intents(square_order_id);
     CREATE INDEX IF NOT EXISTS idx_prepaid_intents_user  ON prepaid_credit_intents(user_id);
     -- Race-safe idempotency: at most one intent per Square payment id.
@@ -27932,10 +29407,50 @@ async function ensurePrepaidIntentsTable() {
     CREATE UNIQUE INDEX IF NOT EXISTS uq_rewards_jcmoves_usd_mint_ref
       ON rewards(reference_id)
       WHERE reward_type = 'jcmoves_usd_mint' AND reference_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_rewards_jcmoves_usd_bonus_pack_ref
+      ON rewards(reference_id)
+      WHERE reward_type = 'jcmoves_usd_bonus_pack' AND reference_id IS NOT NULL;
   `);
 }
 
 // ── Lottery helpers (module-level) ────────────────────────────────────────────
+
+async function ensureCryptoPaymentIntentsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS crypto_payment_intents (
+      id                      SERIAL PRIMARY KEY,
+      user_id                 VARCHAR NOT NULL REFERENCES users(id),
+      provider                TEXT NOT NULL,
+      provider_invoice_id     TEXT,
+      provider_invoice_token  TEXT,
+      provider_checkout_url   TEXT,
+      amount_usd              NUMERIC(10,2) NOT NULL,
+      currency                TEXT NOT NULL DEFAULT 'USD',
+      status                  TEXT NOT NULL DEFAULT 'pending',
+      provider_status         TEXT,
+      reference_type          TEXT NOT NULL,
+      reference_id            TEXT,
+      pack_id                 TEXT,
+      bonus_tokens            NUMERIC(18,8) NOT NULL DEFAULT 0,
+      credited_at             TIMESTAMP,
+      bonus_awarded_at        TIMESTAMP,
+      paid_at                 TIMESTAMP,
+      raw_provider_payload    JSONB,
+      metadata                JSONB,
+      created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at              TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_crypto_payment_intents_user
+      ON crypto_payment_intents(user_id);
+    CREATE INDEX IF NOT EXISTS idx_crypto_payment_intents_status
+      ON crypto_payment_intents(status);
+    CREATE INDEX IF NOT EXISTS idx_crypto_payment_intents_reference
+      ON crypto_payment_intents(reference_type, reference_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_crypto_payment_intents_provider_invoice
+      ON crypto_payment_intents(provider, provider_invoice_id)
+      WHERE provider_invoice_id IS NOT NULL;
+  `);
+}
 
 async function ensureLotteryTables() {
   await pool.query(`

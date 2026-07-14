@@ -83,9 +83,36 @@ export default function CustomerWalletPage() {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/wallet/balance"] });
       if (data?.success) {
-        toast({ title: "Credit added", description: "Your JCMOVES USD balance has been updated." });
+        const bonusTokens = parseFloat(String(data?.bonusTokens ?? "0"));
+        toast({
+          title: "Credit added",
+          description: Number.isFinite(bonusTokens) && bonusTokens > 0
+            ? `Your JCMOVES USD balance is updated, plus ${bonusTokens.toLocaleString()} JCMOVES bonus tokens.`
+            : "Your JCMOVES USD balance has been updated.",
+        });
       } else if (data?.pending) {
         toast({ title: "Payment pending", description: "We'll credit your wallet as soon as Square confirms." });
+      }
+    },
+  });
+
+  const cryptoReconcile = useMutation({
+    mutationFn: async (intentId: number) => {
+      const r = await apiRequest("POST", "/api/crypto/prepaid-reconcile", { intentId });
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/wallet/balance"] });
+      if (data?.success) {
+        const bonusTokens = parseFloat(String(data?.bonusTokens ?? "0"));
+        toast({
+          title: "JCMOVES USD added",
+          description: Number.isFinite(bonusTokens) && bonusTokens > 0
+            ? `Your service credit is updated, plus ${bonusTokens.toLocaleString()} JCMOVES bonus tokens.`
+            : "Your service credit balance has been updated.",
+        });
+      } else if (data?.pending) {
+        toast({ title: "Crypto payment pending", description: "We'll credit your wallet as soon as BitPay confirms." });
       }
     },
   });
@@ -96,6 +123,10 @@ export default function CustomerWalletPage() {
       const intentId = parseInt(params.get("intent") ?? "0", 10);
       if (intentId) reconcile.mutate(intentId);
       // Clean the URL so we don't re-trigger
+      window.history.replaceState({}, "", "/wallet");
+    } else if (params.get("crypto") === "success") {
+      const intentId = parseInt(params.get("intent") ?? "0", 10);
+      if (intentId) cryptoReconcile.mutate(intentId);
       window.history.replaceState({}, "", "/wallet");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

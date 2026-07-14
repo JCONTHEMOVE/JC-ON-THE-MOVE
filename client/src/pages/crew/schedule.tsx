@@ -16,6 +16,7 @@ import {
   Loader2, Users, Edit3, Settings2, Ban, Briefcase, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import type { User } from "@shared/schema";
+import { useAdminViewMode } from "@/hooks/useAdminViewMode";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_NAMES_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -86,9 +87,10 @@ type DayModalState = {
 
 export default function CrewSchedulePage() {
   const { user } = useAuth();
+  const { isCrewPreview } = useAdminViewMode();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const isAdmin = ["admin", "business_owner"].includes(user?.role || "");
+  const isAdmin = ["admin", "business_owner"].includes(user?.role || "") && !isCrewPreview;
 
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());

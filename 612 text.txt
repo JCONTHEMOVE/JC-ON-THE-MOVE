@@ -1,0 +1,893 @@
+2026-06-11T17:07:23.398967613Z [inf]  Starting Container
+2026-06-11T17:07:24.329545659Z [inf]  > rest-express@1.0.0 start
+2026-06-11T17:07:24.329553192Z [inf]  > cross-env NODE_ENV=production node dist/index.js
+2026-06-11T17:07:24.329557079Z [inf]  
+2026-06-11T17:07:24.329610256Z [err]  npm warn config production Use `--omit=dev` instead.
+2026-06-11T17:07:24.329614903Z [inf]  
+2026-06-11T17:07:24.694267717Z [inf]    OK COMPANY_EMAIL (optional) - company sender/recipient fallback for transactional email
+2026-06-11T17:07:24.694272559Z [inf]    OK GMAIL_USER (optional) - Gmail sender address for free email notifications
+2026-06-11T17:07:24.694277152Z [inf]    OK GMAIL_APP_PASSWORD (optional) - Gmail app password for SMTP email notifications
+2026-06-11T17:07:24.694281272Z [inf]    OPTIONAL SENDGRID_API_KEY (optional) - SendGrid fallback email delivery when Gmail OAuth is not configured
+2026-06-11T17:07:24.694285052Z [inf]    OK GOOGLE_OAUTH_CLIENT_ID (optional) - Google login OAuth client ID
+2026-06-11T17:07:24.694289887Z [inf]    OK GOOGLE_OAUTH_CLIENT_SECRET (optional) - Google login OAuth client secret
+2026-06-11T17:07:24.694294777Z [inf]  [env-check] production env vars:
+2026-06-11T17:07:24.694294812Z [inf]    OK GOOGLE_OAUTH_REDIRECT_URI (optional) - Google login callback URL; defaults to APP_URL/api/auth/google/callback
+2026-06-11T17:07:24.694298441Z [inf]    OPTIONAL GOOGLE_APPLICATION_CREDENTIALS (optional) - Google Cloud service-account file for object storage
+2026-06-11T17:07:24.694303254Z [inf]    OPTIONAL GOOGLE_APPLICATION_CREDENTIALS_JSON (optional) - Google Cloud service-account JSON for object storage
+2026-06-11T17:07:24.694306083Z [inf]    OK DATABASE_URL (required) - PostgreSQL database connection
+2026-06-11T17:07:24.694311644Z [inf]    OK SESSION_SECRET (required) - session cookies and JWT signing fallback
+2026-06-11T17:07:24.694316254Z [inf]    OK SQUARE_ACCESS_TOKEN (required) - Square card invoicing + customer search
+2026-06-11T17:07:24.694320617Z [inf]    OK SQUARE_ENVIRONMENT (required) - Square sandbox vs production switch
+2026-06-11T17:07:24.694324502Z [inf]    OPTIONAL BTC_WALLET_ADDRESS (optional) - Bitcoin payment auto-verify sweep + customer pay-with-BTC display
+2026-06-11T17:07:24.694328641Z [inf]    OPTIONAL ADMIN_EMAIL (optional) - admin quote/lead notification recipient; falls back to COMPANY_EMAIL
+2026-06-11T17:07:24.695653741Z [inf]    OPTIONAL GOOGLE_CLOUD_PROJECT_ID (optional) - Google Cloud project ID for storage
+2026-06-11T17:07:24.695657272Z [inf]    OPTIONAL ADMIN_PHONE_NUMBER (optional) - admin SMS notification recipient
+2026-06-11T17:07:24.695660630Z [inf]    OPTIONAL TWILIO_ACCOUNT_SID (optional) - Twilio SMS account for admin/crew notifications
+2026-06-11T17:07:24.695663921Z [inf]    OPTIONAL TWILIO_AUTH_TOKEN (optional) - Twilio API auth paired with TWILIO_ACCOUNT_SID
+2026-06-11T17:07:24.695668978Z [inf]    OPTIONAL TWILIO_PHONE_NUMBER (optional) - Twilio sender phone number; alternatively use TWILIO_MESSAGING_SERVICE_SID
+2026-06-11T17:07:24.695671995Z [inf]    OPTIONAL TWILIO_MESSAGING_SERVICE_SID (optional) - Twilio sender messaging service; alternatively use TWILIO_PHONE_NUMBER
+2026-06-11T17:07:24.695674919Z [inf]  Starting server on port 8080...
+2026-06-11T17:07:24.695677616Z [inf]  Initializing application server...
+2026-06-11T17:07:24.741257980Z [err]  SENDGRID_API_KEY environment variable not set. SendGrid fallback will be disabled.
+2026-06-11T17:07:24.743427500Z [err]  MOONSHOT_TOKEN_ADDRESS not configured
+2026-06-11T17:07:24.745593894Z [inf]  🔗 SolanaTransferService initialized
+2026-06-11T17:07:24.745598896Z [inf]  📍 RPC: https://api.mainnet-beta.solana.com
+2026-06-11T17:07:24.745602060Z [inf]  🪙 Token Mint: BHZW4jds7NSe5Fqvw9Z4pvt423EJSx63k8MT11F2moon
+2026-06-11T17:07:24.745604941Z [err]  ⚠️ Primary Treasury: TREASURY_WALLET_PRIVATE_KEY not configured
+2026-06-11T17:07:24.745607899Z [err]  ⚠️ JC MOVES BANKS: JCMOVES_BANKS_PRIVATE_KEY not configured
+2026-06-11T17:07:24.745610683Z [err]  ⚠️ IN GOD WE TRUST: IN_GOD_WE_TRUST_PRIVATE_KEY not configured
+2026-06-11T17:07:24.745613632Z [err]  ⚠️ VITE_SOLANA_RPC_URL not set. Using public Solana RPC endpoint (rate limited). Set VITE_SOLANA_RPC_URL in deployment secrets for better performance.
+2026-06-11T17:07:24.747357228Z [inf]  🔄 JupiterSwapService initialized
+2026-06-11T17:07:24.795927091Z [inf]  Gmail email service available (primary)
+2026-06-11T17:07:24.797774159Z [inf]  JC ON THE MOVE HTTP listener started
+2026-06-11T17:07:24.797778345Z [inf]  Serving on http://0.0.0.0:8080
+2026-06-11T17:07:25.301946026Z [inf]  ✅ Task #185 demand history columns ready
+2026-06-11T17:07:25.301949663Z [inf]  ✅ Lawn care tables ready
+2026-06-11T17:07:25.301952803Z [inf]  ✅ Task #175 payment columns ready
+2026-06-11T17:07:25.301956226Z [inf]  ✅ job_trade_requests table ready
+2026-06-11T17:07:25.301959892Z [inf]  ✅ Loyalty tier columns ready
+2026-06-11T17:07:25.316265665Z [inf]  users auth/profile columns ready
+2026-06-11T17:07:25.387690252Z [inf]  worker authority and quote approval tables ready
+2026-06-11T17:07:25.442288977Z [inf]  recovery_tokens table ready
+2026-06-11T17:07:25.510298326Z [inf]  ✅ is_driver column ready
+2026-06-11T17:07:25.574051962Z [inf]  ✅ crew availability window + capabilities columns ready
+2026-06-11T17:07:25.640443280Z [inf]  ✅ past_jobs_notice_seen column ready
+2026-06-11T17:07:25.706197109Z [inf]  ✅ accepted_job_types column ready
+2026-06-11T17:07:25.771145823Z [inf]  ✅ dispatch_decline_count column ready
+2026-06-11T17:07:25.837139022Z [inf]  ✅ Leads selected_package_id column ready
+2026-06-11T17:07:25.898853374Z [inf]  ✅ Leads quote dispatch columns ready
+2026-06-11T17:07:25.969588545Z [inf]  ✅ Leads square_payment_url column ready
+2026-06-11T17:07:26.310255706Z [inf]  ✅ Leads deposit_required/deposit_paid/is_quote_only columns ready
+2026-06-11T17:07:26.310303482Z [inf]  ✅ Leads order_number column ready
+2026-06-11T17:07:26.310307933Z [inf]  ✅ square_invoices.square_invoice_number column ready
+2026-06-11T17:07:26.363253499Z [inf]  ✅ Jackpot tables ready
+2026-06-11T17:07:26.426375917Z [inf]  💝 Mom hearts table ready
+2026-06-11T17:07:26.495219331Z [inf]  ⟠  ETH staking table ready
+2026-06-11T17:07:26.619788029Z [inf]  ✅ Staking treasury yield sources ready
+2026-06-11T17:07:26.689460968Z [inf]  ✅ worker_hour_overrides table ready
+2026-06-11T17:07:26.941119540Z [inf]  ✅ lead_history table ready
+2026-06-11T17:07:27.008403322Z [inf]  🗑️ trash_subscriptions table ready
+2026-06-11T17:07:27.327480289Z [inf]  📐 calibration_sessions table ready
+2026-06-11T17:07:27.327532196Z [inf]  🗑️ trash_jobs table ready
+2026-06-11T17:07:27.327537904Z [inf]  📊 page_views analytics table ready
+2026-06-11T17:07:27.396881277Z [inf]  🗺️  demand_zones table ready
+2026-06-11T17:07:27.460577312Z [inf]  ✅ Staking pool columns ready
+2026-06-11T17:07:27.717791011Z [inf]  💝 Nicolasa Jackson (Mom) account ready — balance: 0.00000000 JCMOVES
+2026-06-11T17:07:28.337141699Z [inf]  🤝 Nominees table ready
+2026-06-11T17:07:28.945132009Z [inf]  ✅ Quantum Spin jackpots seeded
+2026-06-11T17:07:29.311008005Z [inf]  ✅ Pricing values corrected to production-ready defaults
+2026-06-11T17:07:30.331174235Z [inf]  [dispatch.migrate] schema ready
+2026-06-11T17:07:30.368272485Z [inf]  [dispatch] initialized — retry cron every 2min
+2026-06-11T17:07:30.492159285Z [inf]  ✅ Flash Sale 10-spin pack already exists
+2026-06-11T17:07:30.499668543Z [inf]  [SESSION] Cookie configuration: name=jc.sid, secure=auto, sameSite=lax, environment=production
+2026-06-11T17:07:30.499676513Z [inf]  ✅ Session management setup completed
+2026-06-11T17:07:30.566183063Z [inf]  💰 Revenue allocations table ready
+2026-06-11T17:07:30.641038186Z [inf]  💵 Prepaid credit intents table ready
+2026-06-11T17:07:30.695211818Z [inf]  🎁 Wallet credit grants table ready
+2026-06-11T17:07:30.823884331Z [inf]  🎟️  Lottery tables ready
+2026-06-11T17:07:30.957633738Z [inf]  Application routes registered successfully
+2026-06-11T17:07:30.957640554Z [inf]  ✅ Task #175 payment routes mounted
+2026-06-11T17:07:30.957644487Z [inf]  ✅ Lead funnel monitor scheduled (every 15 min)
+2026-06-11T17:07:30.957648426Z [inf]  ℹ️  Lawn care re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS=true to enable)
+2026-06-11T17:07:30.957651942Z [inf]    Snow Removal re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS_SNOW=true to enable)
+2026-06-11T17:07:30.957656052Z [inf]    Junk Removal re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS_JUNK=true to enable)
+2026-06-11T17:07:30.957659880Z [inf]    Window Cleaning re-book reminder sweep disabled (set ENABLE_REBOOK_REMINDER_EMAILS_WINDOW=true to enable)
+2026-06-11T17:07:30.957665170Z [inf]   Jewelry reservation expiry sweep scheduled (every 10 min)
+2026-06-11T17:07:30.957669714Z [inf]    BTC_WALLET_ADDRESS not set — Bitcoin auto-verify sweep disabled
+2026-06-11T17:07:30.957673616Z [inf]  Configuring static file serving for production...
+2026-06-11T17:07:30.957676911Z [inf]  Static file serving configured successfully
+2026-06-11T17:07:30.957680537Z [inf]  JC ON THE MOVE application started successfully
+2026-06-11T17:07:31.025355881Z [inf]  ✅ booking_service_items lifecycle columns ready
+2026-06-11T17:07:31.027696330Z [inf]  ✅ Crew dispatch columns ready
+2026-06-11T17:07:31.029837881Z [inf]  ✅ idempotency_keys table ready
+2026-06-11T17:07:31.322969957Z [inf]  ✅ lead_funnel_alerts table ready
+2026-06-11T17:07:31.322975249Z [inf]  ✅ Reward shop already seeded — skipping
+2026-06-11T17:07:31.322983565Z [inf]  ✅ service_rebook_reminders table ready
+2026-06-11T17:07:31.322987903Z [inf]  ✅ Mover items migrated (2 Movers · 1 Hr + 2 Movers · 2 Hr)
+2026-06-11T17:07:31.393953356Z [inf]  ℹ️  Reward item already exists, skipping: 10-Window Wash — Free Session
+2026-06-11T17:07:31.456461746Z [inf]  ℹ️  Reward item already exists, skipping: 1 Month of Trash Valet — Free
+2026-06-11T17:07:31.516967256Z [inf]  ℹ️  Reward item already exists, skipping: Handyman Deposit — Long Distance or 2× Local
+2026-06-11T17:07:31.577987863Z [inf]  ℹ️  Reward item already exists, skipping: Tiny Junk Removal ≤ 300 lbs (Local)
+2026-06-11T17:07:31.577994226Z [inf]  ✅ Reward shop migration complete
+2026-06-11T17:07:35.955526253Z [inf]  [tier-backfill] Recomputed tier for 1 users with completed jobs
+2026-06-11T17:42:51.776773446Z [inf]  5:42:42 PM [express] GET /api/health 200 in 249ms :: {"status":"ready","service":"jc-on-the-move","t…
+2026-06-11T17:44:01.526718080Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-11T17:44:01.526723469Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: NLF3G5I2 | Has cookie: false
+2026-06-11T17:44:01.526726492Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T17:44:01.526729889Z [inf]  5:43:57 PM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-11T17:44:01.526732606Z [inf]  5:43:57 PM [express] GET /api/testimonials 200 in 256ms :: []
+2026-06-11T17:44:01.526735275Z [inf]  5:43:57 PM [express] POST /api/analytics/pageview 200 in 259ms :: {"ok":true}
+2026-06-11T19:13:51.388520351Z [inf]  7:13:45 PM [express] GET /api/.env 200 in 2ms
+2026-06-11T19:13:51.388529344Z [inf]  7:13:45 PM [express] GET /api/.env.old 200 in 1ms
+2026-06-11T19:13:51.388534505Z [inf]  7:13:45 PM [express] GET /api/.env.staging 200 in 0ms
+2026-06-11T19:13:51.388539963Z [inf]  7:13:45 PM [express] GET /api/.env.dev 200 in 1ms
+2026-06-11T19:13:51.388599765Z [inf]  7:13:42 PM [express] GET /api/.env.production 200 in 2ms
+2026-06-11T19:13:51.388603105Z [inf]  7:13:42 PM [express] GET /api/.env.local 200 in 2ms
+2026-06-11T19:13:51.388606143Z [inf]  7:13:43 PM [express] GET /api/.env.bak 200 in 3ms
+2026-06-11T19:13:51.388609479Z [inf]  7:13:43 PM [express] GET /api/v1/.env 200 in 2ms
+2026-06-11T19:13:51.388612569Z [inf]  7:13:43 PM [express] GET /api/v2/.env 200 in 3ms
+2026-06-11T19:13:51.388615656Z [inf]  7:13:43 PM [express] GET /api/.env.backup 200 in 1ms
+2026-06-11T19:13:51.388618622Z [inf]  7:13:43 PM [express] GET /api/.env.prod 200 in 0ms
+2026-06-11T19:13:51.388621491Z [inf]  7:13:45 PM [express] GET /api/v3/.env 200 in 2ms
+2026-06-11T19:13:51.388851619Z [inf]  7:13:46 PM [express] GET /api/backend/.env 200 in 2ms
+2026-06-11T19:37:47.235041015Z [err]  Error 500 on POST /: Parse Error
+2026-06-11T19:37:47.235048535Z [err]  Error 500 on POST /: Parse Error
+2026-06-11T19:40:17.061733896Z [inf]  7:40:11 PM [express] POST /api/analytics/pageview 200 in 252ms :: {"ok":true}
+2026-06-11T19:40:17.061737584Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-11T19:40:17.061740877Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: DybfBVKT | Has cookie: false
+2026-06-11T19:40:17.061744047Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T19:40:17.061747141Z [inf]  7:40:12 PM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-11T19:40:56.848751216Z [inf]  7:40:53 PM [express] GET /api/testimonials 200 in 263ms :: []
+2026-06-11T20:03:42.880994511Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T20:03:42.880998426Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-11T20:03:42.881001808Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T20:03:42.881005817Z [inf]  8:03:41 PM [express] GET /api/auth/user 401 in 125ms :: {"message":"Unauthorized"}
+2026-06-11T20:03:42.881010241Z [inf]  8:03:41 PM [express] POST /api/analytics/pageview 200 in 383ms :: {"ok":true}
+2026-06-11T20:03:49.905015611Z [inf]  [COOKIE-IN] POST /api/auth/recover/request | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T20:03:50.016373688Z [inf]  ⚠️ Recovery request for unknown email: upmichiganstatemovers@gmail.com
+2026-06-11T20:03:50.078175973Z [inf]  8:03:50 PM [express] POST /api/auth/recover/request 200 in 191ms :: {"success":true,"method":"email"…
+2026-06-11T20:15:53.359651675Z [inf]  8:15:50 PM [express] GET /api/health 200 in 249ms :: {"status":"ready","service":"jc-on-the-move","t…
+2026-06-11T20:17:43.178751301Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T20:17:43.178756220Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-11T20:17:43.178759085Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T20:17:43.178761699Z [inf]  8:17:34 PM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-11T20:50:52.923854673Z [err]  Error 500 on POST /: Parse Error
+2026-06-11T21:01:25.491060477Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-11T21:01:25.491063783Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: 6y3wP-p0 | Has cookie: false
+2026-06-11T21:01:25.491067595Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T21:01:25.491071587Z [inf]  9:01:16 PM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-11T21:01:25.491075086Z [inf]  9:01:17 PM [express] GET /api/testimonials 200 in 254ms :: []
+2026-06-11T21:01:25.491078671Z [inf]  9:01:18 PM [express] POST /api/analytics/pageview 200 in 65ms :: {"ok":true}
+2026-06-11T21:01:25.491082449Z [inf]  9:01:20 PM [express] POST /api/analytics/pageview 200 in 65ms :: {"ok":true}
+2026-06-11T23:05:11.367448224Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T23:05:11.367450994Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-11T23:05:11.367453602Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T23:05:11.367456485Z [inf]  11:05:04 PM [express] GET /api/auth/user 401 in 487ms :: {"message":"Unauthorized"}
+2026-06-11T23:05:13.391246127Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T23:05:13.393968158Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-11T23:05:13.393972031Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-11T23:05:13.457226904Z [inf]  11:05:13 PM [express] GET /api/auth/user 401 in 123ms :: {"message":"Unauthorized"}
+2026-06-11T23:05:13.702261626Z [inf]  11:05:13 PM [express] POST /api/analytics/pageview 200 in 375ms :: {"ok":true}
+2026-06-11T23:05:13.756003769Z [inf]  11:05:13 PM [express] GET /api/testimonials 304 in 377ms :: []
+2026-06-11T23:05:17.509842676Z [inf]  11:05:17 PM [express] POST /api/analytics/pageview 200 in 191ms :: {"ok":true}
+2026-06-11T23:05:19.416893662Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T23:05:19.627577907Z [err]  [LOGIN_DIAG] email=michigankid906@gmail.com, userId=47798367, role=business_owner, status=approved, hashPrefix=$2b$12$4FM1HlYWl/ILd, passwordLength=8, bcryptMatch=false
+2026-06-11T23:05:19.687426444Z [inf]  11:05:19 PM [express] POST /api/auth/login 401 in 400ms :: {"error":"Invalid email or password"}
+2026-06-11T23:05:21.422783467Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-11T23:05:21.497578397Z [err]  [LOGIN_DIAG] email=michigankid906@gmail.com, userId=47798367, role=business_owner, status=approved, hashPrefix=$2b$12$4FM1HlYWl/ILd, passwordLength=8, bcryptMatch=false
+2026-06-11T23:05:21.562102768Z [inf]  11:05:21 PM [express] POST /api/auth/login 401 in 395ms :: {"error":"Invalid email or password"}
+2026-06-12T00:46:33.017027356Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T00:46:33.017031324Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: e_JAdprR | Has cookie: false
+2026-06-12T00:46:33.017035531Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T00:46:33.017039485Z [inf]  12:46:25 AM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-12T00:46:33.017043328Z [inf]  12:46:26 AM [express] POST /api/analytics/pageview 200 in 251ms :: {"ok":true}
+2026-06-12T01:03:47.584114223Z [err]  Error 500 on POST /: Parse Error
+2026-06-12T01:37:57.333649467Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T01:37:57.333652934Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: -F9aUnUz | Has cookie: false
+2026-06-12T01:37:57.333656129Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T01:37:57.333659330Z [inf]  1:37:57 AM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-12T01:37:57.483864506Z [inf]  1:37:57 AM [express] POST /api/analytics/pageview 200 in 251ms :: {"ok":true}
+2026-06-12T01:37:57.483869113Z [inf]  1:37:57 AM [express] GET /api/testimonials 200 in 254ms :: []
+2026-06-12T01:38:57.634191822Z [inf]  1:38:49 AM [express] GET /api/bundles/featured 200 in 257ms :: {"slots":{"most_popular":[{"id":"d00a…
+2026-06-12T01:38:57.634200160Z [inf]  1:38:49 AM [express] GET /api/service-catalog 200 in 258ms :: {"services":[{"id":"137e603b-7740-4a1d…
+2026-06-12T01:38:57.634205208Z [inf]  1:38:49 AM [express] POST /api/analytics/pageview 200 in 256ms :: {"ok":true}
+2026-06-12T01:38:57.634209237Z [inf]  1:38:51 AM [express] POST /api/bookings/quote 200 in 255ms :: {"success":true,"quote":{"subtotal":30…
+2026-06-12T01:38:57.634213186Z [inf]  [pipeline] STEP: pricing ok 188ms total=300 bundle=none
+2026-06-12T01:38:57.634217399Z [inf]  [pipeline] STEP: demand ok 1ms
+2026-06-12T01:38:57.634221588Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 300
+2026-06-12T01:38:57.634226599Z [inf]  [pipeline] STEP: dispatch ok 246ms crew=test_employee_001 size=3
+2026-06-12T01:38:57.634230468Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:38:57.634236411Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:38:57.634240390Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:38:57.634243322Z [inf]  [pipeline] STEP: rewards ok 122ms tokens=4750
+2026-06-12T01:38:57.634246471Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:38:57.634249775Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$75.00
+2026-06-12T01:38:57.634253061Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:38:57.634256268Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T01:38:57.634262845Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: Aj5J99mN | Has cookie: false
+2026-06-12T01:38:57.634266035Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T01:38:57.634268905Z [inf]  1:38:57 AM [express] GET /api/auth/user 401 in 0ms :: {"message":"Unauthorized"}
+2026-06-12T01:40:07.413541025Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T01:40:07.413545818Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: wvFlXmYZ | Has cookie: false
+2026-06-12T01:40:07.413550012Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T01:40:07.413553029Z [inf]  1:39:57 AM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-12T01:40:37.415815207Z [inf]  1:40:29 AM [express] GET /api/utility/verify-address 200 in 787ms :: {"verified":true,"provider":"op…
+2026-06-12T01:40:37.415825822Z [inf]  1:40:32 AM [express] GET /api/maps-config 200 in 0ms :: {"key":"","disabled":true}
+2026-06-12T01:40:37.415832182Z [inf]  1:40:32 AM [express] GET /api/utility/estimate-drive-miles 200 in 323ms :: {"miles":6,"estimatedMinu…
+2026-06-12T01:40:37.415836639Z [inf]  1:40:32 AM [express] GET /api/pricing 200 in 322ms :: {"ratePerMoverHour":85,"truckAdd":60,"minHours…
+2026-06-12T01:40:37.415840731Z [inf]  1:40:34 AM [express] POST /api/bookings/quote 200 in 252ms :: {"success":true,"quote":{"subtotal":30…
+2026-06-12T01:40:37.415846298Z [inf]  [pipeline] STEP: pricing ok 185ms total=300 bundle=none
+2026-06-12T01:40:37.415850870Z [inf]  [pipeline] STEP: demand ok 1ms
+2026-06-12T01:40:37.415855239Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 300
+2026-06-12T01:40:37.415858815Z [inf]  [pipeline] STEP: dispatch ok 256ms crew=test_employee_001 size=3
+2026-06-12T01:40:37.415863514Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:40:37.415868687Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:40:37.415873369Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:40:37.415877101Z [inf]  [pipeline] STEP: rewards ok 126ms tokens=4750
+2026-06-12T01:40:37.415880808Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:40:37.415885133Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$75.00
+2026-06-12T01:40:37.415889907Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:40:45.327816253Z [inf]  1:40:45 AM [express] POST /api/bookings/quote 200 in 438ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:40:45.510927336Z [inf]  [pipeline] STEP: pricing ok 189ms total=425 bundle=none
+2026-06-12T01:40:45.510933084Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:40:45.510936976Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:40:45.957832801Z [inf]  [pipeline] STEP: dispatch ok 438ms crew=test_employee_001 size=3
+2026-06-12T01:40:45.957838507Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:40:45.957844096Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:40:45.957847871Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:40:46.347144058Z [inf]  [pipeline] STEP: rewards ok 125ms tokens=6625
+2026-06-12T01:40:46.347148160Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:40:46.347151909Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:40:46.347156263Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:40:47.947582723Z [inf]  1:40:47 AM [express] POST /api/bookings/quote 200 in 252ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:40:48.330718566Z [inf]  [pipeline] STEP: pricing ok 188ms total=425 bundle=none
+2026-06-12T01:40:48.330724398Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:40:48.330731741Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:40:48.372573530Z [inf]  [pipeline] STEP: dispatch ok 250ms crew=test_employee_001 size=3
+2026-06-12T01:40:48.372583434Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:40:48.372586663Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:40:48.372590322Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:40:48.514836858Z [inf]  [pipeline] STEP: rewards ok 125ms tokens=6625
+2026-06-12T01:40:48.514844810Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:40:48.514848964Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:40:48.514852686Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:40:57.804587082Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T01:40:57.804592654Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: iT9FGdTQ | Has cookie: false
+2026-06-12T01:40:57.804596822Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T01:40:57.804600060Z [inf]  1:40:57 AM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-12T01:41:17.797898763Z [inf]  1:41:11 AM [express] POST /api/bookings/quote 200 in 436ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:17.797899240Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:17.797903237Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:17.797906911Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:17.797910164Z [inf]  [pipeline] STEP: pricing ok 186ms total=425 bundle=none
+2026-06-12T01:41:17.797912794Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:17.797914271Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:17.797917248Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:17.797921889Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:17.797922582Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:17.797923917Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:17.797930135Z [inf]  1:41:12 AM [express] POST /api/bookings/quote 200 in 250ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:17.797930866Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:17.797935985Z [inf]  [pipeline] STEP: dispatch ok 435ms crew=test_employee_001 size=3
+2026-06-12T01:41:17.797938145Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:17.797941843Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:17.797948405Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:17.797951705Z [inf]  [pipeline] STEP: pricing ok 185ms total=425 bundle=none
+2026-06-12T01:41:17.797955388Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:17.797958236Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:17.797962937Z [inf]  [pipeline] STEP: dispatch ok 434ms crew=test_employee_001 size=3
+2026-06-12T01:41:17.797967611Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:17.799599340Z [inf]  1:41:14 AM [express] GET /api/utility/estimate-drive-miles 200 in 400ms :: {"miles":993,"estimatedMi…
+2026-06-12T01:41:17.799599419Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:17.799605269Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:17.799606907Z [inf]  1:41:14 AM [express] POST /api/bookings/quote 200 in 250ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:17.799611662Z [inf]  1:41:13 AM [express] POST /api/bookings/quote 200 in 248ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:17.799613275Z [inf]  [pipeline] STEP: pricing ok 187ms total=425 bundle=none
+2026-06-12T01:41:17.799618621Z [inf]  [pipeline] STEP: pricing ok 187ms total=425 bundle=none
+2026-06-12T01:41:17.799619223Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:17.799625635Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:17.799625684Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:17.799630693Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:17.799632726Z [inf]  1:41:14 AM [express] GET /api/utility/estimate-drive-miles 200 in 903ms :: {"miles":2190,"estimatedM…
+2026-06-12T01:41:17.799635737Z [inf]  [pipeline] STEP: dispatch ok 245ms crew=test_employee_001 size=3
+2026-06-12T01:41:17.799637679Z [inf]  [pipeline] STEP: dispatch ok 248ms crew=test_employee_001 size=3
+2026-06-12T01:41:17.799640319Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:17.799643604Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:17.799648588Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:17.799651669Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:17.799654513Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:17.799658333Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:17.799661410Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:17.801172991Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:17.801176484Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:17.801179766Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:17.801182881Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:17.801186290Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:17.801189775Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:17.801193332Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:17.801196437Z [inf]  1:41:15 AM [express] POST /api/bookings/quote 200 in 250ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:17.801200162Z [inf]  [pipeline] STEP: pricing ok 190ms total=425 bundle=none
+2026-06-12T01:41:17.801203692Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:17.801207223Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:17.801210430Z [inf]  [pipeline] STEP: dispatch ok 249ms crew=test_employee_001 size=3
+2026-06-12T01:41:17.801214657Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:17.801217943Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:17.801220709Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:17.801223904Z [inf]  [pipeline] STEP: rewards ok 130ms tokens=6625
+2026-06-12T01:41:17.801227298Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:17.801230998Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:17.801234007Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:17.801237015Z [inf]  1:41:17 AM [express] POST /api/bookings/quote 200 in 250ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:17.801239821Z [inf]  1:41:17 AM [express] GET /api/utility/estimate-drive-miles 200 in 1007ms :: {"miles":2190,"estimated…
+2026-06-12T01:41:17.827625198Z [inf]  [pipeline] STEP: pricing ok 186ms total=425 bundle=none
+2026-06-12T01:41:17.827631278Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:17.827635355Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:18.076080861Z [inf]  [pipeline] STEP: dispatch ok 246ms crew=test_employee_001 size=3
+2026-06-12T01:41:18.076091204Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:18.076095157Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:18.076098915Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:18.195418195Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:18.195421535Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:18.195424867Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:18.195428579Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:19.936999839Z [inf]  1:41:19 AM [express] POST /api/bookings/quote 200 in 248ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:20.043830003Z [inf]  1:41:20 AM [express] GET /api/utility/estimate-drive-miles 200 in 1069ms :: {"miles":1155,"estimated…
+2026-06-12T01:41:20.128429651Z [inf]  [pipeline] STEP: pricing ok 186ms total=425 bundle=none
+2026-06-12T01:41:20.128433101Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:20.128436170Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:20.499612958Z [inf]  [pipeline] STEP: dispatch ok 248ms crew=test_employee_001 size=3
+2026-06-12T01:41:20.499617933Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:20.499621531Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:20.499625972Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:20.499631572Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:20.499635422Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:20.499639026Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:20.499642345Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:20.797105726Z [inf]  1:41:20 AM [express] POST /api/bookings/quote 200 in 250ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:20.977986582Z [inf]  [pipeline] STEP: pricing ok 186ms total=425 bundle=none
+2026-06-12T01:41:20.977991222Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:20.977995784Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:21.480831524Z [inf]  [pipeline] STEP: dispatch ok 251ms crew=test_employee_001 size=3
+2026-06-12T01:41:21.480835869Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:21.480839581Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:21.480842869Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:21.480847780Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:21.480851578Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:21.480854997Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:21.480858223Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:22.495296622Z [inf]  1:41:22 AM [express] POST /api/bookings/quote 200 in 309ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:22.644007520Z [inf]  [pipeline] STEP: pricing ok 186ms total=425 bundle=none
+2026-06-12T01:41:22.644011840Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:22.644015262Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:22.735248394Z [inf]  1:41:22 AM [express] GET /api/utility/estimate-drive-miles 200 in 989ms :: {"miles":2190,"estimatedM…
+2026-06-12T01:41:22.889808091Z [inf]  [pipeline] STEP: dispatch ok 247ms crew=test_employee_001 size=3
+2026-06-12T01:41:22.889810834Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:22.889813631Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:22.889816526Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:23.022164734Z [inf]  [pipeline] STEP: rewards ok 123ms tokens=6625
+2026-06-12T01:41:23.022169058Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:23.022172792Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:23.022176140Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:23.131766608Z [inf]  1:41:23 AM [express] POST /api/bookings/quote 200 in 249ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:23.510592801Z [inf]  [pipeline] STEP: pricing ok 187ms total=425 bundle=none
+2026-06-12T01:41:23.510596628Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:23.510600344Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:23.510604751Z [inf]  1:41:23 AM [express] GET /api/utility/estimate-drive-miles 200 in 614ms :: {"miles":995,"estimatedMi…
+2026-06-12T01:41:23.571522315Z [inf]  [pipeline] STEP: dispatch ok 253ms crew=test_employee_001 size=3
+2026-06-12T01:41:23.571526690Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:23.571530009Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:23.571533063Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:23.694505094Z [inf]  1:41:23 AM [express] POST /api/bookings/quote 200 in 308ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:23.696778038Z [inf]  [pipeline] STEP: rewards ok 126ms tokens=6625
+2026-06-12T01:41:23.696784664Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:23.696788105Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:23.696792123Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:23.699361173Z [inf]  1:41:23 AM [express] GET /api/utility/estimate-drive-miles 200 in 1381ms :: {"miles":2108,"estimated…
+2026-06-12T01:41:23.822353324Z [inf]  1:41:23 AM [express] GET /api/utility/estimate-drive-miles 200 in 784ms :: {"miles":6,"estimatedMinu…
+2026-06-12T01:41:23.874842243Z [inf]  [pipeline] STEP: pricing ok 187ms total=425 bundle=none
+2026-06-12T01:41:23.874849194Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:23.874852865Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:24.127493792Z [inf]  [pipeline] STEP: dispatch ok 248ms crew=test_employee_001 size=3
+2026-06-12T01:41:24.127498276Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:24.127501486Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:24.127504220Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:24.497195731Z [inf]  [pipeline] STEP: rewards ok 125ms tokens=6625
+2026-06-12T01:41:24.497198449Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:24.497206084Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:24.497208725Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:25.185232163Z [inf]  1:41:25 AM [express] POST /api/bookings/quote 200 in 311ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:25.498779270Z [inf]  [pipeline] STEP: pricing ok 187ms total=425 bundle=none
+2026-06-12T01:41:25.498785485Z [inf]  [pipeline] STEP: demand ok 1ms
+2026-06-12T01:41:25.498789711Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:25.614934158Z [inf]  [pipeline] STEP: dispatch ok 247ms crew=test_employee_001 size=3
+2026-06-12T01:41:25.614939006Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:25.614942173Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:25.614945631Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:25.742305107Z [inf]  [pipeline] STEP: rewards ok 127ms tokens=6625
+2026-06-12T01:41:25.742309518Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:25.742317110Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:25.742320341Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:26.663664834Z [inf]  1:41:26 AM [express] POST /api/bookings/quote 200 in 307ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:26.692830198Z [inf]  1:41:26 AM [express] GET /api/utility/estimate-drive-miles 200 in 331ms :: {"miles":6,"estimatedMinu…
+2026-06-12T01:41:26.782849129Z [inf]  1:41:26 AM [express] GET /api/utility/estimate-drive-miles 200 in 1193ms :: {"miles":6,"estimatedMin…
+2026-06-12T01:41:26.856303337Z [inf]  [pipeline] STEP: pricing ok 185ms total=425 bundle=none
+2026-06-12T01:41:26.856306854Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:26.856310023Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:27.098084775Z [inf]  [pipeline] STEP: dispatch ok 250ms crew=test_employee_001 size=3
+2026-06-12T01:41:27.098093608Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:27.098096915Z [inf]  [pipeline] STEP: incentives ok 1ms
+2026-06-12T01:41:27.098099969Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:27.228014818Z [inf]  [pipeline] STEP: rewards ok 125ms tokens=6625
+2026-06-12T01:41:27.228019228Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:27.228022379Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:27.228025702Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:27.230238498Z [inf]  1:41:27 AM [express] GET /api/utility/estimate-drive-miles 200 in 871ms :: {"miles":472,"estimatedMi…
+2026-06-12T01:41:28.579997691Z [inf]  1:41:28 AM [express] GET /api/utility/estimate-drive-miles 200 in 1901ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:28.722948412Z [inf]  1:41:28 AM [express] GET /api/utility/estimate-drive-miles 200 in 2080ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:29.893513884Z [inf]  1:41:29 AM [express] POST /api/bookings/quote 200 in 435ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:29.895505448Z [inf]  1:41:29 AM [express] POST /api/bookings/quote 200 in 434ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:30.057984644Z [inf]  1:41:30 AM [express] POST /api/bookings/quote 200 in 258ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:30.078828588Z [inf]  [pipeline] STEP: pricing ok 186ms total=425 bundle=none
+2026-06-12T01:41:30.078832429Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:30.078836282Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:30.080953245Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:30.080954188Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:30.081038816Z [inf]  [pipeline] STEP: pricing ok 185ms total=425 bundle=none
+2026-06-12T01:41:30.249537676Z [inf]  [pipeline] STEP: pricing ok 193ms total=425 bundle=none
+2026-06-12T01:41:30.249543340Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:30.249547441Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:30.553791000Z [inf]  [pipeline] STEP: dispatch ok 247ms crew=test_employee_001 size=3
+2026-06-12T01:41:30.553796431Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:30.553800802Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:30.553805291Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:30.553820366Z [inf]  [pipeline] STEP: dispatch ok 246ms crew=test_employee_001 size=3
+2026-06-12T01:41:30.553824343Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:30.553828419Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:30.553832542Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:30.553836620Z [inf]  [pipeline] STEP: dispatch ok 254ms crew=test_employee_001 size=3
+2026-06-12T01:41:30.553840681Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:30.553845326Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:30.553852807Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:30.553856564Z [inf]  [pipeline] STEP: rewards ok 125ms tokens=6625
+2026-06-12T01:41:30.553859878Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:30.553863135Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:30.553866145Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:30.553869408Z [inf]  [pipeline] STEP: rewards ok 126ms tokens=6625
+2026-06-12T01:41:30.553872789Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:30.553876728Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:30.553880405Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:30.615552105Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:30.615557715Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:30.615561880Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:30.615568919Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:30.992676756Z [inf]  1:41:30 AM [express] GET /api/utility/estimate-drive-miles 200 in 1525ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:30.992683052Z [inf]  1:41:30 AM [express] GET /api/utility/estimate-drive-miles 200 in 1535ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:31.183924243Z [inf]  1:41:31 AM [express] GET /api/utility/estimate-drive-miles 200 in 1726ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:31.216046835Z [inf]  1:41:31 AM [express] GET /api/utility/estimate-drive-miles 200 in 1752ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:31.563953364Z [inf]  1:41:31 AM [express] POST /api/bookings/quote 200 in 261ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:31.563957717Z [inf]  1:41:31 AM [express] GET /api/utility/estimate-drive-miles 200 in 1879ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:31.563961862Z [inf]  1:41:31 AM [express] GET /api/utility/estimate-drive-miles 200 in 1991ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:31.563965459Z [inf]  [pipeline] STEP: pricing ok 192ms total=425 bundle=none
+2026-06-12T01:41:31.563969122Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:31.563972198Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:31.660666717Z [inf]  1:41:31 AM [express] GET /api/utility/estimate-drive-miles 200 in 1366ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:31.759488288Z [inf]  [pipeline] STEP: dispatch ok 249ms crew=test_employee_001 size=3
+2026-06-12T01:41:31.759492876Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:31.759497635Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:31.759500678Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:31.879756002Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:31.879760490Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:31.879763505Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:31.879766465Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:32.555427032Z [inf]  1:41:32 AM [express] POST /api/bookings/quote 200 in 251ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:32.555430440Z [inf]  [pipeline] STEP: pricing ok 188ms total=425 bundle=none
+2026-06-12T01:41:32.555434087Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:32.555438467Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:32.608833009Z [inf]  1:41:32 AM [express] GET /api/utility/estimate-drive-miles 200 in 1482ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:32.608838775Z [inf]  1:41:32 AM [express] GET /api/utility/estimate-drive-miles 200 in 1946ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:32.736801191Z [inf]  [pipeline] STEP: dispatch ok 249ms crew=test_employee_001 size=3
+2026-06-12T01:41:32.736804545Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:32.736809386Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:32.736812435Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:32.858090250Z [inf]  [pipeline] STEP: rewards ok 123ms tokens=6625
+2026-06-12T01:41:32.858097129Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:32.858101490Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:32.858105450Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:32.913102950Z [inf]  1:41:32 AM [express] GET /api/utility/estimate-drive-miles 200 in 1558ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:33.215404442Z [inf]  1:41:33 AM [express] GET /api/utility/estimate-drive-miles 200 in 1540ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:33.602830882Z [inf]  1:41:33 AM [express] POST /api/bookings/quote 200 in 250ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:33.602834889Z [inf]  [pipeline] STEP: pricing ok 188ms total=425 bundle=none
+2026-06-12T01:41:33.602838940Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:33.602842879Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:33.834368123Z [inf]  [pipeline] STEP: dispatch ok 256ms crew=test_employee_001 size=3
+2026-06-12T01:41:33.834372363Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:33.834375316Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:33.834378300Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:33.961878484Z [inf]  [pipeline] STEP: rewards ok 127ms tokens=6625
+2026-06-12T01:41:33.961889197Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:33.961894362Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:33.961898296Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:34.057467718Z [inf]  1:41:34 AM [express] GET /api/utility/estimate-drive-miles 200 in 1835ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:34.148444010Z [inf]  1:41:34 AM [express] GET /api/utility/estimate-drive-miles 200 in 1631ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:34.224201678Z [inf]  1:41:34 AM [express] GET /api/utility/estimate-drive-miles 200 in 2112ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:34.652023348Z [inf]  1:41:34 AM [express] POST /api/bookings/quote 200 in 250ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:34.833103638Z [inf]  1:41:34 AM [express] GET /api/utility/estimate-drive-miles 200 in 2050ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:34.833109323Z [inf]  [pipeline] STEP: pricing ok 188ms total=425 bundle=none
+2026-06-12T01:41:34.833113930Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:34.833117831Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:35.094254939Z [inf]  [pipeline] STEP: dispatch ok 255ms crew=test_employee_001 size=3
+2026-06-12T01:41:35.094259143Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:35.094261946Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:35.094264737Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:35.214585984Z [inf]  [pipeline] STEP: rewards ok 128ms tokens=6625
+2026-06-12T01:41:35.214591933Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:35.214599084Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:35.214603029Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:35.557380269Z [inf]  1:41:35 AM [express] GET /api/utility/estimate-drive-miles 200 in 1287ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:35.728130191Z [inf]  1:41:35 AM [express] GET /api/utility/estimate-drive-miles 200 in 1942ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:36.081615559Z [inf]  1:41:36 AM [express] GET /api/utility/estimate-drive-miles 200 in 1676ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:36.619799500Z [inf]  1:41:36 AM [express] POST /api/bookings/quote 200 in 258ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:36.619802727Z [inf]  1:41:36 AM [express] GET /api/utility/estimate-drive-miles 200 in 1982ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:36.723642805Z [inf]  [pipeline] STEP: pricing ok 192ms total=425 bundle=none
+2026-06-12T01:41:36.723647742Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:36.723650690Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:36.816333026Z [inf]  1:41:36 AM [express] GET /api/utility/estimate-drive-miles 200 in 1444ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:36.822876228Z [inf]  1:41:36 AM [express] GET /api/utility/estimate-drive-miles 200 in 1963ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:36.884527517Z [inf]  1:41:36 AM [express] GET /api/utility/estimate-drive-miles 200 in 1221ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:36.983281022Z [inf]  [pipeline] STEP: dispatch ok 252ms crew=test_employee_001 size=3
+2026-06-12T01:41:36.983283991Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:36.983286635Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:36.983289670Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:37.099853345Z [inf]  [pipeline] STEP: rewards ok 125ms tokens=6625
+2026-06-12T01:41:37.099857843Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:37.099861158Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:37.099864207Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:37.099867148Z [inf]  1:41:37 AM [express] GET /api/utility/estimate-drive-miles 200 in 2028ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:37.114603868Z [inf]  1:41:37 AM [express] GET /api/utility/estimate-drive-miles 200 in 1272ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:38.256740668Z [inf]  1:41:38 AM [express] POST /api/bookings/quote 200 in 256ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:38.621075603Z [inf]  [pipeline] STEP: pricing ok 193ms total=425 bundle=none
+2026-06-12T01:41:38.621079509Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:38.621083954Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:38.702735842Z [inf]  [pipeline] STEP: dispatch ok 250ms crew=test_employee_001 size=3
+2026-06-12T01:41:38.702739925Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:38.702743011Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:38.702746004Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:38.826201300Z [inf]  [pipeline] STEP: rewards ok 123ms tokens=6625
+2026-06-12T01:41:38.826205328Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:38.826209797Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:38.826214212Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:38.931697322Z [inf]  1:41:38 AM [express] POST /api/bookings/quote 200 in 247ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:39.074938938Z [inf]  1:41:39 AM [express] POST /api/bookings/quote 200 in 257ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:39.119082954Z [inf]  [pipeline] STEP: pricing ok 185ms total=425 bundle=none
+2026-06-12T01:41:39.119088100Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:39.119091106Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:39.259999072Z [inf]  [pipeline] STEP: pricing ok 192ms total=425 bundle=none
+2026-06-12T01:41:39.260004152Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:39.260007545Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:39.654778605Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:39.654788307Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:39.654792252Z [inf]  [pipeline] STEP: rewards ok 122ms tokens=6625
+2026-06-12T01:41:39.654795604Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:39.654798656Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:39.654803359Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:39.654817415Z [inf]  1:41:39 AM [express] GET /api/utility/estimate-drive-miles 200 in 1355ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:39.654820694Z [inf]  [pipeline] STEP: dispatch ok 248ms crew=test_employee_001 size=3
+2026-06-12T01:41:39.654824134Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:39.654827608Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:39.654830480Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:39.654833512Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:39.654838155Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:39.654841654Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:39.654845149Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:39.654849487Z [inf]  [pipeline] STEP: dispatch ok 246ms crew=test_employee_001 size=3
+2026-06-12T01:41:39.654852681Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:40.602169338Z [inf]  1:41:40 AM [express] POST /api/bookings/quote 200 in 248ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:40.602174220Z [inf]  [pipeline] STEP: pricing ok 185ms total=425 bundle=none
+2026-06-12T01:41:40.602178835Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:40.602183562Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:40.775887569Z [inf]  1:41:40 AM [express] GET /api/utility/estimate-drive-miles 200 in 2097ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:40.814966372Z [inf]  [pipeline] STEP: dispatch ok 247ms crew=test_employee_001 size=3
+2026-06-12T01:41:40.814973392Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:40.814978116Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:40.814984169Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:40.933198125Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:40.933204619Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:40.933208476Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:40.933212476Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:40.988504447Z [inf]  1:41:40 AM [express] POST /api/bookings/quote 200 in 253ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:41.167017403Z [inf]  [pipeline] STEP: pricing ok 184ms total=425 bundle=none
+2026-06-12T01:41:41.167026943Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:41.167030286Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:41.204889025Z [inf]  1:41:41 AM [express] GET /api/utility/estimate-drive-miles 200 in 1421ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:41.672860546Z [inf]  [pipeline] STEP: dispatch ok 247ms crew=test_employee_001 size=3
+2026-06-12T01:41:41.672863347Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:41.672866162Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:41.672869160Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:41.672872156Z [inf]  1:41:41 AM [express] POST /api/bookings/quote 200 in 248ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:41:41.672875007Z [inf]  [pipeline] STEP: rewards ok 123ms tokens=6625
+2026-06-12T01:41:41.672877774Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:41.672880470Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:41.672883227Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:41.717911790Z [inf]  [pipeline] STEP: pricing ok 185ms total=425 bundle=none
+2026-06-12T01:41:41.717914922Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:41:41.717917882Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:41:41.993907167Z [inf]  [pipeline] STEP: dispatch ok 249ms crew=test_employee_001 size=3
+2026-06-12T01:41:41.993916644Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:41:41.993921330Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:41:41.993925273Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:41:42.036969868Z [inf]  1:41:42 AM [express] GET /api/utility/estimate-drive-miles 200 in 1669ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:41:42.095550935Z [inf]  [pipeline] STEP: rewards ok 124ms tokens=6625
+2026-06-12T01:41:42.095555670Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:41:42.095558996Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:41:42.095562109Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:41:42.731303768Z [inf]  1:41:42 AM [express] GET /api/utility/estimate-drive-miles 200 in 1832ms :: {"miles":0,"estimatedMin…
+2026-06-12T01:42:02.769461632Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T01:42:02.769464780Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: pOKvsQ4z | Has cookie: false
+2026-06-12T01:42:02.769468763Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T01:42:02.769472911Z [inf]  1:41:57 AM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-12T01:42:03.853596591Z [inf]  1:42:03 AM [express] POST /api/bookings/quote 200 in 436ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:42:04.039975643Z [inf]  [pipeline] STEP: pricing ok 186ms total=425 bundle=none
+2026-06-12T01:42:04.039978832Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:42:04.039982138Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:42:04.475061063Z [inf]  [pipeline] STEP: dispatch ok 434ms crew=test_employee_001 size=3
+2026-06-12T01:42:04.475067132Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:42:04.475071114Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:42:04.475074165Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:42:04.792762814Z [inf]  [pipeline] STEP: rewards ok 123ms tokens=6625
+2026-06-12T01:42:04.792766397Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:42:04.792770281Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:42:04.792774127Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:42:44.540214317Z [inf]  1:42:37 AM [express] POST /api/bookings/quote 200 in 250ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:42:44.540220325Z [inf]  [pipeline] STEP: pricing ok 187ms total=425 bundle=none
+2026-06-12T01:42:44.540223837Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:42:44.540227235Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:42:44.540231230Z [inf]  [pipeline] STEP: dispatch ok 249ms crew=test_employee_001 size=3
+2026-06-12T01:42:44.540234646Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:42:44.540238159Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:42:44.540241386Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:42:44.540244449Z [inf]  [pipeline] STEP: rewards ok 123ms tokens=6625
+2026-06-12T01:42:44.540247439Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:42:44.540250751Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:42:44.540253997Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:42:50.139018452Z [inf]  1:42:49 AM [express] POST /api/bookings/quote 200 in 445ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:42:50.171608301Z [inf]  [pipeline] STEP: pricing ok 190ms total=425 bundle=none
+2026-06-12T01:42:50.171613012Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:42:50.171616448Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:42:50.619985159Z [inf]  [pipeline] STEP: dispatch ok 446ms crew=test_employee_001 size=3
+2026-06-12T01:42:50.619989711Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:42:50.619993377Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:42:50.619996251Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:42:50.748761954Z [inf]  [pipeline] STEP: rewards ok 127ms tokens=6625
+2026-06-12T01:42:50.748766112Z [inf]  [pipeline] STEP: persist ok 1ms
+2026-06-12T01:42:50.748769023Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:42:50.748771874Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:42:58.214609024Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T01:42:58.214612775Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: ii_h1UE- | Has cookie: false
+2026-06-12T01:42:58.214616629Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T01:42:58.214620222Z [inf]  1:42:58 AM [express] GET /api/auth/user 401 in 0ms :: {"message":"Unauthorized"}
+2026-06-12T01:44:07.992564401Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T01:44:07.992570690Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: gsAeT83J | Has cookie: false
+2026-06-12T01:44:07.992573904Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T01:44:07.992577090Z [inf]  1:43:58 AM [express] GET /api/auth/user 401 in 0ms :: {"message":"Unauthorized"}
+2026-06-12T01:44:07.992580190Z [inf]  1:44:07 AM [express] POST /api/bookings/quote 200 in 439ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:44:07.992583076Z [inf]  [pipeline] STEP: pricing ok 186ms total=425 bundle=none
+2026-06-12T01:44:07.992585768Z [inf]  [pipeline] STEP: demand ok 0ms
+2026-06-12T01:44:07.992588830Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:44:07.992591745Z [inf]  [pipeline] STEP: dispatch ok 435ms crew=test_employee_001 size=3
+2026-06-12T01:44:07.992594502Z [inf]  [pipeline] STEP: schedule ok 0ms 9:00 AM – 11:00 AM
+2026-06-12T01:44:07.992598187Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:44:07.992601077Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:44:07.992604013Z [inf]  [pipeline] STEP: rewards ok 125ms tokens=6625
+2026-06-12T01:44:07.992606734Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:44:07.992610556Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:44:07.992613489Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:48:39.062160624Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T01:48:39.062164202Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: HpFIGYP1 | Has cookie: false
+2026-06-12T01:48:39.062168237Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T01:48:39.062172301Z [inf]  1:48:34 AM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-12T01:48:41.060890484Z [inf]  1:48:40 AM [express] POST /api/bookings/quote 200 in 250ms :: {"success":true,"quote":{"subtotal":42…
+2026-06-12T01:48:41.103395107Z [inf]  [pipeline] STEP: pricing ok 244ms total=425 bundle=none
+2026-06-12T01:48:41.103399754Z [inf]  [pipeline] STEP: demand ok 1ms
+2026-06-12T01:48:41.103402892Z [inf]  [pipeline] STEP: surge ok 0ms x1 → 425
+2026-06-12T01:48:41.360707986Z [inf]  [pipeline] STEP: dispatch ok 255ms crew=test_employee_001 size=3
+2026-06-12T01:48:41.360713436Z [inf]  [pipeline] STEP: schedule ok 1ms 9:00 AM – 11:00 AM
+2026-06-12T01:48:41.360717238Z [inf]  [pipeline] STEP: incentives ok 0ms
+2026-06-12T01:48:41.360720586Z [inf]  [pipeline] STEP: upsell ok 0ms chips=3
+2026-06-12T01:48:41.497105759Z [inf]  [pipeline] STEP: rewards ok 128ms tokens=6625
+2026-06-12T01:48:41.497110689Z [inf]  [pipeline] STEP: persist ok 0ms
+2026-06-12T01:48:41.497114622Z [inf]  [pipeline] STEP: payment ok 0ms plan=deposit_required deposit=$106.00
+2026-06-12T01:48:41.497117398Z [inf]  [pipeline] STEP: notify ok 0ms sms=false
+2026-06-12T01:49:31.529705987Z [err]  [sms] ADMIN_PHONE_NUMBER not set, skipping SMS notification
+2026-06-12T01:49:31.529713777Z [inf]  Gmail API: Email accepted id=19eb9851ded543bd from=upmichiganstatemovers@gmail.com to=upmichiganstatemovers@gmail.com subject="New Quote Request — Amy Wyka (Moving)"
+2026-06-12T01:49:31.529716881Z [inf]  1:49:29 AM [express] POST /api/bookings 201 in 1318ms :: {"success":true,"booking":{"id":"497e1985-5…
+2026-06-12T01:49:35.351857889Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T01:49:35.351862818Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: ER-l-yB- | Has cookie: false
+2026-06-12T01:49:35.351866432Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T01:49:35.351869723Z [inf]  1:49:35 AM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-12T02:30:37.308920053Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:30:37.308940459Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:30:37.308944525Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:30:37.308947614Z [inf]  2:30:36 AM [express] GET /api/auth/user 401 in 125ms :: {"message":"Unauthorized"}
+2026-06-12T02:30:37.308950713Z [inf]  2:30:36 AM [express] POST /api/analytics/pageview 200 in 189ms :: {"ok":true}
+2026-06-12T02:31:37.141298387Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:31:37.141303197Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:31:37.141306435Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:31:37.141310578Z [inf]  2:31:36 AM [express] GET /api/auth/user 401 in 127ms :: {"message":"Unauthorized"}
+2026-06-12T02:32:37.182356613Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:32:37.182360375Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:32:37.182363475Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:32:37.182366852Z [inf]  2:32:36 AM [express] GET /api/auth/user 401 in 125ms :: {"message":"Unauthorized"}
+2026-06-12T02:33:37.303860033Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:33:37.303864347Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:33:37.303868370Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:33:37.303872432Z [inf]  2:33:36 AM [express] GET /api/auth/user 401 in 123ms :: {"message":"Unauthorized"}
+2026-06-12T02:34:37.087154169Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:34:37.103670830Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:34:37.103675405Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:34:37.165464475Z [inf]  2:34:37 AM [express] GET /api/auth/user 401 in 125ms :: {"message":"Unauthorized"}
+2026-06-12T02:35:47.189451234Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:35:47.189455864Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:35:47.189459749Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:35:47.189462861Z [inf]  2:35:37 AM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-12T02:36:47.290463351Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:36:47.290468132Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:36:47.290472072Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:36:47.290476767Z [inf]  2:36:37 AM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-12T02:37:47.023870099Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:37:47.023874244Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:37:47.023878327Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:37:47.023881467Z [inf]  2:37:37 AM [express] GET /api/auth/user 401 in 129ms :: {"message":"Unauthorized"}
+2026-06-12T02:38:47.026531553Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:38:47.026536280Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:38:47.026539758Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:38:47.026542708Z [inf]  2:38:38 AM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-12T02:39:47.241306767Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:39:47.241309348Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:39:47.241312159Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:39:47.241315088Z [inf]  2:39:38 AM [express] GET /api/auth/user 401 in 130ms :: {"message":"Unauthorized"}
+2026-06-12T02:40:46.979583175Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:40:46.979588337Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:40:46.979592049Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:40:46.979595390Z [inf]  2:40:38 AM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-12T02:41:46.980687094Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:41:46.980691249Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:41:46.980694610Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:41:46.980697386Z [inf]  2:41:38 AM [express] GET /api/auth/user 401 in 123ms :: {"message":"Unauthorized"}
+2026-06-12T02:42:47.106933955Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:42:47.106936959Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:42:47.106939996Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:42:47.106943291Z [inf]  2:42:39 AM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-12T02:43:46.860166165Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:43:46.860173719Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:43:46.860179756Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:43:46.860183649Z [inf]  2:43:39 AM [express] GET /api/auth/user 401 in 123ms :: {"message":"Unauthorized"}
+2026-06-12T02:44:46.923257729Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:44:46.923265029Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:44:46.923269988Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:44:46.923274279Z [inf]  2:44:39 AM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-12T02:45:46.723978879Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:45:46.723983688Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:45:46.723986850Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:45:46.723989817Z [inf]  2:45:39 AM [express] GET /api/auth/user 401 in 123ms :: {"message":"Unauthorized"}
+2026-06-12T02:46:46.747073204Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:46:46.747077807Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:46:46.747080800Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:46:46.747083796Z [inf]  2:46:40 AM [express] GET /api/auth/user 401 in 123ms :: {"message":"Unauthorized"}
+2026-06-12T02:47:46.914485511Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:47:46.914488367Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:47:46.914490945Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:47:46.914493553Z [inf]  2:47:40 AM [express] GET /api/auth/user 401 in 123ms :: {"message":"Unauthorized"}
+2026-06-12T02:48:46.649787206Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:48:46.649791826Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:48:46.649795061Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:48:46.649798265Z [inf]  2:48:40 AM [express] GET /api/auth/user 401 in 127ms :: {"message":"Unauthorized"}
+2026-06-12T02:49:46.664144380Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:49:46.664150243Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:49:46.664154233Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:49:46.664157256Z [inf]  2:49:41 AM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-12T02:50:46.788914299Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:50:46.788918385Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:50:46.788922782Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:50:46.788927201Z [inf]  2:50:41 AM [express] GET /api/auth/user 401 in 123ms :: {"message":"Unauthorized"}
+2026-06-12T02:51:46.489645148Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:51:46.489649015Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:51:46.489652520Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:51:46.489656011Z [inf]  2:51:41 AM [express] GET /api/auth/user 401 in 123ms :: {"message":"Unauthorized"}
+2026-06-12T02:52:46.511747850Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:52:46.511751380Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:52:46.511754896Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:52:46.511758400Z [inf]  2:52:42 AM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-12T02:53:46.831743634Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T02:53:46.831746511Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T02:53:46.831749426Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T02:53:46.831752303Z [inf]  2:53:42 AM [express] GET /api/auth/user 401 in 124ms :: {"message":"Unauthorized"}
+2026-06-12T05:38:56.229557376Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T05:38:56.229561122Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: AOg8Imhp | Has cookie: false
+2026-06-12T05:38:56.229565610Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T05:38:56.229569149Z [inf]  5:38:55 AM [express] GET /api/auth/user 401 in 0ms :: {"message":"Unauthorized"}
+2026-06-12T05:38:56.229572516Z [inf]  5:38:55 AM [express] GET /api/testimonials 200 in 259ms :: []
+2026-06-12T05:38:56.229576231Z [inf]  5:38:55 AM [express] POST /api/analytics/pageview 200 in 260ms :: {"ok":true}
+2026-06-12T05:40:36.622803579Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T05:40:36.622806901Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: 86Uc1Xfy | Has cookie: false
+2026-06-12T05:40:36.622810551Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T05:40:36.622814641Z [inf]  5:40:34 AM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-12T05:53:48.935303239Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T05:53:48.935306241Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: jbuI51bA | Has cookie: false
+2026-06-12T05:53:48.935309394Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T05:53:48.935312554Z [inf]  5:53:47 AM [express] GET /api/auth/user 401 in 2ms :: {"message":"Unauthorized"}
+2026-06-12T06:51:08.298739652Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=false connect.sid=false | raw="(none)"
+2026-06-12T06:51:08.298743321Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: kmQKMGtk | Has cookie: false
+2026-06-12T06:51:08.298747335Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T06:51:08.298750603Z [inf]  6:51:00 AM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+2026-06-12T06:51:08.298754496Z [inf]  6:51:00 AM [express] POST /api/analytics/pageview 200 in 250ms :: {"ok":true}
+2026-06-12T06:51:08.298757879Z [inf]  6:51:00 AM [express] GET /api/testimonials 200 in 249ms :: []
+2026-06-12T10:05:19.110814888Z [err]  Error 500 on POST /: Parse Error
+2026-06-12T12:58:16.700141771Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:16.700146065Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: XNnlZS2u | Has cookie: true
+2026-06-12T12:58:16.700151051Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T12:58:16.700155808Z [inf]  12:58:11 PM [express] GET /api/auth/user 401 in 60ms :: {"message":"Unauthorized"}
+2026-06-12T12:58:16.700160441Z [inf]  12:58:11 PM [express] POST /api/analytics/pageview 200 in 333ms :: {"ok":true}
+2026-06-12T12:58:16.700164312Z [inf]  12:58:11 PM [express] GET /api/testimonials 304 in 309ms :: []
+2026-06-12T12:58:20.696587502Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:20.714756423Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: 1_XGe33x | Has cookie: true
+2026-06-12T12:58:20.714762591Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T12:58:20.714765988Z [inf]  12:58:20 PM [express] GET /api/auth/user 401 in 60ms :: {"message":"Unauthorized"}
+2026-06-12T12:58:20.795296361Z [inf]  12:58:20 PM [express] POST /api/analytics/pageview 200 in 126ms :: {"ok":true}
+2026-06-12T12:58:20.795301970Z [inf]  12:58:20 PM [express] GET /api/testimonials 304 in 122ms :: []
+2026-06-12T12:58:40.802456602Z [inf]  12:58:34 PM [express] POST /api/analytics/pageview 200 in 314ms :: {"ok":true}
+2026-06-12T12:58:45.889535078Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:46.376411715Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:46.377906495Z [inf]  12:58:46 PM [express] POST /api/auth/login 401 in 487ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:47.874685852Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:47.998975870Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:47.998980967Z [inf]  12:58:47 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:48.795138809Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:48.923516383Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:48.923523161Z [inf]  12:58:48 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:49.795770380Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:49.795773789Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:49.795777444Z [inf]  12:58:49 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:50.175233910Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:50.299984675Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:50.299991140Z [inf]  12:58:50 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:50.782175534Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:50.782179826Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:50.782183096Z [inf]  12:58:50 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:51.014758148Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:51.129933627Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:51.129938733Z [inf]  12:58:51 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:51.464737540Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:51.837882227Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:51.837886295Z [inf]  12:58:51 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:52.003353500Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:52.126880189Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:52.126885888Z [inf]  12:58:52 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:52.482658075Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:52.825814139Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:52.825818122Z [inf]  12:58:52 PM [express] POST /api/auth/login 401 in 124ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:53.094192379Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:53.215937585Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:53.215942542Z [inf]  12:58:53 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:53.829664813Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:53.829671480Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:53.829674902Z [inf]  12:58:53 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:54.033565963Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:54.156143185Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:54.156146592Z [inf]  12:58:54 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:54.428758923Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:54.885620440Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:54.885624623Z [inf]  12:58:54 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:55.309959217Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:55.436616806Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:55.436622959Z [inf]  12:58:55 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:58:55.968395376Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:58:56.091263050Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:58:56.093169215Z [inf]  12:58:56 PM [express] POST /api/auth/login 401 in 123ms :: {"error":"Invalid email or password"}
+2026-06-12T12:59:04.181444401Z [inf]  [COOKIE-IN] POST /api/auth/login | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3Anlj2tYdCdiLHDQisBLV41oiFFM-5T_RR.mqh6lHVkir54K7l1Jd1mdfREy78c3XMC0RTvXd188%2Fs"
+2026-06-12T12:59:04.316723118Z [err]  [LOGIN_DIAG] user not found for email=tomlawyerfamily77@gmail.com
+2026-06-12T12:59:04.316731773Z [inf]  12:59:04 PM [express] POST /api/auth/login 401 in 125ms :: {"error":"Invalid email or password"}
+2026-06-12T12:59:08.934413790Z [inf]  12:59:08 PM [express] POST /api/analytics/pageview 200 in 124ms :: {"ok":true}
+2026-06-12T13:26:14.102395095Z [inf]  [COOKIE-IN] GET /api/auth/user | proto=https secure=true | jc.sid=true connect.sid=false | raw="jc.sid=s%3AJIz8hQasoI7lEqKXbG-M2ROTQd7G_A1V.pq3sMqvVxgj1%2BYmzicqewVQmu7qIAC11Hoc3hv%2BtNWE"
+2026-06-12T13:26:14.102399228Z [inf]  [AUTH CHECK] Path: /api/auth/user | Session ID: JIz8hQas | Has cookie: true
+2026-06-12T13:26:14.102402438Z [inf]  [AUTH CHECK] ❌ No session user ID found
+2026-06-12T13:26:14.102405423Z [inf]  1:26:09 PM [express] GET /api/auth/user 401 in 501ms :: {"message":"Unauthorized"}

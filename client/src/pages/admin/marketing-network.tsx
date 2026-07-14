@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { MarketingExecutionBoard } from "@/components/MarketingExecutionBoard";
 
 const REFERRAL_COMMISSION_RATE = 0.05;
 
@@ -111,7 +112,7 @@ function weekNumber() {
 export default function AdminMarketingNetworkPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [tab, setTab] = useState<"performance" | "calendar" | "reps">("performance");
+  const [tab, setTab] = useState<"plan" | "performance" | "calendar" | "reps">("plan");
   const [repId, setRepId] = useState("");
   const [serviceType, setServiceType] = useState("");
   const [status, setStatus] = useState("");
@@ -291,7 +292,7 @@ export default function AdminMarketingNetworkPage() {
             </h1>
           </div>
           <div className="flex gap-2">
-            {(["performance", "calendar", "reps"] as const).map((key) => (
+            {(["plan", "performance", "calendar", "reps"] as const).map((key) => (
               <Button key={key} variant={tab === key ? "default" : "outline"} onClick={() => setTab(key)} className="capitalize">
                 {key}
               </Button>
@@ -319,6 +320,8 @@ export default function AdminMarketingNetworkPage() {
             </Card>
           ))}
         </div>
+
+        {tab === "plan" && <MarketingExecutionBoard />}
 
         {tab === "performance" && (
           <div className="space-y-4">

@@ -1,8 +1,11 @@
 import { useLocation } from "wouter";
 import { useState, type ReactNode } from "react";
-import { CalendarDays, Briefcase, Calendar, Coins, Star, Settings2, PlusCircle, ChevronRight, Megaphone } from "lucide-react";
+import { CalendarDays, Briefcase, Calendar, Coins, Star, Settings2, PlusCircle, ChevronRight, Megaphone, GraduationCap, ShieldCheck, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCrewGpsBeacon } from "@/hooks/useCrewGpsBeacon";
+import { TutorialInviteDialog } from "@/components/tutorial-invite-dialog";
+import { Switch } from "@/components/ui/switch";
+import { useAdminViewMode } from "@/hooks/useAdminViewMode";
 import {
   Sheet,
   SheetContent,
@@ -16,13 +19,16 @@ const optionLinks = [
   { label: "Reviews", description: "Customer feedback and rating", icon: Star, path: "/crew/reviews" },
   { label: "Marketing", description: "Create tracked local ads", icon: Megaphone, path: "/crew/marketing" },
   { label: "Earnings", description: "Payouts, JCMOVES, history", icon: Coins, path: "/crew/earnings" },
-  { label: "Add Job", description: "Create a customer request", icon: PlusCircle, path: "/book?worker=1" },
+  { label: "Tutorials", description: "Step-by-step app walkthroughs", icon: GraduationCap, path: "/crew/tutorials" },
+  { label: "Add Job", description: "Create a customer request", icon: PlusCircle, path: "/leads?tab=add" },
 ];
 
 export default function CrewLayout({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const { user } = useAuth();
+  const { isCrewPreview, setCrewPreview } = useAdminViewMode();
+  const isAdminUser = user?.role === "admin" || user?.role === "business_owner";
   // Task #173 — GPS beacon at the app-shell layer so tracking continues
   // across every /crew/* tab while the worker is on duty, not just on
   // the Today page. Duty is derived from the user's isAvailable +
@@ -34,15 +40,56 @@ export default function CrewLayout({ children }: { children: ReactNode }) {
   );
   useCrewGpsBeacon({ enabled: isOnDuty });
   const tasksActive = location === "/crew" || location === "/crew/" || location.startsWith("/crew/jobs");
-  const optionsActive = location.startsWith("/crew/schedule") || location.startsWith("/crew/reviews") || location.startsWith("/crew/earnings") || location.startsWith("/crew/marketing");
+  const optionsActive = location.startsWith("/crew/schedule") || location.startsWith("/crew/reviews") || location.startsWith("/crew/earnings") || location.startsWith("/crew/marketing") || location.startsWith("/crew/tutorials");
 
   function go(path: string) {
     setOptionsOpen(false);
     setLocation(path);
   }
 
+  function returnToAdmin() {
+    setCrewPreview(false);
+    setOptionsOpen(false);
+    setLocation("/admin/ops-board");
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white pb-20">
+      {isAdminUser && (
+        <div className="sticky top-0 z-40 border-b border-cyan-500/20 bg-slate-950/95 px-3 py-2 backdrop-blur">
+          <div className="mx-auto flex max-w-2xl items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-300">
+              {isCrewPreview ? <Users className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold text-white">
+                {isCrewPreview ? "Crew View" : "Crew Tools"}
+              </p>
+              <p className="truncate text-[11px] text-cyan-100/70">
+                {isCrewPreview ? "Previewing the worker app" : "Admin account"}
+              </p>
+            </div>
+            <Switch
+              checked={isCrewPreview}
+              onCheckedChange={(checked) => {
+                if (checked) setCrewPreview(true);
+                else returnToAdmin();
+              }}
+              aria-label="Toggle crew view"
+              className="data-[state=checked]:bg-cyan-500"
+              data-testid="switch-crew-preview"
+            />
+            <button
+              type="button"
+              onClick={returnToAdmin}
+              className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-cyan-500/50 hover:text-white"
+              data-testid="button-return-admin-view"
+            >
+              Admin
+            </button>
+          </div>
+        </div>
+      )}
       {children}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 backdrop-blur-sm border-t border-slate-700/50 safe-area-bottom">
         <div className="grid h-16 grid-cols-2">
@@ -94,6 +141,7 @@ export default function CrewLayout({ children }: { children: ReactNode }) {
           </div>
         </SheetContent>
       </Sheet>
+      <TutorialInviteDialog audience="crew" currentPath={location} onNavigate={go} />
     </div>
   );
 }

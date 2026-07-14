@@ -453,7 +453,7 @@ export default function TeamHub() {
     mutationFn: async (id: string) => apiRequest("DELETE", `/api/leads/${id}`),
     onSuccess: () => {
       invalidateLeads();
-      toast({ title: "Lead deleted" });
+      toast({ title: "Job archived", description: "Removed from active jobs. You can restore it from Archived Jobs." });
       setLeadToDelete(null);
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -1544,9 +1544,9 @@ export default function TeamHub() {
       <AlertDialog open={!!leadToDelete} onOpenChange={() => setLeadToDelete(null)}>
         <AlertDialogContent className="bg-slate-900 border-slate-700">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Delete Lead?</AlertDialogTitle>
+            <AlertDialogTitle className="text-white">Remove job from active jobs?</AlertDialogTitle>
             <AlertDialogDescription className="text-slate-400">
-              This will permanently delete {leadToDelete?.firstName} {leadToDelete?.lastName}'s lead. This cannot be undone.
+              This archives {leadToDelete?.firstName} {leadToDelete?.lastName}'s job. It disappears from active lists and calendars but can be restored later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1555,7 +1555,7 @@ export default function TeamHub() {
               className="bg-red-600 hover:bg-red-500"
               onClick={() => leadToDelete && deleteLeadMutation.mutate(leadToDelete.id)}
             >
-              Delete
+              Archive job
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

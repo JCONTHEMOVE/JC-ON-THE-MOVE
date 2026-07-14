@@ -197,9 +197,12 @@ export default function BitcoinPaymentPage() {
         <div className="text-center mb-6">
           <div className="inline-flex items-center gap-2 bg-orange-500/20 text-orange-300 px-4 py-2 rounded-full text-sm font-medium mb-3">
             <Bitcoin className="h-4 w-4" />
-            Pay with Bitcoin
+            Legacy manual BTC
           </div>
-          <h1 className="text-2xl font-bold text-white">Bitcoin Payment</h1>
+          <h1 className="text-2xl font-bold text-white">Manual Bitcoin Payment</h1>
+          <p className="mt-2 text-xs text-slate-400">
+            For multi-crypto service-credit packs, use Wallet Add Credit with BitPay checkout.
+          </p>
           {(payment?.referenceType || payment?.notes) && (
             <div className="mt-3 inline-block px-4 py-2 bg-slate-700/60 border border-slate-600/50 rounded-xl">
               <p className="text-sm text-slate-300">
@@ -329,7 +332,7 @@ export default function BitcoinPaymentPage() {
                 <p className="font-semibold text-blue-100">How It Works</p>
                 <p>1. Copy the BTC amount and address above</p>
                 <p>2. Send the exact amount from your Bitcoin wallet</p>
-                <p>3. Our team will verify your payment on the blockchain</p>
+                <p>3. Our team or auto-verifier will verify your payment on the blockchain</p>
                 <p>4. You'll receive a confirmation email once verified</p>
               </div>
             </div>

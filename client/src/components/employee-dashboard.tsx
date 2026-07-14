@@ -126,7 +126,7 @@ export default function EmployeeDashboard() {
                   <Briefcase className="h-5 w-5" />
                   Available Jobs ({availableJobs.length})
                 </CardTitle>
-                <Link href="/book?worker=1">
+                <Link href="/leads?tab=add">
                   <Button variant="default" size="sm" className="flex items-center gap-2" data-testid="button-add-job">
                     <Plus className="h-4 w-4" />
                     Add a Job

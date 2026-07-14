@@ -1332,6 +1332,7 @@ const SCENARIOS: Scenario[] = [
             "completionBonusJcMoves",
             "launchTaskBonusByReadiness",
             "getMarketplaceLaunchTasks",
+            "getMarketplaceLaunchSourceTargetsForFlow",
             "getMarketplaceLaunchTasksForRail",
           ],
         },
@@ -1351,6 +1352,10 @@ const SCENARIOS: Scenario[] = [
           path: "client/src/components/MarketplaceSourceReadinessBoard.tsx",
           required: [
             'queryKey: ["/api/marketplace/launch-tasks"]',
+            "MARKETPLACE_LAUNCH_SOURCE_TARGETS",
+            "targetFilter",
+            "getMarketplaceLaunchSourceTargetsForFlow",
+            "Target focus",
             "proofNote",
             "Claim",
             "bonusTokens",

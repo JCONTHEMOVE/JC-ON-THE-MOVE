@@ -36,6 +36,10 @@ export const leads = pgTable("leads", {
   assignedToUserId: varchar("assigned_to_user_id").references(() => users.id),
   createdByUserId: varchar("created_by_user_id").references(() => users.id), // Track employee who created the job for rewards
   truckConfig: text("truck_config"), // 'customer_truck', 'company_truck', 'no_truck'
+  // Staff intake keeps the human-readable truck choice alongside the legacy
+  // configuration field so the calendar, lead detail, and quote snapshot agree.
+  truckProvider: text("truck_provider"), // 'jc_on_the_move' | 'customer' | 'rental_uhaul' | 'none'
+  truckSize: text("truck_size"), // 'none' | '15_ft' | '20_ft' | '26_ft' | 'custom'
   crewSize: integer("crew_size").default(2), // Number of crew members needed (2 is standard)
   acceptedByEmployees: text("accepted_by_employees").array().default(sql`ARRAY[]::text[]`), // Track which employees have accepted this job
   photos: jsonb("photos").default("[]"), // Array of photo objects with metadata
@@ -1405,6 +1409,29 @@ export const reviews = pgTable("reviews", {
   unique("unique_review_per_lead").on(table.leadId, table.userId), // One review per customer per job
 ]);
 
+export const reviewTipAllocations = pgTable("review_tip_allocations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reviewId: varchar("review_id").notNull().references(() => reviews.id),
+  leadId: varchar("lead_id").notNull().references(() => leads.id),
+  customerUserId: varchar("customer_user_id").references(() => users.id),
+  workerId: varchar("worker_id").notNull().references(() => users.id),
+  workerName: text("worker_name"),
+  tipMethod: text("tip_method").notNull(), // 'cart', 'bitcoin', 'jcmoves', 'jcmoves_usd'
+  currency: text("currency").notNull(), // 'USD', 'BTC', 'JCMOVES', 'JCMOVES_USD'
+  amountUsd: decimal("amount_usd", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  tokenAmount: decimal("token_amount", { precision: 18, scale: 8 }).notNull().default("0.00000000"),
+  status: text("status").notNull().default("pending_payment"), // 'pending_payment', 'confirmed', 'failed'
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  confirmedAt: timestamp("confirmed_at"),
+}, (table) => [
+  index("idx_review_tip_allocations_review").on(table.reviewId),
+  index("idx_review_tip_allocations_lead").on(table.leadId),
+  index("idx_review_tip_allocations_worker").on(table.workerId),
+  index("idx_review_tip_allocations_customer").on(table.customerUserId),
+  unique("unique_review_tip_allocation").on(table.reviewId, table.workerId, table.tipMethod),
+]);
+
 export const pointTransactions = pgTable("point_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
@@ -1515,6 +1542,7 @@ export type InsertEmployeeAchievement = z.infer<typeof insertEmployeeAchievement
 export type EmployeeAchievement = typeof employeeAchievements.$inferSelect;
 export type InsertReview = z.infer<typeof insertReviewSchema>;
 export type Review = typeof reviews.$inferSelect;
+export type ReviewTipAllocation = typeof reviewTipAllocations.$inferSelect;
 export type InsertPointTransaction = z.infer<typeof insertPointTransactionSchema>;
 export type PointTransaction = typeof pointTransactions.$inferSelect;
 export type InsertWeeklyLeaderboard = z.infer<typeof insertWeeklyLeaderboardSchema>;
@@ -2039,6 +2067,10 @@ export type InsertPromoCode = z.infer<typeof insertPromoCodeSchema>;
 // primary booking attribution key; call events fill the top of the funnel.
 export const marketingReps = pgTable("marketing_reps", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // The marketing profile can exist before a crew member has completed
+  // onboarding. Once linked, this is the canonical owner for actions,
+  // invitations, and promo attribution.
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
   slug: text("slug").notNull().unique(),
   displayName: text("display_name").notNull(),
   brandName: text("brand_name").notNull(),
@@ -2091,6 +2123,84 @@ export type MarketingRep = typeof marketingReps.$inferSelect;
 export type InsertMarketingRep = z.infer<typeof insertMarketingRepSchema>;
 export type MarketingCallEvent = typeof marketingCallEvents.$inferSelect;
 export type InsertMarketingCallEvent = z.infer<typeof insertMarketingCallEventSchema>;
+
+// ── Marketing execution system ────────────────────────────────────────────
+// These records drive the owner command center and the crew's marketing launch
+// checklist. They are deliberately separate from worker job goals so booking
+// operations and marketing accountability can progress independently.
+export const marketingGoalCycles = pgTable("marketing_goal_cycles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  label: text("label").notNull().unique(),
+  startsOn: date("starts_on").notNull(),
+  endsOn: date("ends_on").notNull(),
+  targetRevenue: decimal("target_revenue", { precision: 12, scale: 2 }).notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_marketing_goal_cycles_active").on(table.isActive, table.endsOn),
+]);
+
+export const marketingActionAssignments = pgTable("marketing_action_assignments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  repId: varchar("rep_id").notNull().references(() => marketingReps.id, { onDelete: "cascade" }),
+  goalCycleId: varchar("goal_cycle_id").references(() => marketingGoalCycles.id, { onDelete: "set null" }),
+  actionKey: text("action_key").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  routeKey: text("route_key"),
+  serviceFocus: text("service_focus"),
+  status: text("status").notNull().default("assigned"),
+  proofUrl: text("proof_url"),
+  proofNotes: text("proof_notes"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  uniqueIndex("uq_marketing_action_rep_key").on(table.repId, table.actionKey),
+  index("idx_marketing_action_rep_status").on(table.repId, table.status),
+]);
+
+export const marketingInvites = pgTable("marketing_invites", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  repId: varchar("rep_id").references(() => marketingReps.id, { onDelete: "set null" }),
+  recipientUserId: varchar("recipient_user_id").references(() => users.id, { onDelete: "set null" }),
+  recipientName: text("recipient_name").notNull().default("Crew member"),
+  recipientEmail: text("recipient_email"),
+  recipientPhone: text("recipient_phone"),
+  inviteToken: varchar("invite_token").notNull().unique(),
+  deliveryChannel: text("delivery_channel").notNull().default("manual"),
+  status: text("status").notNull().default("draft"),
+  deliveryNote: text("delivery_note"),
+  sentAt: timestamp("sent_at"),
+  openedAt: timestamp("opened_at"),
+  accountLinkedAt: timestamp("account_linked_at"),
+  tutorialCompletedAt: timestamp("tutorial_completed_at"),
+  launchStartedAt: timestamp("launch_started_at"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_marketing_invite_rep").on(table.repId, table.status),
+  index("idx_marketing_invite_recipient").on(table.recipientUserId, table.status),
+]);
+
+export const tutorialStepCompletions = pgTable("tutorial_step_completions", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tutorialId: text("tutorial_id").notNull(),
+  stepId: text("step_id").notNull(),
+  completedAt: timestamp("completed_at").notNull().default(sql`now()`),
+}, (table) => [
+  uniqueIndex("uq_tutorial_step_completion").on(table.userId, table.tutorialId, table.stepId),
+  index("idx_tutorial_completion_user").on(table.userId, table.completedAt),
+]);
+
+export type MarketingGoalCycle = typeof marketingGoalCycles.$inferSelect;
+export type MarketingActionAssignment = typeof marketingActionAssignments.$inferSelect;
+export type MarketingInvite = typeof marketingInvites.$inferSelect;
+export type TutorialStepCompletion = typeof tutorialStepCompletions.$inferSelect;
 
 // ── JCMOVES Rewards Marketplace ─────────────────────────────────────────────
 export const rewardCategories = pgTable("reward_categories", {

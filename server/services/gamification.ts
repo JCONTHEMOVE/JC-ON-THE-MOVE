@@ -1,7 +1,10 @@
 import { storage } from "../storage";
 import { treasuryService } from "./treasury";
+import { db } from "../db";
 import { getEasternDateStr, getEasternDayStart } from "../utils/dateUtils";
-import type { 
+import { eq } from "drizzle-orm";
+import { rewardSettings } from "@shared/schema";
+import type {
   EmployeeStats, 
   InsertEmployeeStats, 
   AchievementType, 
@@ -38,6 +41,22 @@ export const GAMIFICATION_REWARDS = {
     THIRD_PLACE: { tokens: "25.0" },
   }
 };
+
+async function getRewardSettingAmount(settingKey: string, fallback: number): Promise<number> {
+  try {
+    const [setting] = await db
+      .select()
+      .from(rewardSettings)
+      .where(eq(rewardSettings.settingKey, settingKey))
+      .limit(1);
+    if (!setting) return fallback;
+    if (!setting.isActive) return 0;
+    const amount = Number(setting.tokenAmount);
+    return Number.isFinite(amount) ? amount : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 export interface DailyCheckInResult {
   success: boolean;
@@ -313,8 +332,18 @@ export class GamificationService {
   async awardHighRatingBonus(userId: string, reviewId: string, rating: number): Promise<{ success: boolean; tokensAwarded: string; points: number; error?: string }> {
     try {
       // Calculate bonus based on rating
-      const tokenAmount = rating === 5 ? "500.0" : "250.0"; // 500 tokens for 5 stars, 250 for 4 stars
+      const tokenSettingKey = rating >= 5 ? "worker_5_star_review_bonus" : "worker_4_star_review_bonus";
+      const tokenAmountNumber = await getRewardSettingAmount(tokenSettingKey, rating >= 5 ? 500 : 250);
+      const tokenAmount = tokenAmountNumber.toFixed(8);
       const points = rating === 5 ? 100 : 50; // Bonus points
+
+      if (tokenAmountNumber <= 0) {
+        return {
+          success: true,
+          tokensAwarded: "0",
+          points: 0
+        };
+      }
 
       // Get current token price for accurate cash value calculation
       const tokenPrice = await treasuryService.getCurrentTokenPrice();
@@ -350,6 +379,7 @@ export class GamificationService {
           points
         }
       });
+      await storage.creditWalletTokens(userId, parseFloat(tokenAmount), { skipRewardLedger: true });
 
       // Add points transaction
       await storage.createPointTransaction({

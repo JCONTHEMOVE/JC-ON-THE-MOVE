@@ -8,10 +8,12 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clock,
   DollarSign,
   Filter,
   Loader2,
   MapPin,
+  MessageSquare,
   Package,
   Phone,
   Search,
@@ -48,11 +50,15 @@ type Lead = {
   crewMembers?: string[] | null;
   confirmedHours?: number | null;
   status: string;
+  source?: string | null;
   totalPrice?: string | number | null;
   basePrice?: string | number | null;
   details?: string | null;
   quoteNotes?: string | null;
   selectedPackageId?: string | null;
+  dispatchNotes?: string | null;
+  orderLineItems?: unknown[] | null;
+  quoteSnapshot?: unknown;
   truckConfig?: string | null;
   archivedAt?: string | null;
   createdAt?: string | null;
@@ -76,8 +82,8 @@ const PACKAGES: PackageOption[] = [
     range: "$200-300",
     base: 250,
     crewSize: 2,
-    jobHours: 3,
-    laborHours: "4-6 labor hrs",
+    jobHours: 2,
+    laborHours: "2 movers / 2 hr minimum",
     description: "Loading, unloading, or single item delivery local to Ironwood.",
   },
   {
@@ -86,8 +92,8 @@ const PACKAGES: PackageOption[] = [
     range: "$375 intro",
     base: 375,
     crewSize: 3,
-    jobHours: 1.5,
-    laborHours: "3 movers / first 1.5 hrs",
+    jobHours: 2,
+    laborHours: "3 movers / 2 hr minimum",
     description: "Small-to-medium junk intro, loading/unloading, or larger local job.",
   },
   {
@@ -153,6 +159,28 @@ function formatMoney(value?: string | number | null) {
   return `$${Math.round(n).toLocaleString()}`;
 }
 
+function formatMoneyExact(value: number) {
+  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function parseMoneyInput(value: string | number | null | undefined) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const text = String(value || "").replace(/,/g, "").trim();
+  if (!text) return 0;
+  const matches = text.match(/\d+(?:\.\d{1,2})?/g);
+  if (!matches?.length) return 0;
+  const values = matches.map(Number).filter(Number.isFinite);
+  if (!values.length) return 0;
+  if (values.length >= 2 && /(?:-|\u2013|\u2014|\bto\b)/i.test(text)) {
+    return Math.round(((values[0] + values[1]) / 2) * 100) / 100;
+  }
+  return Math.round(values[0] * 100) / 100;
+}
+
+function moneyInput(value: number) {
+  return value.toFixed(2);
+}
+
 function formatQuantity(value: number) {
   const rounded = Math.round(value * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
@@ -165,6 +193,13 @@ function formatOrder(lead: Lead) {
 function dateOnly(value?: string | null) {
   if (!value) return "";
   return value.includes("T") ? value.slice(0, 10) : value;
+}
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function displayDate(value?: string | null) {
@@ -216,6 +251,47 @@ function shortAddress(value?: string | null) {
 
 function statusLabel(value?: string | null) {
   return String(value || "new").replaceAll("_", " ");
+}
+
+function leadTextBlob(lead: Lead) {
+  return [
+    lead.source,
+    lead.serviceType,
+    lead.details,
+    lead.quoteNotes,
+    lead.fromAddress,
+    lead.toAddress,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function looksLikeTextLead(lead: Lead) {
+  const text = leadTextBlob(lead);
+  return /text|sms|message|messenger|quick_request|quick request|callback requested/.test(text);
+}
+
+function looksLikeReclinerMove(lead: Lead) {
+  return /recliner|chair|single item|one item/.test(leadTextBlob(lead));
+}
+
+function extractZip(value?: string | null) {
+  return String(value || "").match(/\b\d{5}(?:-\d{4})?\b/)?.[0] || "";
+}
+
+function defaultEtaPrep(lead: Lead, fastPath = false) {
+  const zip = extractZip(lead.fromAddress) || extractZip(lead.toAddress);
+  const item = looksLikeReclinerMove(lead) ? "recliner/chair path" : "item path";
+  return [
+    fastPath ? "Text lead fast path: booked from customer text." : "ETA prep:",
+    "Text customer when crew is assigned and again before arrival.",
+    zip ? `ZIP ${zip}.` : "",
+    `Confirm pickup/drop-off, parking, stairs/elevator, and ${item}.`,
+  ].filter(Boolean).join(" ");
+}
+
+function appendUniqueLine(base: string, line: string) {
+  const cleanBase = base.trim();
+  if (!cleanBase) return line;
+  return cleanBase.includes(line) ? cleanBase : `${cleanBase}\n${line}`;
 }
 
 function isAssigned(lead: Lead) {
@@ -370,54 +446,156 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
   const [truck, setTruck] = useState<"none" | "15ft" | "26ft">("none");
   const [truckMiles, setTruckMiles] = useState(0);
   const [extraHours, setExtraHours] = useState(0);
+  const [priceInput, setPriceInput] = useState(moneyInput(PACKAGES[0].base));
+  const [etaPrep, setEtaPrep] = useState("");
   const [blankets, setBlankets] = useState(false);
   const [shrinkwrap, setShrinkwrap] = useState(false);
   const [notes, setNotes] = useState("");
   const [, setLocation] = useLocation();
 
   const selectedPackage = PACKAGES.find((pkg) => pkg.id === selectedPackageId) || PACKAGES[0];
+  const cleanBasePrice = parseMoneyInput(priceInput) || selectedPackage.base;
   const truckBase = truck === "15ft" ? 500 : truck === "26ft" ? 1000 : 0;
   const truckOverageMiles = truck === "none" ? 0 : Math.max(0, truckMiles - 50);
   const truckOverage = truckOverageMiles * 5;
   const travel = travelMiles * 5;
   const extraHoursCharge = extraHours * crewSize * EXTRA_HOUR_PER_MOVER_RATE;
   const confirmedHours = selectedPackage.jobHours + extraHours;
-  const addons = extraHoursCharge + (blankets ? 99 : 0) + (shrinkwrap ? 99 : 0);
-  const total = selectedPackage.base + truckBase + truckOverage + travel + addons;
+  const confirmedHoursForStorage = Math.max(1, Math.ceil(confirmedHours));
+  const suppliesCharge = (blankets ? 99 : 0) + (shrinkwrap ? 99 : 0);
+  const addons = extraHoursCharge + suppliesCharge;
+  const total = cleanBasePrice + truckBase + truckOverage + travel + addons;
+  const textLead = lead ? looksLikeTextLead(lead) : false;
+  const reclinerLead = lead ? looksLikeReclinerMove(lead) : false;
+  const showTextFastPath = Boolean(lead && (textLead || reclinerLead));
+
+  type ConvertOptions = { fastTextPath?: boolean };
+
+  function buildConversionPayload(options: ConvertOptions = {}) {
+    if (!lead) throw new Error("No lead selected");
+    const fastTextPath = Boolean(options.fastTextPath);
+    const effectiveDate = date || (fastTextPath ? localDateKey() : "");
+    if (!effectiveDate) throw new Error("Choose a date first");
+
+    const effectiveArrivalWindow = fastTextPath
+      ? (arrivalWindow || "ASAP / text ETA")
+      : arrivalWindow;
+    const effectiveEtaPrep = etaPrep.trim() || defaultEtaPrep(lead, fastTextPath);
+    const fastNote = fastTextPath
+      ? "Text lead booked in one pass from the small-job admin intake."
+      : "";
+    const noteDraft = fastNote ? appendUniqueLine(notes, fastNote) : notes;
+    const truckLabel = truck === "none" ? "No rental truck" : truck === "15ft" ? "15 ft rental truck" : "26 ft rental truck";
+    const quoteNotes = [
+      `${selectedPackage.name}: ${selectedPackage.description}`,
+      `Clean price: package ${formatMoneyExact(cleanBasePrice)}; customer total ${formatMoneyExact(total)}.`,
+      `Truck: ${truckLabel}`,
+      truck !== "none" ? `Truck mileage: ${truckMiles} miles; ${truckOverageMiles} miles over included 50 at $5/mile.` : "",
+      travelMiles ? `Mover travel: ${travelMiles} miles at $5/mile = ${formatMoneyExact(travel)}.` : "",
+      `Booked duration: ${formatQuantity(selectedPackage.jobHours)} clock hr package with ${crewSize} mover${crewSize === 1 ? "" : "s"}.`,
+      extraHours
+        ? `Extra hours: ${formatQuantity(extraHours)} hr beyond package x ${crewSize} mover${crewSize === 1 ? "" : "s"} x $${EXTRA_HOUR_PER_MOVER_RATE}/mover-hr = ${formatMoneyExact(extraHoursCharge)}.`
+        : "",
+      confirmedHoursForStorage !== confirmedHours
+        ? `Crew calendar rounds booked duration up to ${confirmedHoursForStorage} hr for payout/scheduling.`
+        : "",
+      blankets ? "We supply moving blankets: $99." : "",
+      shrinkwrap ? "We supply shrinkwrap: $99." : "",
+      effectiveEtaPrep,
+      noteDraft.trim(),
+    ].filter(Boolean).join("\n");
+
+    const lineItems = [
+      {
+        id: selectedPackage.id,
+        name: selectedPackage.name,
+        qty: 1,
+        unitPrice: cleanBasePrice,
+        total: cleanBasePrice,
+        category: "small_job_package",
+      },
+      truckBase + truckOverage > 0 ? {
+        id: "truck",
+        name: truckLabel,
+        qty: 1,
+        unitPrice: truckBase + truckOverage,
+        total: truckBase + truckOverage,
+        category: "truck",
+      } : null,
+      travel > 0 ? {
+        id: "mover_travel",
+        name: "Mover travel",
+        qty: travelMiles,
+        unitPrice: 5,
+        total: travel,
+        category: "travel",
+      } : null,
+      extraHoursCharge > 0 ? {
+        id: "additional_clock_time",
+        name: "Extra hours",
+        qty: extraHours * crewSize,
+        unitPrice: EXTRA_HOUR_PER_MOVER_RATE,
+        total: extraHoursCharge,
+        category: "labor",
+      } : null,
+      blankets ? { id: "blankets", name: "Moving blankets", qty: 1, unitPrice: 99, total: 99, category: "supplies" } : null,
+      shrinkwrap ? { id: "shrinkwrap", name: "Shrinkwrap", qty: 1, unitPrice: 99, total: 99, category: "supplies" } : null,
+    ].filter(Boolean);
+
+    return {
+      basePrice: cleanBasePrice,
+      totalPrice: total,
+      selectedPackageId: selectedPackage.id,
+      orderLineItems: lineItems,
+      confirmedDate: effectiveDate,
+      arrivalWindow: effectiveArrivalWindow,
+      crewSize,
+      confirmedHours: confirmedHoursForStorage,
+      crewMembers,
+      confirmedFromAddress: lead.fromAddress || "",
+      confirmedToAddress: lead.toAddress || "",
+      dispatchNotes: effectiveEtaPrep,
+      quoteNotes,
+      sourceAction: fastTextPath ? "text_lead_fast_path" : "ops_fast_quote",
+      quoteSnapshot: {
+        adminSmallJobIntake: {
+          source: fastTextPath ? "text_lead_fast_path" : "ops_fast_quote",
+          selectedPackageId: selectedPackage.id,
+          selectedPackageLabel: selectedPackage.name,
+          price: {
+            basePrice: cleanBasePrice,
+            totalPrice: total,
+          },
+          addOns: {
+            truck: truckLabel,
+            truckMiles,
+            truckOverageMiles,
+            travelMiles,
+            extraClockHours: extraHours,
+            blankets,
+            shrinkwrap,
+          },
+          etaPrep: effectiveEtaPrep,
+          textLead,
+          reclinerLead,
+        },
+      },
+    };
+  }
 
   const convertMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (options: ConvertOptions = {}) => {
       if (!lead) throw new Error("No lead selected");
-      if (!date) throw new Error("Choose a date first");
-      const quoteNotes = [
-        `${selectedPackage.name}: ${selectedPackage.description}`,
-        `Truck: ${truck === "none" ? "No rental truck" : truck === "15ft" ? "15 ft rental truck" : "26 ft rental truck"}`,
-        truck !== "none" ? `Truck mileage: ${truckMiles} miles, ${truckOverageMiles} over included 50 at $5/mile` : "",
-        travelMiles ? `Mover travel: ${travelMiles} miles at $5/mile` : "",
-        `Included time: ${formatQuantity(selectedPackage.jobHours)} hr with ${crewSize} mover(s)`,
-        extraHours ? `Extra hours: ${formatQuantity(extraHours)} hr x ${crewSize} mover(s) x $${EXTRA_HOUR_PER_MOVER_RATE}/mover-hour = $${extraHoursCharge}` : "",
-        blankets ? "We supply moving blankets: $99" : "",
-        shrinkwrap ? "We supply shrinkwrap: $99" : "",
-        notes.trim(),
-      ].filter(Boolean).join("\n");
-
-      const response = await apiRequest("POST", `/api/leads/${lead.id}/convert-to-job`, {
-        basePrice: selectedPackage.base,
-        totalPrice: total,
-        confirmedDate: date,
-        arrivalWindow,
-        crewSize,
-        confirmedHours,
-        crewMembers,
-        confirmedFromAddress: lead.fromAddress || "",
-        confirmedToAddress: lead.toAddress || "",
-        quoteNotes,
-      });
+      const response = await apiRequest("POST", `/api/leads/${lead.id}/convert-to-job`, buildConversionPayload(options));
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (_updated, options) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      toast({ title: "Job quoted", description: `${formatOrder(lead!)} is now on the assigned board.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/available"] });
+      toast({
+        title: options?.fastTextPath ? "Text lead booked" : "Job quoted",
+        description: `${formatOrder(lead!)} is now on the assigned board.`,
+      });
       onClose();
     },
     onError: (error: Error) => {
@@ -435,10 +613,17 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
     setSelectedPackageId(pkg.id);
     setDate(dateOnly(nextLead.confirmedDate || nextLead.moveDate));
     setCrewSize(nextLead.crewSize || pkg.crewSize);
-    setExtraHours(Math.max(0, Number(nextLead.confirmedHours || pkg.jobHours) - pkg.jobHours));
+    setExtraHours(Math.max(0, Math.ceil(Number(nextLead.confirmedHours || pkg.jobHours)) - pkg.jobHours));
     setCrewMembers(Array.isArray(nextLead.crewMembers) ? nextLead.crewMembers : []);
     setArrivalWindow(nextLead.arrivalWindow || "Morning");
+    setPriceInput(moneyInput(parseMoneyInput(nextLead.totalPrice || nextLead.basePrice) || pkg.base));
+    setEtaPrep(nextLead.dispatchNotes || defaultEtaPrep(nextLead));
     setNotes(nextLead.quoteNotes || "");
+    setTravelMiles(0);
+    setTruck("none");
+    setTruckMiles(0);
+    setBlankets(false);
+    setShrinkwrap(false);
   }
 
   useEffect(() => {
@@ -459,6 +644,54 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
 
         {lead && (
           <div className="space-y-5 py-5">
+            {showTextFastPath && (
+              <div className="rounded-[8px] border border-emerald-400/30 bg-emerald-500/10 p-3">
+                <div className="flex items-start gap-3">
+                  <MessageSquare className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-300" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-black text-white">Text lead fast path</div>
+                    <p className="mt-1 text-xs text-emerald-100/80">
+                      Books this as a today small job with clean price fields, ETA prep, and preserved text notes.
+                    </p>
+                    {reclinerLead && (
+                      <div className="mt-2 inline-flex rounded-[6px] border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-[11px] font-semibold text-emerald-100">
+                        Recliner/chair move detected
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <Button
+                    onClick={() => convertMutation.mutate({ fastTextPath: true })}
+                    disabled={convertMutation.isPending}
+                    className="bg-emerald-600 hover:bg-emerald-500"
+                  >
+                    {convertMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
+                    Book Today
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="border-emerald-400/30 text-emerald-100"
+                    onClick={() => {
+                      const pkg = PACKAGES[0];
+                      setSelectedPackageId(pkg.id);
+                      setCrewSize(pkg.crewSize);
+                      setDate(localDateKey());
+                      setArrivalWindow("ASAP / text ETA");
+                      setExtraHours(0);
+                      setTruck("none");
+                      setTruckMiles(0);
+                      setTravelMiles(0);
+                      setPriceInput(moneyInput(pkg.base));
+                      setEtaPrep(defaultEtaPrep(lead, true));
+                    }}
+                  >
+                    Prep Fields
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div>
               <Label className="text-xs uppercase tracking-wider text-slate-500">Base Package</Label>
               <div className="mt-2 grid gap-2">
@@ -468,6 +701,7 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
                     onClick={() => {
                       setSelectedPackageId(pkg.id);
                       setCrewSize(pkg.crewSize);
+                      setPriceInput(moneyInput(pkg.base));
                     }}
                     className={`rounded-[8px] border p-3 text-left transition ${
                       selectedPackageId === pkg.id ? "border-blue-400 bg-blue-500/15" : "border-slate-700 bg-slate-900 hover:border-slate-500"
@@ -480,6 +714,28 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
                     <div className="mt-1 text-xs text-slate-400">{pkg.laborHours} - {pkg.description}</div>
                   </button>
                 ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_140px]">
+              <div>
+                <Label className="text-xs uppercase tracking-wider text-slate-500">Small-Job Price</Label>
+                <Input
+                  value={priceInput}
+                  onChange={(e) => setPriceInput(e.target.value)}
+                  onBlur={() => setPriceInput(moneyInput(cleanBasePrice))}
+                  inputMode="decimal"
+                  placeholder="250.00"
+                  className="mt-2 border-slate-700 bg-slate-900 text-white"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Paste-friendly: $200-300 cleans to the midpoint; saved as decimal pricing.
+                </p>
+              </div>
+              <div className="rounded-[8px] border border-slate-800 bg-slate-900 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Clean Total</div>
+                <div className="mt-1 text-xl font-black text-emerald-300">{formatMoneyExact(total)}</div>
+                <div className="mt-1 text-[11px] text-slate-500">Includes add-ons below.</div>
               </div>
             </div>
 
@@ -498,6 +754,7 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
                     <SelectItem value="Morning">Morning</SelectItem>
                     <SelectItem value="Afternoon">Afternoon</SelectItem>
                     <SelectItem value="Evening">Evening</SelectItem>
+                    <SelectItem value="ASAP / text ETA">ASAP / text ETA</SelectItem>
                     <SelectItem value="Customer callback needed">Customer callback needed</SelectItem>
                   </SelectContent>
                 </Select>
@@ -511,9 +768,9 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
               </div>
               <div>
                 <Label className="text-xs uppercase tracking-wider text-slate-500">Extra Hours</Label>
-                <div className="mt-2"><Stepper value={extraHours} min={0} max={8} step={0.5} onChange={setExtraHours} /></div>
+                <div className="mt-2"><Stepper value={extraHours} min={0} max={8} step={1} onChange={setExtraHours} /></div>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  {formatQuantity(confirmedHours)} job hr total; +${extraHoursCharge.toLocaleString()} at ${crewSize} mover(s)
+                  {formatQuantity(selectedPackage.jobHours)} hr package + {formatQuantity(extraHours)} hr added = {confirmedHoursForStorage} hr booked; {formatMoneyExact(extraHoursCharge)} add-on.
                 </p>
               </div>
             </div>
@@ -572,22 +829,37 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-2 min-h-24 border-slate-700 bg-slate-900 text-white" />
             </div>
 
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-slate-500">
+                <Clock className="h-3.5 w-3.5" />
+                ETA Prep / Dispatch Notes
+              </Label>
+              <Textarea
+                value={etaPrep}
+                onChange={(e) => setEtaPrep(e.target.value)}
+                className="mt-2 min-h-20 border-slate-700 bg-slate-900 text-white"
+              />
+            </div>
+
             <div className="rounded-[8px] border border-emerald-500/30 bg-emerald-500/10 p-4">
               <div className="grid gap-2 text-sm">
-                <div className="flex justify-between"><span className="text-slate-300">Package</span><span className="font-semibold text-white">${selectedPackage.base}</span></div>
-                <div className="flex justify-between"><span className="text-slate-300">Truck</span><span className="font-semibold text-white">${truckBase + truckOverage}</span></div>
-                <div className="flex justify-between"><span className="text-slate-300">Mover travel</span><span className="font-semibold text-white">${travel}</span></div>
-                <div className="flex justify-between"><span className="text-slate-300">Add-ons</span><span className="font-semibold text-white">${addons}</span></div>
+                <div className="flex justify-between"><span className="text-slate-300">Package</span><span className="font-semibold text-white">{formatMoneyExact(cleanBasePrice)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-300">Truck</span><span className="font-semibold text-white">{formatMoneyExact(truckBase + truckOverage)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-300">Mover travel</span><span className="font-semibold text-white">{formatMoneyExact(travel)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-300">Extra hours</span><span className="font-semibold text-white">{formatMoneyExact(extraHoursCharge)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-300">Supplies</span><span className="font-semibold text-white">{formatMoneyExact(suppliesCharge)}</span></div>
                 <div className="mt-2 flex justify-between border-t border-emerald-400/20 pt-3 text-lg">
                   <span className="font-black text-white">Quote Total</span>
-                  <span className="font-black text-emerald-300">${total.toLocaleString()}</span>
+                  <span className="font-black text-emerald-300">{formatMoneyExact(total)}</span>
                 </div>
-                <div className="text-xs text-emerald-200/70">Truck includes 50 miles, then $5/mile. Mover travel is $5/mile.</div>
+                <div className="text-xs text-emerald-200/70">
+                  Truck includes 50 miles, then $5/mile. Extra hours are billed at $50 per mover-hour.
+                </div>
               </div>
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button onClick={() => convertMutation.mutate()} disabled={convertMutation.isPending} className="bg-blue-600 hover:bg-blue-500">
+              <Button onClick={() => convertMutation.mutate({})} disabled={convertMutation.isPending} className="bg-blue-600 hover:bg-blue-500">
                 {convertMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
                 Quote & Assign
               </Button>
@@ -849,7 +1121,7 @@ export default function OpsBoardPage() {
           { icon: Package, label: "Package Rules", value: "4 base packages" },
           { icon: Truck, label: "Truck Rate", value: "$500 / $1000 + $5/mi" },
           { icon: MapPin, label: "Mover Travel", value: "$5 per mile" },
-          { icon: DollarSign, label: "Fast Add-ons", value: "$500 mover - $99 supplies" },
+          { icon: DollarSign, label: "Extra Hours", value: "$50/mover-hr + $99 supplies" },
         ].map((item) => (
           <div key={item.label} className="flex items-center gap-3 rounded-[8px] border border-slate-800 bg-slate-900/70 p-3">
             <item.icon className="h-5 w-5 text-blue-300" />
