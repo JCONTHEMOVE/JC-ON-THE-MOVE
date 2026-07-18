@@ -1,41 +1,58 @@
-name: Verify Render Deployment
+name: Production Build and Deploy Verification
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       health_url:
-        description: Public health URL to verify
+        description: Public readiness URL to verify
         required: false
-        default: https://jc-on-the-move.onrender.com/health
+        default: https://www.jconthemove.com/api/health
       expected_commit:
-        description: Commit SHA to wait for. Defaults to the dispatched commit.
+        description: Commit SHA expected in the public health response
         required: false
 
 concurrency:
-  group: render-verify-${{ github.sha }}
+  group: production-deploy-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     env:
-      PUBLIC_HEALTH_URL: ${{ github.event.inputs.health_url || vars.PUBLIC_HEALTH_URL || 'https://jc-on-the-move.onrender.com/health' }}
+      PUBLIC_HEALTH_URL: ${{ github.event.inputs.health_url || vars.PUBLIC_HEALTH_URL || 'https://www.jconthemove.com/api/health' }}
       EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit || github.sha }}
+      EXPECTED_HOSTING_PROVIDER: ${{ vars.EXPECTED_HOSTING_PROVIDER || 'railway' }}
       DEPLOY_WAIT_ATTEMPTS: ${{ vars.DEPLOY_WAIT_ATTEMPTS || '50' }}
       DEPLOY_WAIT_SECONDS: ${{ vars.DEPLOY_WAIT_SECONDS || '30' }}
       DEPLOY_CHECK_TIMEOUT_MS: ${{ vars.DEPLOY_CHECK_TIMEOUT_MS || '15000' }}
-      RENDER_VERIFY_INITIAL_DELAY_SECONDS: ${{ vars.RENDER_VERIFY_INITIAL_DELAY_SECONDS || '30' }}
+      DEPLOY_INITIAL_DELAY_SECONDS: ${{ vars.DEPLOY_INITIAL_DELAY_SECONDS || '30' }}
     steps:
-      - name: Checkout deploy verifier
+      - name: Checkout release candidate
         uses: actions/checkout@v4
 
       - name: Use Node 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      - name: Let Render start checks-pass deploy
-        run: sleep "$RENDER_VERIFY_INITIAL_DELAY_SECONDS"
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Run server tests
+        run: npm run test:server
+
+      - name: Build release artifact
+        run: npm run build
+
+      - name: Wait for Railway Git integration to start the deployment
+        run: sleep "$DEPLOY_INITIAL_DELAY_SECONDS"
 
       - name: Verify public deployment
         run: |
@@ -47,5 +64,5 @@ jobs:
             fi
             sleep "$DEPLOY_WAIT_SECONDS"
           done
-          echo "Render deploy did not become publicly verifiable in time."
+          echo "Railway did not make the pushed commit publicly verifiable in time."
           exit 1

@@ -5,7 +5,7 @@
 
 import { db, pool } from "../db";
 import { users } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray, or, sql } from "drizzle-orm";
 
 export interface CrewCandidate {
   id: string;
@@ -53,7 +53,13 @@ export async function getEligibleCrew(opts: {
     .from(users)
     .where(
       and(
-        eq(users.role, "employee"),
+        or(
+          eq(users.role, "employee"),
+          and(
+            inArray(users.role, ["admin", "business_owner"]),
+            sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+          ),
+        ),
         eq(users.status, "approved"),
         eq(users.isAvailable, true),
       ),

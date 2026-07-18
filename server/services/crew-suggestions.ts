@@ -45,7 +45,13 @@ class CrewSuggestionService {
       })
       .from(users)
       .where(and(
-        eq(users.role, 'employee'),
+        or(
+          eq(users.role, 'employee'),
+          and(
+            inArray(users.role, ['admin', 'business_owner']),
+            sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+          ),
+        ),
         eq(users.isApproved, true)
       ));
 

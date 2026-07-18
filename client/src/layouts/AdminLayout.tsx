@@ -185,7 +185,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white">
-      <div className="flex">
+      <div className="flex min-h-screen">
         {/* Desktop sidebar */}
         <aside className="hidden md:flex flex-col w-56 min-h-screen border-r border-slate-800/60 bg-slate-950/80 fixed left-0 top-0 bottom-0 z-40 pt-6 overflow-y-auto">
           <div className="px-4 mb-6">
@@ -266,7 +266,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         )}
 
         {/* Main content */}
-        <main className="flex-1 md:ml-56 pt-12 md:pt-0 pb-6">
+        <main className="min-w-0 w-full flex-1 md:ml-56 pt-12 md:pt-0 pb-6">
           <LeadFunnelOutageBanner />
           {children}
         </main>

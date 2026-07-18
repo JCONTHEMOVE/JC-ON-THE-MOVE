@@ -13,9 +13,7 @@
     "build:server": "esbuild server/index.ts --platform=node --target=node20 --format=esm --bundle --packages=external --alias:@shared=./shared --outdir=dist",
     "start": "cross-env NODE_ENV=production node dist/index.js",
     "verify:production": "node scripts/check-production-deploy.mjs",
-    "render:repair": "node scripts/render-repair-guide.mjs",
-    "render:doctor": "node scripts/render-deploy-doctor.mjs",
-    "render:trigger": "node scripts/render-deploy-doctor.mjs --trigger",
+    "production:doctor": "node scripts/check-production-deploy.mjs",
     "check": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsc --incremental false",
     "test:server": "node scripts/run-server-tests.mjs",
     "db:push": "drizzle-kit push"

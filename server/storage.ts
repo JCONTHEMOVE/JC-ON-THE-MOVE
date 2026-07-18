@@ -458,7 +458,16 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(users)
       .where(and(
-        eq(users.role, 'employee'),
+        // A company owner/admin can also work a job, but only when they have
+        // explicitly opted into the mover capability. Legacy employees remain
+        // eligible without capability tags.
+        or(
+          eq(users.role, 'employee'),
+          and(
+            inArray(users.role, ['admin', 'business_owner']),
+            sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+          ),
+        ),
         eq(users.isApproved, true),
         inArray(users.status, ['approved', 'active']),
         sql`${users.email} NOT LIKE '%.internal'`,
@@ -725,7 +734,13 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(users)
       .where(and(
-        eq(users.role, 'employee'),
+        or(
+          eq(users.role, 'employee'),
+          and(
+            inArray(users.role, ['admin', 'business_owner']),
+            sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+          ),
+        ),
         eq(users.isApproved, true),
         inArray(users.status, ['approved', 'active']),
         sql`${users.email} NOT LIKE '%.internal'`,

@@ -151,7 +151,7 @@ const SERVICE_ICON: Record<string, string> = {
 };
 
 const QUOTE_STACK_STATUSES = new Set(["new", "contacted", "quote_requested", "quoted", "chatbot_pending"]);
-const ASSIGNED_STATUSES = new Set(["available", "confirmed", "accepted", "in_progress", "completed"]);
+const ASSIGNED_STATUSES = new Set(["available", "assigned", "confirmed", "accepted", "dispatched", "in_progress", "completed"]);
 
 function formatMoney(value?: string | number | null) {
   const n = Number(value || 0);
@@ -300,6 +300,11 @@ function isAssigned(lead: Lead) {
 
 function isCompletedJob(lead: Lead) {
   return String(lead.status || "").toLowerCase() === "completed";
+}
+
+function isPastScheduledDate(lead: Lead) {
+  const scheduledDate = dateOnly(lead.confirmedDate || lead.moveDate);
+  return Boolean(scheduledDate) && scheduledDate < localDateKey() && !isCompletedJob(lead);
 }
 
 function TradingJobCard({ lead, compact = false, onOpen }: { lead: Lead; compact?: boolean; onOpen: (lead: Lead) => void }) {
@@ -465,9 +470,13 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
   const suppliesCharge = (blankets ? 99 : 0) + (shrinkwrap ? 99 : 0);
   const addons = extraHoursCharge + suppliesCharge;
   const total = cleanBasePrice + truckBase + truckOverage + travel + addons;
+  const statusKey = String(lead?.status || "").toLowerCase();
+  const isExistingJob = ["available", "assigned", "accepted", "dispatched", "in_progress"].includes(statusKey);
+  const isLockedJob = ["completed", "customer_approved", "payout_calculated", "payout_sent", "closed", "cancelled"].includes(statusKey);
   const textLead = lead ? looksLikeTextLead(lead) : false;
   const reclinerLead = lead ? looksLikeReclinerMove(lead) : false;
-  const showTextFastPath = Boolean(lead && (textLead || reclinerLead));
+  const showTextFastPath = Boolean(lead && (textLead || reclinerLead) && !isExistingJob && !isLockedJob);
+  const canCompleteOverdue = Boolean(lead && isPastScheduledDate(lead));
 
   type ConvertOptions = { fastTextPath?: boolean };
 
@@ -593,13 +602,35 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads/available"] });
       toast({
-        title: options?.fastTextPath ? "Text lead booked" : "Job quoted",
-        description: `${formatOrder(lead!)} is now on the assigned board.`,
+        title: isExistingJob ? "Job details saved" : options?.fastTextPath ? "Text lead booked" : "Job quoted",
+        description: isExistingJob
+          ? `${formatOrder(lead!)} kept its current lifecycle status and crew-to-payout link.`
+          : `${formatOrder(lead!)} is now on the assigned board.`,
       });
       onClose();
     },
     onError: (error: Error) => {
       toast({ title: "Quote failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const completeOverdueMutation = useMutation({
+    mutationFn: async () => {
+      if (!lead) throw new Error("No job selected");
+      const response = await apiRequest("POST", `/api/leads/${lead.id}/complete-overdue`, {});
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads/available"] });
+      toast({
+        title: "Job marked complete",
+        description: "JCMOVES completion rewards, the payout trail, and the review request are now in motion.",
+      });
+      onClose();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not complete job", description: error.message, variant: "destructive" });
     },
   });
 
@@ -858,14 +889,42 @@ function FastQuoteDrawer({ lead, employees, open, onClose }: { lead: Lead | null
               </div>
             </div>
 
+            <div className="rounded-[8px] border border-violet-400/25 bg-violet-500/10 px-4 py-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-bold text-violet-100">Worker payout link</span>
+                <span className={crewMembers.length ? "font-semibold text-violet-200" : "font-semibold text-amber-200"}>
+                  {crewMembers.length ? `${crewMembers.length} crew member${crewMembers.length === 1 ? "" : "s"} rostered` : "Crew needed"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-violet-100/75">
+                Completion JCMOVES rewards and worker payout previews use this saved crew roster.
+              </p>
+            </div>
+
+            {isLockedJob && (
+              <p className="rounded-[8px] border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                This job has moved beyond dispatch. Open the full job record for its completion or payout actions.
+              </p>
+            )}
+
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button onClick={() => convertMutation.mutate({})} disabled={convertMutation.isPending} className="bg-blue-600 hover:bg-blue-500">
+              <Button onClick={() => convertMutation.mutate({})} disabled={convertMutation.isPending || isLockedJob} className="bg-blue-600 hover:bg-blue-500">
                 {convertMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-                Quote & Assign
+                {isLockedJob ? "Job locked" : isExistingJob ? "Save Job Details" : "Quote & Assign"}
               </Button>
               <Button variant="outline" className="border-slate-700 text-slate-200" onClick={() => setLocation(`/lead/${lead.id}`)}>
                 Open Full Lead
               </Button>
+              {canCompleteOverdue && (
+                <Button
+                  onClick={() => completeOverdueMutation.mutate()}
+                  disabled={completeOverdueMutation.isPending}
+                  className="bg-emerald-600 hover:bg-emerald-500 sm:col-span-2"
+                >
+                  {completeOverdueMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                  Mark Job Complete (Past Move Date)
+                </Button>
+              )}
             </div>
           </div>
         )}

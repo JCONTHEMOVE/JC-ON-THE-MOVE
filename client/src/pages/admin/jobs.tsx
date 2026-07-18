@@ -21,29 +21,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   MapPin, Calendar, Loader2, Phone, Mail, Users, DollarSign, Bitcoin,
-  CheckCircle2, Clock, Send, Star, ArrowLeftRight, ChevronRight,
+  CheckCircle2, Clock, Send, Star, ArrowLeftRight, ChevronLeft, ChevronRight, CalendarDays,
   Coins, Search, Truck, Minus, Plus, RefreshCw, Receipt, UserCheck,
-  UserX, XCircle, Check, X, Image, Tag, ExternalLink, Megaphone
+  UserX, XCircle, Check, X, Image, ExternalLink, EyeOff
 } from "lucide-react";
 import type { User } from "@shared/schema";
-import {
-  getMarketplaceRequestShape,
-  getMarketplaceShapeForServiceCode,
-  type MarketplaceRequestShapeId,
-} from "@shared/marketplaceShapes";
 import { PaymentStatusPill } from "@/components/PaymentStatusPill";
 import JobLifecycleRail from "@/components/JobLifecycleRail";
-import MarketplaceActionMatrix from "@/components/MarketplaceActionMatrix";
-import MarketplaceShapeContext from "@/components/MarketplaceShapeContext";
-import MarketplaceProcessGuide from "@/components/MarketplaceProcessGuide";
-import MarketplaceSourceFlowStrip from "@/components/MarketplaceSourceFlowStrip";
-import MarketplaceTaskSplit from "@/components/MarketplaceTaskSplit";
-import ProcessFlowCard, { type ProcessFlowStep, type ProcessStepState } from "@/components/ProcessFlowCard";
-import SmartBookingGuidanceCard from "@/components/SmartBookingGuidanceCard";
-import { BookingMenuIntelligenceCard } from "@/components/BookingMenuIntelligenceCard";
 import { extractCustomerMediaLink } from "@/lib/lead-details";
-import { extractBookingMenuIntelligence, extractSmartBookingAnswersFromQuoteSnapshot } from "@/lib/booking-menu-intelligence";
-import type { SmartBookingAnswers } from "@shared/smartBookingEngine";
 
 const SERVICE_ICONS: Record<string, string> = {
   residential: "🚛", commercial: "🏢", junk: "🗑️", snow: "❄️",
@@ -81,6 +66,41 @@ function formatDateInput(dateStr: string | null | undefined): string {
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return "";
   return parsed.toISOString().slice(0, 10);
+}
+
+type JobCalendarView = "list" | "month" | "week" | "day";
+
+const CALENDAR_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const JOB_VIEW_OPTIONS: ReadonlyArray<{ value: JobCalendarView; label: string }> = [
+  { value: "list", label: "List" },
+  { value: "month", label: "Month" },
+  { value: "week", label: "Week" },
+  { value: "day", label: "Day" },
+];
+
+function localDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function getWeekDays(anchor: Date): Date[] {
+  const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  start.setDate(start.getDate() - start.getDay());
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return day;
+  });
+}
+
+function getMonthDays(anchor: Date): Date[] {
+  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const start = new Date(first);
+  start.setDate(1 - first.getDay());
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return day;
+  });
 }
 
 type Lead = {
@@ -136,6 +156,19 @@ type Lead = {
   reviewToken?: string;
   archivedAt?: string | null;
 };
+
+function leadCalendarDate(lead: Lead): Date | null {
+  const raw = String(lead.confirmedDate || lead.moveDate || "").trim().slice(0, 10);
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day
+    ? parsed
+    : null;
+}
 
 type LeadQuoteSnapshot = {
   source?: string;
@@ -213,167 +246,9 @@ function leadPhotoCount(lead: Lead): number {
   return Array.isArray(lead.photos) ? lead.photos.length : 0;
 }
 
-function leadAttributionLabel(lead: Lead): string | null {
-  const attribution = lead.attribution;
-  const snapshot = lead.quoteSnapshot && typeof lead.quoteSnapshot === "object" && !Array.isArray(lead.quoteSnapshot)
-    ? lead.quoteSnapshot
-    : null;
-  return attribution?.repName
-    || attribution?.referralSlug
-    || attribution?.promoCode
-    || snapshot?.attribution?.referralSlug
-    || snapshot?.referralSlug
-    || lead.promoCode
-    || null;
-}
-
-function formatSourceLabel(source: string | null | undefined): string | null {
-  if (!source) return null;
-  const cleaned = source.replace(/_/g, " ").trim();
-  if (!cleaned) return null;
-  return cleaned.replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function leadSourceLabel(lead: Lead): string | null {
-  const snapshot = lead.quoteSnapshot && typeof lead.quoteSnapshot === "object" && !Array.isArray(lead.quoteSnapshot)
-    ? lead.quoteSnapshot
-    : null;
-  return formatSourceLabel(
-    lead.attribution?.source
-    || snapshot?.attribution?.source
-    || lead.source
-    || snapshot?.source
-    || null,
-  );
-}
-
-function leadCampaignLabel(lead: Lead): string | null {
-  const snapshot = lead.quoteSnapshot && typeof lead.quoteSnapshot === "object" && !Array.isArray(lead.quoteSnapshot)
-    ? lead.quoteSnapshot
-    : null;
-  return lead.attribution?.marketingCampaignId
-    || snapshot?.attribution?.marketingCampaignId
-    || snapshot?.marketingCampaignId
-    || null;
-}
-
-function leadMarketplaceShape(lead: Lead) {
-  const snapshot = lead.quoteSnapshot && typeof lead.quoteSnapshot === "object" && !Array.isArray(lead.quoteSnapshot)
-    ? lead.quoteSnapshot
-    : null;
-  const snapshotShapeId = snapshot?.marketplaceShapeId || snapshot?.marketplaceShape?.id;
-  if (snapshotShapeId) {
-    const shape = getMarketplaceRequestShape(snapshotShapeId as MarketplaceRequestShapeId);
-    if (shape) return shape;
-  }
-
-  const firstItem = Array.isArray(snapshot?.requestedItems) ? snapshot?.requestedItems[0] : undefined;
-  return getMarketplaceShapeForServiceCode(firstItem?.serviceCode || firstItem?.serviceLabel || lead.serviceType);
-}
-
-function leadMarketplaceShapeId(lead: Lead): string | null {
-  const snapshot = lead.quoteSnapshot && typeof lead.quoteSnapshot === "object" && !Array.isArray(lead.quoteSnapshot)
-    ? lead.quoteSnapshot
-    : null;
-  return snapshot?.marketplaceShapeId || snapshot?.marketplaceShape?.id || null;
-}
-
-function leadFirstRequestedItem(lead: Lead): NonNullable<LeadQuoteSnapshot["requestedItems"]>[number] | null {
-  const snapshot = lead.quoteSnapshot && typeof lead.quoteSnapshot === "object" && !Array.isArray(lead.quoteSnapshot)
-    ? lead.quoteSnapshot
-    : null;
-  return Array.isArray(snapshot?.requestedItems) ? snapshot.requestedItems[0] || null : null;
-}
-
-function extractZipFromText(value: string | null | undefined): string | undefined {
-  const match = value?.match(/\b\d{5}(?:-\d{4})?\b/);
-  return match?.[0];
-}
-
-function smartBookingAnswersForLead(lead: Lead): SmartBookingAnswers {
-  const firstItem = leadFirstRequestedItem(lead);
-  const marketplaceShapeId = leadMarketplaceShapeId(lead);
-  const photos = Array.isArray(lead.photos) ? lead.photos : [];
-  const snapshotAnswers = extractSmartBookingAnswersFromQuoteSnapshot(lead.quoteSnapshot);
-
-  return {
-    ...snapshotAnswers,
-    marketplaceShapeId,
-    serviceType: lead.serviceType,
-    serviceCode: firstItem?.serviceCode || lead.serviceType,
-    serviceLabel: firstItem?.serviceLabel || SERVICE_LABELS[lead.serviceType] || lead.serviceType,
-    fromAddress: lead.fromAddress,
-    fromZip: extractZipFromText(lead.fromAddress),
-    toAddress: lead.toAddress,
-    moveDate: lead.confirmedDate || lead.moveDate,
-    arrivalWindow: lead.arrivalWindow,
-    crewSize: lead.crewSize,
-    confirmedHours: lead.confirmedHours,
-    phone: lead.phone,
-    email: lead.email,
-    notes: [lead.details, lead.quoteNotes, lead.dispatchNotes].filter(Boolean).join("\n"),
-    photos,
-    submittedPhotos: photos,
-  };
-}
-
 function numericPrice(value: string | number | null | undefined): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function marketplaceActionPhaseForLead(lead: Lead): "progress" | "finish" {
-  const status = String(lead.status || "").toLowerCase();
-  return ["completed", "customer_approved", "payout_calculated", "payout_sent", "closed", "paid"].includes(status)
-    ? "finish"
-    : "progress";
-}
-
-function buildAdminProcessSteps({
-  contactReady,
-  priceReady,
-  scheduleReady,
-  crewReady,
-  paymentReady,
-  completeReady,
-}: {
-  contactReady: boolean;
-  priceReady: boolean;
-  scheduleReady: boolean;
-  crewReady: boolean;
-  paymentReady: boolean;
-  completeReady: boolean;
-}): ProcessFlowStep[] {
-  const progressReady = priceReady && scheduleReady && crewReady;
-  const progressState: ProcessStepState = completeReady || progressReady ? "done" : contactReady ? "active" : "waiting";
-  const finishState: ProcessStepState = completeReady ? "done" : progressReady || paymentReady ? "active" : "waiting";
-
-  return [
-    {
-      phase: "start",
-      label: "Capture request",
-      detail: "Confirm contact, address, date clues, photos, source, and notes so the card is real work.",
-      state: contactReady ? "done" : "active",
-      href: "#admin-job-customer",
-      actionLabel: "Review info",
-    },
-    {
-      phase: "progress",
-      label: "Price and crew",
-      detail: "Set the estimate or final price, schedule the date/window, and assign the right crew.",
-      state: progressState,
-      href: "#admin-job-quote",
-      actionLabel: "Set quote",
-    },
-    {
-      phase: "finish",
-      label: "Collect and close",
-      detail: "Send payment, confirm deposit or cash plan, complete the job, then trigger rewards and review.",
-      state: finishState,
-      href: "#admin-job-payments",
-      actionLabel: completeReady ? "Closed" : "Collect",
-    },
-  ];
 }
 
 function AdminJobCard({ lead, onClick, employees }: {
@@ -397,11 +272,7 @@ function AdminJobCard({ lead, onClick, employees }: {
   const hasPremiums = lead.hasHotTub || lead.hasPiano || lead.hasHeavySafe || lead.hasPoolTable;
   const quickRequest = isQuickRequestLead(lead);
   const photoCount = leadPhotoCount(lead);
-  const attributionLabel = leadAttributionLabel(lead);
-  const sourceLabel = leadSourceLabel(lead);
-  const campaignLabel = leadCampaignLabel(lead);
   const customerMediaLink = extractCustomerMediaLink(lead.details);
-  const marketplaceShape = leadMarketplaceShape(lead);
 
   return (
     <Card
@@ -425,11 +296,6 @@ function AdminJobCard({ lead, onClick, employees }: {
                   {quickRequest && (
                     <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 rounded-full px-2 py-0.5">
                       Quick request
-                    </span>
-                  )}
-                  {marketplaceShape && (
-                    <span className="text-[10px] font-bold uppercase tracking-wide text-blue-300 bg-blue-500/10 border border-blue-500/25 rounded-full px-2 py-0.5">
-                      {marketplaceShape.shape}
                     </span>
                   )}
                   {city && (
@@ -485,30 +351,6 @@ function AdminJobCard({ lead, onClick, employees }: {
                   Media link
                 </span>
               )}
-              {lead.promoCode && (
-                <span className="text-xs text-amber-300 flex items-center gap-1">
-                  <Tag className="h-3 w-3" />
-                  {lead.promoCode}
-                </span>
-              )}
-              {attributionLabel && (
-                <span className="text-xs text-emerald-300 flex items-center gap-1">
-                  <UserCheck className="h-3 w-3" />
-                  Rep: {attributionLabel}
-                </span>
-              )}
-              {sourceLabel && (
-                <span className="text-xs text-cyan-300 flex items-center gap-1">
-                  <Megaphone className="h-3 w-3" />
-                  {sourceLabel}
-                </span>
-              )}
-              {campaignLabel && (
-                <span className="text-xs text-blue-300 flex items-center gap-1">
-                  <Tag className="h-3 w-3" />
-                  Campaign {campaignLabel}
-                </span>
-              )}
             </div>
             {hasPremiums && (
               <div className="mt-1.5 flex flex-wrap gap-1">
@@ -523,6 +365,48 @@ function AdminJobCard({ lead, onClick, employees }: {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function CalendarJobChip({ lead, onOpen, compact = false }: {
+  lead: Lead;
+  onOpen: (lead: Lead) => void;
+  compact?: boolean;
+}) {
+  const price = lead.totalPrice || lead.basePrice;
+  const crewSlots = lead.crewSize || 2;
+  const crewFilled = Array.isArray(lead.crewMembers) ? lead.crewMembers.length : 0;
+  const crewLabel = `${crewFilled}/${crewSlots} crew`;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(lead)}
+      className={`w-full rounded-lg border border-slate-700/70 bg-slate-900/80 text-left transition-colors hover:border-blue-400/60 hover:bg-slate-800 ${compact ? "px-2 py-1.5" : "px-3 py-2.5"}`}
+      data-testid={`button-calendar-job-${lead.id}`}
+    >
+      <div className="flex min-w-0 items-start gap-2">
+        <span className={compact ? "text-base leading-none" : "text-xl leading-none"}>{SERVICE_ICONS[lead.serviceType] || "📦"}</span>
+        <span className="min-w-0 flex-1">
+          <span className={`block truncate font-semibold text-white ${compact ? "text-[11px]" : "text-sm"}`}>
+            {lead.firstName} {lead.lastName}
+          </span>
+          <span className={`mt-0.5 block truncate text-slate-400 ${compact ? "text-[10px]" : "text-xs"}`}>
+            {lead.arrivalWindow || "Time TBD"} · {SERVICE_LABELS[lead.serviceType] || lead.serviceType}
+          </span>
+        </span>
+        {price && (
+          <span className={`shrink-0 font-bold text-emerald-300 ${compact ? "text-[10px]" : "text-xs"}`}>
+            ${Number(price).toLocaleString()}
+          </span>
+        )}
+      </div>
+      {!compact && (
+        <span className={`mt-2 flex items-center gap-1 text-[11px] ${crewFilled >= crewSlots ? "text-emerald-300" : "text-amber-300"}`}>
+          <Users className="h-3 w-3" /> {crewLabel}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -860,42 +744,9 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
   const displayBasePrice = basePrice || lead.basePrice;
   const quickRequest = isQuickRequestLead(lead);
   const photos = Array.isArray(lead.photos) ? lead.photos : [];
-  const attribution = lead.attribution;
-  const sourceLabel = leadSourceLabel(lead);
-  const campaignLabel = leadCampaignLabel(lead);
   const customerMediaLink = extractCustomerMediaLink(lead.details);
-  const marketplaceShape = leadMarketplaceShape(lead);
-  const marketplaceShapeId = leadMarketplaceShapeId(lead);
-  const marketplaceFirstItem = leadFirstRequestedItem(lead);
-  const fallbackServiceLabel = marketplaceFirstItem?.serviceLabel || SERVICE_LABELS[lead.serviceType] || lead.serviceType;
-  const menuIntelligence = extractBookingMenuIntelligence(lead.quoteSnapshot, fallbackServiceLabel);
-  const marketplaceSourceContext = menuIntelligence?.sourceSignal || sourceLabel || lead.source;
-  const marketplaceServiceCode = marketplaceFirstItem?.serviceCode || lead.serviceType;
-  const marketplaceServiceLabel = menuIntelligence?.serviceLabel || fallbackServiceLabel;
-  const priceReady = Math.max(numericPrice(displayPrice), numericPrice(displayBasePrice)) > 0;
-  const scheduleReady = Boolean(effectiveDate || lead.arrivalWindow);
-  const contactReady = Boolean((lead.phone || lead.email) && (lead.fromAddress || lead.details || photos.length > 0));
-  const crewNeeded = Math.max(1, Number(lead.crewSize || 2));
-  const crewReady = crewMembersArr.length >= crewNeeded;
   const statusKey = String(lead.status || "").toLowerCase();
   const canConvertToCalendar = new Set(["new", "quote_requested", "contacted", "quoted", "chatbot_pending"]).has(statusKey);
-  const completeReady = ["completed", "customer_approved", "payout_calculated", "payout_sent", "closed", "paid"].includes(statusKey);
-  const invoiceReady = Boolean(
-    lead.squarePaymentUrl
-    || panel?.invoices?.some(inv => inv.public_url || inv.sent_at || inv.paid_at || inv.status === "PAID"),
-  );
-  const btcReady = Boolean(panel?.btcPayments?.some(btc => btc.verified_at || btc.status === "verified" || btc.status === "completed" || btc.status === "pending"));
-  const paymentReady = invoiceReady || btcReady || Boolean(lead.depositPaid);
-  const adminProcessSteps = buildAdminProcessSteps({
-    contactReady,
-    priceReady,
-    scheduleReady,
-    crewReady,
-    paymentReady,
-    completeReady,
-  });
-  const guidanceAnswers = smartBookingAnswersForLead(lead);
-  const marketplaceAdminPhase = marketplaceActionPhaseForLead(lead);
   const savedZonePreview = lead.zoneSnapshot?.preview;
   const savedZoneQuote = savedZonePreview?.quote;
   const savedZoneEstimate = Number.isFinite(Number(savedZoneQuote?.minEstimate)) && Number.isFinite(Number(savedZoneQuote?.maxEstimate))
@@ -906,7 +757,7 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
     <Sheet open={open} onOpenChange={v => !v && onClose()}>
       <SheetContent
         side="right"
-        className="bg-slate-900 border-l border-slate-700 text-white w-full sm:max-w-xl overflow-y-auto"
+        className="bg-slate-900 border-l border-slate-700 text-white w-full sm:max-w-2xl overflow-y-auto"
       >
         <SheetHeader className="pb-4 border-b border-slate-700/60">
           <div className="flex items-start gap-3">
@@ -921,11 +772,6 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
                 {quickRequest && (
                   <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 rounded-full px-2 py-0.5">
                     Quick request
-                  </span>
-                )}
-                {marketplaceShape && (
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-blue-300 bg-blue-500/10 border border-blue-500/25 rounded-full px-2 py-0.5">
-                    {marketplaceShape.shape}
                   </span>
                 )}
               </div>
@@ -947,16 +793,14 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
 
         <div className="pt-4 space-y-5 pb-8">
           <JobLifecycleRail lead={lead} />
-          <ProcessFlowCard
-            title="Run this card"
-            description="One operating path for every request: capture the customer need, progress price and crew, then finish payment, completion, rewards, and review."
-            steps={adminProcessSteps}
-          />
-          <SmartBookingGuidanceCard
-            answers={guidanceAnswers}
-            serviceLabel={lead.serviceType}
-            compact
-          />
+          <div className="rounded-lg border border-slate-700/70 bg-slate-950/40 px-3 py-2.5">
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              <EyeOff className="h-3.5 w-3.5" /> Private operator tip
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-300">
+              Share only confirmed customer details, pricing, timing, and crew plans. Keep company strategy, sourcing, and campaign notes out of the job conversation.
+            </p>
+          </div>
           <div id="admin-job-calendar" className="scroll-mt-4 rounded-xl border border-blue-500/25 bg-blue-950/20 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-blue-200">
@@ -1053,55 +897,6 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
               Sets date, hours, crew, and price. Request cards become available jobs for dispatch.
             </p>
           </div>
-          <MarketplaceProcessGuide
-            source={marketplaceSourceContext}
-            shapeId={marketplaceShapeId}
-            serviceCode={marketplaceServiceCode}
-            audience="company"
-            compact
-          />
-          <MarketplaceActionMatrix
-            rail="platinum"
-            phase={marketplaceAdminPhase}
-            source={marketplaceSourceContext}
-            shapeId={marketplaceShapeId}
-            serviceCode={marketplaceServiceCode}
-            serviceLabel={marketplaceServiceLabel}
-            compact
-            limit={3}
-          />
-          <MarketplaceTaskSplit
-            rails={["silver", "gold", "platinum"]}
-            phase={marketplaceAdminPhase}
-            source={marketplaceSourceContext}
-            shapeId={marketplaceShapeId}
-            serviceCode={marketplaceServiceCode}
-            serviceLabel={marketplaceServiceLabel}
-            compact
-            limitPerRail={2}
-          />
-          <MarketplaceSourceFlowStrip
-            source={marketplaceSourceContext}
-            shapeId={marketplaceShapeId}
-            serviceCode={marketplaceServiceCode}
-            serviceLabel={marketplaceServiceLabel}
-            audience="company"
-            phase={marketplaceAdminPhase}
-          />
-          <MarketplaceShapeContext
-            shapeId={marketplaceShapeId}
-            serviceCode={marketplaceServiceCode}
-            source={marketplaceSourceContext}
-            audience="company"
-            maxIdeas={3}
-            maxFlows={2}
-          />
-          <BookingMenuIntelligenceCard
-            quoteSnapshot={lead.quoteSnapshot}
-            fallbackServiceLabel={marketplaceServiceLabel}
-            audience="company"
-          />
-
           {/* Customer Info — POS Receipt Style */}
           <div id="admin-job-customer" className="scroll-mt-4 bg-slate-800/60 rounded-xl p-4">
             <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-3 flex items-center gap-1.5">
@@ -1114,24 +909,6 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
             <POSRow label="Email" value={lead.email ? <a href={`mailto:${lead.email}`} className="text-blue-400 hover:text-blue-300 truncate max-w-[180px] block">{lead.email}</a> : "Not provided"} />
             <POSRow label="Date" value={formatDateShort(effectiveDate)} />
             {lead.arrivalWindow && <POSRow label="Arrival" value={lead.arrivalWindow} />}
-            {marketplaceShape && <POSRow label="Shape" value={marketplaceShape.shape} />}
-            {sourceLabel && <POSRow label="Source" value={<span className="text-cyan-300">{sourceLabel}</span>} />}
-            {campaignLabel && <POSRow label="Campaign" value={<span className="font-mono text-blue-300">{campaignLabel}</span>} />}
-            {lead.promoCode && <POSRow label="Referral Code" value={<span className="font-mono text-amber-300">{lead.promoCode}</span>} />}
-            {attribution && (
-              <POSRow
-                label="Attribution"
-                value={
-                  <span className="text-right text-xs">
-                    <span className="block text-emerald-300">{attribution.repName || attribution.referralSlug || "Marketing rep"}</span>
-                    <span className="block font-mono text-amber-300">{attribution.promoCode || lead.promoCode || "No code"}</span>
-                    {attribution.marketingCampaignId && <span className="block font-mono text-blue-300">Campaign {attribution.marketingCampaignId}</span>}
-                    {attribution.utmCampaign && <span className="block text-blue-200">UTM {attribution.utmCampaign}</span>}
-                    {attribution.source && <span className="block text-slate-500">{attribution.source.replace(/_/g, " ")}</span>}
-                  </span>
-                }
-              />
-            )}
             {photos.length > 0 && <POSRow label="Photos" value={`${photos.length} attached`} />}
             {customerMediaLink && (
               <POSRow
@@ -1658,6 +1435,8 @@ export default function AdminJobsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [calendarView, setCalendarView] = useState<JobCalendarView>("month");
+  const [calendarAnchor, setCalendarAnchor] = useState(() => new Date());
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -1692,6 +1471,33 @@ export default function AdminJobsPage() {
 
   const completedLeads = useMemo(() => leads.filter(l => l.status === "completed"), [leads]);
 
+  const calendarBuckets = useMemo(() => {
+    const scheduled: Record<string, Lead[]> = {};
+    const unscheduled: Lead[] = [];
+
+    for (const lead of filteredLeads) {
+      const date = leadCalendarDate(lead);
+      if (!date) {
+        unscheduled.push(lead);
+        continue;
+      }
+      const key = localDateKey(date);
+      (scheduled[key] ||= []).push(lead);
+    }
+
+    return { scheduled, unscheduled };
+  }, [filteredLeads]);
+
+  const monthDays = useMemo(() => getMonthDays(calendarAnchor), [calendarAnchor]);
+  const weekDays = useMemo(() => getWeekDays(calendarAnchor), [calendarAnchor]);
+  const todayKey = localDateKey(new Date());
+  const activeDayKey = localDateKey(calendarAnchor);
+  const calendarLabel = calendarView === "month"
+    ? calendarAnchor.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    : calendarView === "week"
+    ? `${weekDays[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${weekDays[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+    : calendarAnchor.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
   const pendingTradeCount = tradeRequests.filter(r => r.status === "pending").length;
 
   const openDetail = (lead: Lead) => {
@@ -1699,8 +1505,22 @@ export default function AdminJobsPage() {
     setDetailOpen(true);
   };
 
+  const shiftCalendar = (amount: number) => {
+    setCalendarAnchor((current) => {
+      if (calendarView === "month") return new Date(current.getFullYear(), current.getMonth() + amount, 1);
+      const next = new Date(current.getFullYear(), current.getMonth(), current.getDate());
+      next.setDate(next.getDate() + (calendarView === "week" ? amount * 7 : amount));
+      return next;
+    });
+  };
+
+  const openDay = (date: Date) => {
+    setCalendarAnchor(new Date(date.getFullYear(), date.getMonth(), date.getDate()));
+    setCalendarView("day");
+  };
+
   return (
-    <div className="max-w-3xl mx-auto px-4 pt-6 pb-8">
+    <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-8">
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-2xl font-black text-white">Jobs</h1>
@@ -1721,6 +1541,29 @@ export default function AdminJobsPage() {
           >
             <RefreshCw className="h-4 w-4" />
           </Button>
+        </div>
+      </div>
+
+      <div className="mb-5 flex flex-col gap-3 rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
+            <CalendarDays className="h-4 w-4 text-blue-300" /> Job views
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">Use the calendar for scheduled work; TBD jobs stay visible for review.</p>
+        </div>
+        <div aria-label="Jobs view selection" className="grid grid-cols-4 rounded-lg border border-slate-700 bg-slate-950 p-1">
+          {JOB_VIEW_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={calendarView === value}
+              onClick={() => setCalendarView(value)}
+              className={`rounded-md px-3 py-2 text-xs font-semibold transition-colors ${calendarView === value ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}
+              data-testid={`tab-jobs-${value}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -1760,7 +1603,7 @@ export default function AdminJobsPage() {
           <Truck className="h-10 w-10 mx-auto mb-3 opacity-30" />
           <p className="font-medium">{search ? "No jobs match your search" : "No active jobs"}</p>
         </div>
-      ) : (
+      ) : calendarView === "list" ? (
         <div className="space-y-3">
           {filteredLeads.map(lead => (
             <AdminJobCard
@@ -1779,6 +1622,116 @@ export default function AdminJobsPage() {
             </div>
           )}
         </div>
+      ) : (
+        <section className="rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 sm:p-4">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-blue-300">Calendar</p>
+              <h2 className="mt-1 text-lg font-black text-white">{calendarLabel}</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="icon" className="border-slate-700 text-slate-200" onClick={() => shiftCalendar(-1)} aria-label="Previous calendar period">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button type="button" variant="outline" className="border-slate-700 text-slate-200" onClick={() => setCalendarAnchor(new Date())}>
+                Today
+              </Button>
+              <Button type="button" variant="outline" size="icon" className="border-slate-700 text-slate-200" onClick={() => shiftCalendar(1)} aria-label="Next calendar period">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {calendarView === "month" && (
+            <div className="overflow-x-auto">
+              <div className="grid min-w-[840px] grid-cols-7 gap-px overflow-hidden rounded-lg border border-slate-700 bg-slate-700">
+                {CALENDAR_WEEKDAYS.map((weekday) => (
+                  <div key={weekday} className="bg-slate-950 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    {weekday}
+                  </div>
+                ))}
+                {monthDays.map((day) => {
+                  const dayKey = localDateKey(day);
+                  const dayJobs = calendarBuckets.scheduled[dayKey] || [];
+                  const isCurrentMonth = day.getMonth() === calendarAnchor.getMonth();
+                  const isToday = dayKey === todayKey;
+                  return (
+                    <div key={dayKey} className={`min-h-36 bg-slate-950 p-2 ${isCurrentMonth ? "" : "opacity-40"} ${isToday ? "ring-1 ring-inset ring-blue-400" : ""}`}>
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <button type="button" onClick={() => openDay(day)} className={`rounded px-1 text-xs font-bold hover:bg-slate-800 ${isToday ? "text-blue-200" : "text-slate-400"}`}>
+                          {day.getDate()}
+                        </button>
+                        {dayJobs.length > 0 && <span className="rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-200">{dayJobs.length}</span>}
+                      </div>
+                      <div className="space-y-1.5">
+                        {dayJobs.slice(0, 2).map((lead) => <CalendarJobChip key={lead.id} lead={lead} onOpen={openDetail} compact />)}
+                        {dayJobs.length > 2 && (
+                          <button type="button" onClick={() => openDay(day)} className="w-full rounded-md bg-slate-900 px-2 py-1 text-center text-[10px] text-slate-400 hover:bg-slate-800 hover:text-white">
+                            +{dayJobs.length - 2} more job{dayJobs.length === 3 ? "" : "s"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {calendarView === "week" && (
+            <div className="overflow-x-auto">
+              <div className="grid min-w-[960px] grid-cols-7 gap-3">
+                {weekDays.map((day) => {
+                  const dayKey = localDateKey(day);
+                  const dayJobs = calendarBuckets.scheduled[dayKey] || [];
+                  const isToday = dayKey === todayKey;
+                  return (
+                    <div key={dayKey} className={`min-h-[360px] rounded-lg border p-2 ${isToday ? "border-blue-400 bg-blue-950/20" : "border-slate-700 bg-slate-950/50"}`}>
+                      <button type="button" onClick={() => openDay(day)} className="mb-3 w-full rounded-md px-2 py-1 text-left hover:bg-slate-800">
+                        <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">{day.toLocaleDateString("en-US", { weekday: "short" })}</span>
+                        <span className={`text-sm font-black ${isToday ? "text-blue-200" : "text-white"}`}>{day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                      </button>
+                      <div className="space-y-2">
+                        {dayJobs.length === 0 ? <p className="px-2 py-6 text-center text-xs text-slate-600">No jobs</p> : dayJobs.map((lead) => <CalendarJobChip key={lead.id} lead={lead} onOpen={openDetail} />)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {calendarView === "day" && (
+            <div className="rounded-lg border border-slate-700 bg-slate-950/50 p-3 sm:p-4">
+              <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                <div>
+                  <p className="text-sm font-bold text-white">{calendarAnchor.toLocaleDateString("en-US", { weekday: "long" })}</p>
+                  <p className="text-xs text-slate-500">{calendarBuckets.scheduled[activeDayKey]?.length || 0} scheduled job{(calendarBuckets.scheduled[activeDayKey]?.length || 0) === 1 ? "" : "s"}</p>
+                </div>
+                {activeDayKey === todayKey && <Badge className="border-blue-400/30 bg-blue-500/15 text-blue-200">Today</Badge>}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {(calendarBuckets.scheduled[activeDayKey] || []).map((lead) => <CalendarJobChip key={lead.id} lead={lead} onOpen={openDetail} />)}
+              </div>
+              {(calendarBuckets.scheduled[activeDayKey] || []).length === 0 && <p className="py-10 text-center text-sm text-slate-500">No jobs scheduled for this day.</p>}
+            </div>
+          )}
+
+          {calendarBuckets.unscheduled.length > 0 && (
+            <div className="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-amber-100">Needs a date or review</p>
+                  <p className="text-xs text-amber-200/65">These active jobs are kept visible until a valid date is set.</p>
+                </div>
+                <Badge className="border-amber-400/30 bg-amber-500/15 text-amber-200">{calendarBuckets.unscheduled.length}</Badge>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {calendarBuckets.unscheduled.map((lead) => <CalendarJobChip key={lead.id} lead={lead} onOpen={openDetail} compact />)}
+              </div>
+            </div>
+          )}
+        </section>
       )}
 
       <AdminJobDetailPanel

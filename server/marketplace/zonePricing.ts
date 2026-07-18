@@ -20,6 +20,8 @@ export interface MarketplaceZoneRate {
   serviceCode: string;
   serviceLabel: string;
   crewSize: number;
+  /** Sunday = 0 through Saturday = 6, matching Date#getDay(). */
+  dayOfWeek: number;
   hourlyRate: number;
   minimumHours: number;
   discountAfterHours: number | null;
@@ -28,6 +30,10 @@ export interface MarketplaceZoneRate {
 }
 
 let initialized = false;
+
+export const MARKETPLACE_RATE_DAYS = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+] as const;
 
 const IRONWOOD_POLYGON: LngLat[] = [
   [-90.38, 46.32],
@@ -71,6 +77,7 @@ function rowToRate(row: any): MarketplaceZoneRate {
     serviceCode: row.service_code,
     serviceLabel: row.service_label,
     crewSize: Number(row.crew_size),
+    dayOfWeek: Number(row.day_of_week ?? 0),
     hourlyRate: Number(row.hourly_rate),
     minimumHours: Number(row.minimum_hours),
     discountAfterHours: row.discount_after_hours == null ? null : Number(row.discount_after_hours),
@@ -103,14 +110,36 @@ export async function ensureMarketplaceZonePricing() {
       service_code TEXT NOT NULL,
       service_label TEXT NOT NULL,
       crew_size INTEGER NOT NULL,
+      day_of_week SMALLINT NOT NULL DEFAULT 0 CHECK (day_of_week BETWEEN 0 AND 6),
       hourly_rate NUMERIC(10,2) NOT NULL,
       minimum_hours NUMERIC(5,2) NOT NULL DEFAULT 2,
       discount_after_hours NUMERIC(5,2),
       discounted_hourly_rate NUMERIC(10,2),
       active BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      UNIQUE(zone_id, service_code, crew_size)
+      UNIQUE(zone_id, service_code, crew_size, day_of_week)
     )
+  `);
+
+  // Existing installations used one row for all days. Preserve every rate,
+  // then expand it to a seven-day schedule before new daily pricing is used.
+  await pool.query(`ALTER TABLE marketplace_zone_rates ADD COLUMN IF NOT EXISTS day_of_week SMALLINT`);
+  await pool.query(`UPDATE marketplace_zone_rates SET day_of_week = 0 WHERE day_of_week IS NULL`);
+  await pool.query(`ALTER TABLE marketplace_zone_rates ALTER COLUMN day_of_week SET DEFAULT 0`);
+  await pool.query(`ALTER TABLE marketplace_zone_rates ALTER COLUMN day_of_week SET NOT NULL`);
+  await pool.query(`ALTER TABLE marketplace_zone_rates DROP CONSTRAINT IF EXISTS marketplace_zone_rates_zone_id_service_code_crew_size_key`);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS marketplace_zone_rates_day_unique
+    ON marketplace_zone_rates (zone_id, service_code, crew_size, day_of_week)
+  `);
+  await pool.query(`
+    INSERT INTO marketplace_zone_rates
+      (zone_id, service_code, service_label, crew_size, day_of_week, hourly_rate, minimum_hours, discount_after_hours, discounted_hourly_rate, active)
+    SELECT zone_id, service_code, service_label, crew_size, days.day_of_week, hourly_rate, minimum_hours, discount_after_hours, discounted_hourly_rate, active
+    FROM marketplace_zone_rates
+    CROSS JOIN generate_series(1, 6) AS days(day_of_week)
+    WHERE marketplace_zone_rates.day_of_week = 0
+    ON CONFLICT (zone_id, service_code, crew_size, day_of_week) DO NOTHING
   `);
 
   const { rows } = await pool.query<{ id: number }>(`
@@ -134,13 +163,15 @@ export async function ensureMarketplaceZonePricing() {
       ["delivery", "Delivery", 2, 200, 2, 3, 175],
       ["ubox", "U-Box Load/Unload", 2, 225, 2, 3, 200],
     ] as const;
-    for (const r of defaults) {
-      await pool.query(`
-        INSERT INTO marketplace_zone_rates
-          (zone_id, service_code, service_label, crew_size, hourly_rate, minimum_hours, discount_after_hours, discounted_hourly_rate)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        ON CONFLICT (zone_id, service_code, crew_size) DO NOTHING
-      `, [zoneId, ...r]);
+    for (const dayOfWeek of MARKETPLACE_RATE_DAYS.keys()) {
+      for (const r of defaults) {
+        await pool.query(`
+          INSERT INTO marketplace_zone_rates
+            (zone_id, service_code, service_label, crew_size, day_of_week, hourly_rate, minimum_hours, discount_after_hours, discounted_hourly_rate)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          ON CONFLICT (zone_id, service_code, crew_size, day_of_week) DO NOTHING
+        `, [zoneId, ...r.slice(0, 3), dayOfWeek, ...r.slice(3)]);
+      }
     }
     await pool.query(`
       UPDATE marketplace_zone_rates
@@ -174,7 +205,7 @@ export function pointInPolygon(lng: number, lat: number, polygon: LngLat[]): boo
 export async function listPricingZones() {
   await ensureMarketplaceZonePricing();
   const zoneRows = await pool.query(`SELECT * FROM marketplace_pricing_zones ORDER BY active DESC, priority ASC, id ASC`);
-  const rateRows = await pool.query(`SELECT * FROM marketplace_zone_rates ORDER BY zone_id, service_code, crew_size`);
+  const rateRows = await pool.query(`SELECT * FROM marketplace_zone_rates ORDER BY zone_id, day_of_week, service_code, crew_size`);
   const ratesByZone = new Map<number, MarketplaceZoneRate[]>();
   for (const row of rateRows.rows) {
     const rate = rowToRate(row);
@@ -243,9 +274,9 @@ export async function upsertZoneRate(input: Partial<MarketplaceZoneRate>) {
   }
   const { rows } = await pool.query(`
     INSERT INTO marketplace_zone_rates
-      (zone_id, service_code, service_label, crew_size, hourly_rate, minimum_hours, discount_after_hours, discounted_hourly_rate, active)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-    ON CONFLICT (zone_id, service_code, crew_size) DO UPDATE SET
+      (zone_id, service_code, service_label, crew_size, day_of_week, hourly_rate, minimum_hours, discount_after_hours, discounted_hourly_rate, active)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    ON CONFLICT (zone_id, service_code, crew_size, day_of_week) DO UPDATE SET
       service_label=EXCLUDED.service_label,
       hourly_rate=EXCLUDED.hourly_rate,
       minimum_hours=EXCLUDED.minimum_hours,
@@ -258,13 +289,36 @@ export async function upsertZoneRate(input: Partial<MarketplaceZoneRate>) {
     input.serviceCode,
     input.serviceLabel,
     input.crewSize,
+    Math.max(0, Math.min(6, Math.round(toNumber(input.dayOfWeek, 0)))),
     toNumber(input.hourlyRate, 0),
-    toNumber(input.minimumHours, 2),
+    Math.max(2, toNumber(input.minimumHours, 2)),
     input.discountAfterHours == null ? null : toNumber(input.discountAfterHours),
     input.discountedHourlyRate == null ? null : toNumber(input.discountedHourlyRate),
     input.active !== false,
   ]);
   return rowToRate(rows[0]);
+}
+
+export async function copyZoneRatesToAllDays(zoneId: number, sourceDayOfWeek: number) {
+  await ensureMarketplaceZonePricing();
+  const sourceDay = Math.max(0, Math.min(6, Math.round(sourceDayOfWeek)));
+  const { rows } = await pool.query(`
+    INSERT INTO marketplace_zone_rates
+      (zone_id, service_code, service_label, crew_size, day_of_week, hourly_rate, minimum_hours, discount_after_hours, discounted_hourly_rate, active)
+    SELECT zone_id, service_code, service_label, crew_size, days.day_of_week, hourly_rate, minimum_hours, discount_after_hours, discounted_hourly_rate, active
+    FROM marketplace_zone_rates
+    CROSS JOIN generate_series(0, 6) AS days(day_of_week)
+    WHERE zone_id = $1 AND day_of_week = $2
+    ON CONFLICT (zone_id, service_code, crew_size, day_of_week) DO UPDATE SET
+      service_label = EXCLUDED.service_label,
+      hourly_rate = EXCLUDED.hourly_rate,
+      minimum_hours = EXCLUDED.minimum_hours,
+      discount_after_hours = EXCLUDED.discount_after_hours,
+      discounted_hourly_rate = EXCLUDED.discounted_hourly_rate,
+      active = EXCLUDED.active
+    RETURNING *
+  `, [zoneId, sourceDay]);
+  return rows.map(rowToRate);
 }
 
 async function coordsFromZip(zip: string): Promise<{ lat: number; lng: number } | null> {
@@ -283,7 +337,7 @@ async function coordsFromZip(zip: string): Promise<{ lat: number; lng: number } 
 }
 
 function calculateHourly(rate: MarketplaceZoneRate, requestedHours: number) {
-  const billableHours = Math.max(requestedHours, rate.minimumHours);
+  const billableHours = Math.max(requestedHours, 2, rate.minimumHours);
   const threshold = rate.discountAfterHours;
   const discounted = rate.discountedHourlyRate;
   if (threshold != null && discounted != null && billableHours > threshold) {
@@ -300,6 +354,7 @@ export async function previewZoneQuote(input: {
   crewSize?: number;
   hours?: number;
   distanceMiles?: number;
+  moveDate?: string;
 }) {
   await ensureMarketplaceZonePricing();
   let lat = input.lat;
@@ -311,14 +366,20 @@ export async function previewZoneQuote(input: {
   }
   const serviceCode = input.serviceCode || "load_unload";
   const crewSize = Math.max(1, Math.round(toNumber(input.crewSize, 2)));
-  const hours = Math.max(1, toNumber(input.hours, crewSize >= 3 ? 2 : 3));
+  const hours = Math.max(2, toNumber(input.hours, 2));
   const distanceMiles = Math.max(0, toNumber(input.distanceMiles, 0));
+  const moveDate = typeof input.moveDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.moveDate)
+    ? input.moveDate
+    : null;
+  const dayOfWeek = moveDate ? new Date(`${moveDate}T12:00:00Z`).getUTCDay() : null;
   const zones = await listPricingZones();
   const matched = lat != null && lng != null
     ? zones.filter((zone) => zone.active && pointInPolygon(lng!, lat!, zone.polygon))
     : [];
   const candidates = matched.flatMap((zone) => {
-    const rate = zone.rates.find((r) => r.active && r.serviceCode === serviceCode && r.crewSize === crewSize);
+    const rate = zone.rates.find((r) =>
+      r.active && r.serviceCode === serviceCode && r.crewSize === crewSize && r.dayOfWeek === dayOfWeek,
+    );
     if (!rate) return [];
     const labor = calculateHourly(rate, hours);
     const travel = zone.travelBaseFee + zone.travelPerMile * distanceMiles;
@@ -336,12 +397,23 @@ export async function previewZoneQuote(input: {
   }).sort((a, b) => a.minEstimate - b.minEstimate);
 
   if (candidates[0]) {
-    return { matched: true, quote: candidates[0], candidates, coordinates: lat != null && lng != null ? { lat, lng } : null };
+    return {
+      matched: true,
+      quote: candidates[0],
+      candidates,
+      moveDate,
+      dayOfWeek,
+      dayName: dayOfWeek == null ? null : MARKETPLACE_RATE_DAYS[dayOfWeek],
+      coordinates: lat != null && lng != null ? { lat, lng } : null,
+    };
   }
   const fallbackSubtotal = (crewSize === 2 && hours === 3) ? 625 : crewSize * hours * 100;
   return {
     matched: false,
     coordinates: lat != null && lng != null ? { lat, lng } : null,
+    moveDate,
+    dayOfWeek,
+    dayName: dayOfWeek == null ? null : MARKETPLACE_RATE_DAYS[dayOfWeek],
     quote: {
       zone: null,
       rate: null,

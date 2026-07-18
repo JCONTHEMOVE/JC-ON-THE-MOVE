@@ -82,6 +82,9 @@ export const leads = pgTable("leads", {
   
   // SMS consent for customer communication
   smsConsent: boolean("sms_consent").default(false), // Customer opted in to receive SMS notifications
+  smsConsentRecordedAt: timestamp("sms_consent_recorded_at"),
+  smsConsentSource: text("sms_consent_source"), // e.g. 'web_form' | 'verbal_staff'
+  smsConsentRecordedBy: varchar("sms_consent_recorded_by").references(() => users.id),
   
   // Token distribution tracking
   completionRewardedAt: timestamp("completion_rewarded_at"), // Timestamp when job completion tokens were distributed (idempotency flag)

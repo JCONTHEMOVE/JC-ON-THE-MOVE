@@ -108,9 +108,9 @@ interface Lead {
   details?: string;
   source?: string | null;
   quoteSnapshot?: LeadQuoteSnapshot | null;
-  zoneSnapshot?: {
+  zoneSnapshot?: (Record<string, unknown> & {
     preview?: { matched?: boolean; quote?: { minEstimate?: number; maxEstimate?: number; rate?: { hourlyRate?: number; minimumHours?: number } | null } };
-  } | null;
+  }) | null;
   status: string;
   assignedToUserId?: string;
   createdByUserId?: string;
@@ -139,6 +139,9 @@ interface Lead {
   pianoFee?: string;
   totalSpecialItemsFee?: string;
   quoteNotes?: string;
+  smsConsent?: boolean;
+  smsConsentRecordedAt?: string | null;
+  smsConsentSource?: string | null;
   lastQuoteUpdatedAt?: string;
   tokenAllocation?: number;
   confirmedHours?: number;
@@ -313,6 +316,12 @@ function displayStatus(status: string | null | undefined): string {
   return String(status || "new").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function isSyntheticOrInvalidEmail(email: string | null | undefined): boolean {
+  const value = String(email || "").trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return true;
+  return /@(?:jconthemove\.local|example\.(?:com|org|net)|test)$/i.test(value);
+}
+
 function DisbursementSummaryCard({ lead }: { lead: Lead }) {
   const { data, isLoading } = useQuery<{ records: DisbursementRecord[] }>({
     queryKey: [`/api/leads/${lead.id}/disbursement-summary`],
@@ -422,13 +431,15 @@ export default function LeadDetailPage() {
   // Quote & Send tab state
   const [activeTab, setActiveTab] = useState("details");
   const [quoteNote, setQuoteNote] = useState("");
+  const [quoteDeliveryMethod, setQuoteDeliveryMethod] = useState<"email" | "sms" | "both">("email");
+  const [recordSmsConsent, setRecordSmsConsent] = useState(false);
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
   const [squarePaymentUrl, setSquarePaymentUrl] = useState<string | null>(null);
   const [copiedPaymentLink, setCopiedPaymentLink] = useState(false);
   const [showJobOrderBuilderSheet, setShowJobOrderBuilderSheet] = useState(false);
   // Crew & Service Plan inline state
   const [planCrewSize, setPlanCrewSize] = useState(2);
-  const [planHours, setPlanHours] = useState(3);
+  const [planHours, setPlanHours] = useState(2);
   const [planArrivalWindow, setPlanArrivalWindow] = useState("");
   const [planConfirmedDate, setPlanConfirmedDate] = useState("");
   const [planApplied, setPlanApplied] = useState(false);
@@ -528,11 +539,14 @@ export default function LeadDetailPage() {
       setBonusMover(inferredBonus);
       // Sync plan state from lead
       setPlanCrewSize(lead.crewSize || packageDraft?.crew || 2);
-      setPlanHours(lead.confirmedHours || packageDraft?.hours || 3);
+      setPlanHours(Math.max(2, lead.confirmedHours || packageDraft?.hours || 2));
       setPlanArrivalWindow(lead.arrivalWindow || "");
       setPlanConfirmedDate(lead.confirmedDate || lead.moveDate || "");
       setQuoteSentAt(lead.quoteSentAt || null);
       setSquarePaymentUrl(lead.squarePaymentUrl || null);
+      setQuoteDeliveryMethod(isSyntheticOrInvalidEmail(lead.email) && !!lead.phone ? "sms" : "email");
+      setInvoiceDeliveryMethod(isSyntheticOrInvalidEmail(lead.email) && !!lead.phone ? "sms" : "email");
+      setRecordSmsConsent(false);
       // Truck/trailer from truckConfig
       if (lead.truckConfig) {
         setPlanHasTruck(lead.truckConfig === "company_truck" || lead.truckConfig === "customer_truck");
@@ -599,7 +613,7 @@ export default function LeadDetailPage() {
       return await apiRequest("PATCH", `/api/leads/${params?.id}/quote`, {
         basePrice: price.toFixed(2),
         crewSize: packageDraft.crew || lead?.crewSize || planCrewSize || 2,
-        confirmedHours: packageDraft.hours || lead?.confirmedHours || planHours || 3,
+        confirmedHours: Math.max(2, packageDraft.hours || lead?.confirmedHours || planHours || 2),
         ...(planConfirmedDate ? { confirmedDate: planConfirmedDate } : {}),
         ...(planArrivalWindow ? { arrivalWindow: planArrivalWindow } : {}),
         selectedPackageId: packageDraft.id,
@@ -650,11 +664,14 @@ export default function LeadDetailPage() {
   });
 
   const sendQuoteMutation = useMutation({
-    mutationFn: async (channel: "email" | "sms" | "both") => {
-      const res = await apiRequest("POST", `/api/leads/${params?.id}/send-quote`, { message: quoteNote || undefined });
-      return { res, channel };
+    mutationFn: async (deliveryMethod: "email" | "sms" | "both") => {
+      return await apiRequest("POST", `/api/leads/${params?.id}/send-quote`, {
+        message: quoteNote || undefined,
+        deliveryMethod,
+        recordSmsConsent: (deliveryMethod === "sms" || deliveryMethod === "both") ? recordSmsConsent : undefined,
+      });
     },
-    onSuccess: async ({ res }) => {
+    onSuccess: async (res) => {
       const data = await res.json();
       setQuoteSentAt(data.quoteSentAt);
       if (data.paymentUrl) setSquarePaymentUrl(data.paymentUrl);
@@ -664,7 +681,7 @@ export default function LeadDetailPage() {
       const invoiceNote = data.squareInvoiceCreated ? " + invoice" : "";
       toast({
         title: `Quote${invoiceNote} sent!`,
-        description: `Email: ${data.emailSent ? "✓" : "✗"}${data.paymentUrl ? "  💳 Pay link included" : ""}`,
+        description: `Email: ${data.emailSent ? "sent" : "not sent"} - Text: ${data.smsSent ? "sent" : "not sent"}${data.paymentUrl ? " - pay link included" : ""}`,
       });
     },
     onError: (error: Error) => {
@@ -701,21 +718,23 @@ export default function LeadDetailPage() {
         return await apiRequest("POST", `/api/square/invoice-lead/${params?.id}`, {
           lineItems: lead.orderLineItems,
           deliveryMethod: invoiceDeliveryMethod,
+          recordSmsConsent: (invoiceDeliveryMethod === "sms" || invoiceDeliveryMethod === "both") ? recordSmsConsent : undefined,
         });
       }
       return await apiRequest("POST", `/api/invoices/lead/${params?.id}`, {
         amount,
         description: invoiceDescription || `${lead?.serviceType} - ${lead?.firstName} ${lead?.lastName}`,
         deliveryMethod: invoiceDeliveryMethod,
+        recordSmsConsent: (invoiceDeliveryMethod === "sms" || invoiceDeliveryMethod === "both") ? recordSmsConsent : undefined,
       });
     },
     onSuccess: async (response) => {
       const data = await response.json();
       const deliveryDesc = invoiceDeliveryMethod === "both"
-        ? "Square will send the invoice by email and text message."
+        ? "Invoice sent by email and text message."
         : invoiceDeliveryMethod === "sms"
-          ? "Square will send the invoice via text message."
-          : "Square will send the invoice by email.";
+          ? "Invoice sent by text message."
+          : "Invoice sent by email.";
       toast({
         title: "Invoice Sent!",
         description: data.invoiceUrl
@@ -726,6 +745,7 @@ export default function LeadDetailPage() {
       setInvoiceAmount("");
       setInvoiceDescription("");
       setInvoiceDeliveryMethod("email");
+      setRecordSmsConsent(false);
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices/lead", params?.id] });
@@ -903,6 +923,7 @@ export default function LeadDetailPage() {
     pianoFee: string;
     totalSpecialItemsFee: string;
     lineItems: OrderLineItem[];
+    zoneSnapshot?: Record<string, unknown>;
   }) => {
     updateLead.mutate({
       ...orderData,
@@ -1111,11 +1132,50 @@ export default function LeadDetailPage() {
     .map(id => employees.find(e => e.id === id))
     .filter(Boolean)
     .map(emp => `${emp!.firstName || ""} ${emp!.lastName || ""}`.trim() || emp!.email);
+  // Keep the default view intentionally small. The detailed workflow below remains
+  // the source of truth for editing, quoting, payment, media, and payout controls.
+  const jobBrief = useMemo(() => {
+    const address = String(lead.confirmedFromAddress || lead.fromAddress || "").trim();
+    const date = String(lead.confirmedDate || lead.moveDate || "").trim();
+    const arrivalWindow = String(lead.arrivalWindow || "").trim();
+    const configuredCrewSize = Number(lead.crewSize);
+    const assignedCrewSize = lead.crewMembers?.length || 0;
+    const crewSize = Number.isFinite(configuredCrewSize) && configuredCrewSize > 0
+      ? configuredCrewSize
+      : assignedCrewSize || null;
+    const confirmedHours = Number(lead.confirmedHours);
+    const packageHours = Number(packageDraft?.hours);
+    const expectedHours = Number.isFinite(confirmedHours) && confirmedHours > 0
+      ? confirmedHours
+      : Number.isFinite(packageHours) && packageHours > 0
+        ? packageHours
+        : null;
+
+    return {
+      address,
+      email: String(lead.email || "").trim() || null,
+      phone: String(lead.phone || "").trim() || null,
+      schedule: [date, arrivalWindow].filter(Boolean).join(" · ") || "TBD",
+      crewSize,
+      expectedHours,
+      notesPreview: String(lead.details || "").trim() || null,
+      photos: lead.photos || [],
+    };
+  }, [lead, packageDraft]);
   const actionPending = updateStatus.isPending
     || markAsPaidMutation.isPending
     || sendQuoteMutation.isPending
     || applyPackageDraftMutation.isPending;
   const nextStep = (() => {
+    if (statusKey === "completed" && hasAdminAccess) {
+      return {
+        key: "review_payout",
+        title: "Payout review ready",
+        detail: "Review and approve the completed job payout before worker payment and JCMOVES issuance.",
+        button: "Review Payout",
+        icon: Award,
+      };
+    }
     if (statusKey === "completed" || statusKey === "customer_approved" || statusKey === "payout_calculated" || statusKey === "payout_sent" || statusKey === "closed") {
       return {
         key: "done",
@@ -1190,7 +1250,7 @@ export default function LeadDetailPage() {
         setActiveTab("quote");
         break;
       case "send_quote":
-        sendQuoteMutation.mutate("email");
+        sendQuoteMutation.mutate(quoteDeliveryMethod);
         break;
       case "dispatch":
         markAsPaidMutation.mutate();
@@ -1200,6 +1260,9 @@ export default function LeadDetailPage() {
         break;
       case "complete":
         updateStatus.mutate("completed");
+        break;
+      case "review_payout":
+        setLocation("/admin/job-payouts");
         break;
       default:
         break;
@@ -1217,6 +1280,30 @@ export default function LeadDetailPage() {
     : lead.truckProvider === "rental_uhaul" ? "Rental / U-Haul"
       : lead.truckProvider === "customer" ? "Customer truck"
         : lead.truckProvider === "none" ? "No truck needed" : null;
+  const latestInvoice = [...leadInvoices]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+  const paymentConfirmed = ["paid", "dispatched", "in_progress", "completed", "customer_approved", "payout_calculated", "payout_sent", "closed"].includes(statusKey)
+    && Boolean(lead.depositPaid);
+  const paymentState = paymentConfirmed || Boolean(latestInvoice?.paidAt)
+    ? "Paid"
+    : lead.depositPaid
+      ? "Deposit paid"
+      : latestInvoice
+        ? `Invoice ${latestInvoice.status.replace(/_/g, " ")}`
+        : squarePaymentUrl || lead.squarePaymentUrl
+          ? "Payment link ready"
+          : quoteSent
+            ? "Quote sent"
+            : leadHasQuote
+              ? "Quote ready"
+              : "No quote yet";
+  const jcmovesState = lead.completionRewardedAt || creditedRewards.length > 0
+    ? "JCMOVES issued"
+    : pendingRewards.length > 0
+      ? "JCMOVES pending"
+      : statusKey === "completed"
+        ? "Payout review pending"
+        : "Not issued";
 
   return (
     <div className="min-h-screen bg-background">
@@ -1370,7 +1457,152 @@ export default function LeadDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="mb-4">
+        <Card className="mb-4" data-testid="job-brief">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-base">Job Brief</CardTitle>
+                <CardDescription>What the crew needs to act now.</CardDescription>
+              </div>
+              <Badge variant="secondary" className="shrink-0 capitalize">
+                {lead.status.replace(/_/g, " ")}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex min-w-0 items-start gap-3">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Address</p>
+                  {jobBrief.address ? (
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(jobBrief.address)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-start gap-1 text-sm font-medium hover:underline"
+                      data-testid="link-job-brief-map"
+                    >
+                      <span className="break-words">{jobBrief.address}</span>
+                      <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    </a>
+                  ) : (
+                    <p className="text-sm font-medium text-muted-foreground">Address TBD</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex min-w-0 items-start gap-3">
+                <Phone className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Phone</p>
+                  {jobBrief.phone ? (
+                    <>
+                      <p className="text-sm font-medium">{jobBrief.phone}</p>
+                      <div className="mt-1.5 flex gap-2">
+                        <a href={`tel:${jobBrief.phone}`} className="text-xs font-medium text-blue-400 hover:underline" data-testid="link-job-brief-call">Call</a>
+                        <a href={`sms:${jobBrief.phone}`} className="text-xs font-medium text-green-400 hover:underline" data-testid="link-job-brief-text">Text</a>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm font-medium text-muted-foreground">Not provided</p>
+                  )}
+                </div>
+              </div>
+              {jobBrief.email && (
+                <div className="flex min-w-0 items-start gap-3">
+                  <Mail className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Email</p>
+                    <a href={`mailto:${jobBrief.email}`} className="block truncate text-sm font-medium hover:underline" data-testid="link-job-brief-email">{jobBrief.email}</a>
+                  </div>
+                </div>
+              )}
+              <div className="flex min-w-0 items-start gap-3">
+                <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Date & time</p>
+                  <p className="break-words text-sm font-medium">{jobBrief.schedule}</p>
+                </div>
+              </div>
+              <div className="flex min-w-0 items-start gap-3">
+                <Users className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Crew size</p>
+                  <p className="text-sm font-medium">{jobBrief.crewSize ? `${jobBrief.crewSize} mover${jobBrief.crewSize === 1 ? "" : "s"}` : "Crew TBD"}</p>
+                </div>
+              </div>
+              <div className="flex min-w-0 items-start gap-3">
+                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Expected hours</p>
+                  <p className="text-sm font-medium">{jobBrief.expectedHours ? `${jobBrief.expectedHours} hour${jobBrief.expectedHours === 1 ? "" : "s"}` : "Hours TBD"}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 border-t pt-4 sm:grid-cols-2">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notes</p>
+                <p className="mt-1 max-h-10 overflow-hidden text-sm leading-5 text-foreground/90">
+                  {jobBrief.notesPreview || "No notes added."}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Photos</p>
+                  <button
+                    type="button"
+                    onClick={() => { setShowAdvanced(true); setActiveTab("notes"); }}
+                    className="text-xs font-medium text-blue-400 hover:underline"
+                    data-testid="button-open-job-media"
+                  >
+                    Open media
+                  </button>
+                </div>
+                <div className="mt-1 flex items-center gap-2">
+                  {jobBrief.photos.slice(0, 3).map((photo, index) => (
+                    <img
+                      key={`${photo.url}-${index}`}
+                      src={photo.url}
+                      alt={photo.name || `Job photo ${index + 1}`}
+                      className="h-9 w-9 rounded-md border object-cover"
+                    />
+                  ))}
+                  <span className="text-sm text-muted-foreground">{jobBrief.photos.length} photo{jobBrief.photos.length === 1 ? "" : "s"}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 sm:grid-cols-2">
+              <div className="flex items-start gap-3">
+                <DollarSign className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Finance</p>
+                  <p className="capitalize text-sm font-medium">{paymentState}</p>
+                  {hasAdminAccess && (
+                    <button type="button" onClick={() => { setShowAdvanced(true); setActiveTab("quote"); }} className="mt-1 text-xs font-medium text-blue-400 hover:underline">
+                      Open finance details
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <Zap className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">JCMOVES</p>
+                  <p className="text-sm font-medium">{jcmovesState}</p>
+                  {hasAdminAccess && (
+                    <button type="button" onClick={() => { setShowAdvanced(true); setActiveTab("history"); }} className="mt-1 text-xs font-medium text-blue-400 hover:underline">
+                      Open reward and payout details
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-4 hidden" aria-hidden="true">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Job Basics</CardTitle>
           </CardHeader>
@@ -1433,7 +1665,7 @@ export default function LeadDetailPage() {
           >
             <span className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Advanced details, quote tools, notes, and timeline
+              Advanced job details
             </span>
             {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </Button>
@@ -2015,11 +2247,11 @@ export default function LeadDetailPage() {
                   <div>
                     <Label className="text-sm font-semibold mb-2 block">Hours Estimate</Label>
                     <div className="flex items-center gap-3">
-                      <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setPlanHours(h => Math.max(1, Math.round((h - 0.5) * 2) / 2))}>
+                      <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setPlanHours(h => Math.max(2, h - 1))} disabled={planHours <= 2}>
                         <Minus className="h-4 w-4" />
                       </Button>
                       <span className="w-14 text-center font-bold text-lg">{planHours}</span>
-                      <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setPlanHours(h => Math.min(10, Math.round((h + 0.5) * 2) / 2))}>
+                      <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setPlanHours(h => Math.min(10, h + 1))}>
                         <Plus className="h-4 w-4" />
                       </Button>
                       <span className="text-sm text-slate-400">hr{planHours !== 1 ? "s" : ""}</span>
@@ -2235,8 +2467,16 @@ export default function LeadDetailPage() {
                       <span className="font-medium">{lead.email}</span>
                     </div>
                     <div className="flex justify-between">
+                      <span className="text-slate-400">Phone</span>
+                      <span className="font-medium">{lead.phone || "Not set"}</span>
+                    </div>
+                    <div className="flex justify-between">
                       <span className="text-slate-400">Service</span>
                       <span className="font-medium capitalize">{lead.serviceType?.replace(/_/g, " ")}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="shrink-0 text-slate-400">Location</span>
+                      <span className="truncate text-right font-medium">{lead.confirmedFromAddress || lead.fromAddress || "Not set"}</span>
                     </div>
                     {(planCrewSize || lead.crewSize) && (
                       <div className="flex justify-between">
@@ -2262,6 +2502,32 @@ export default function LeadDetailPage() {
                         {(lead.totalPrice || lead.basePrice) ? `$${parseFloat(lead.totalPrice || lead.basePrice || "0").toFixed(2)}` : "Not set"}
                       </span>
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Send by</Label>
+                    <Select value={quoteDeliveryMethod} onValueChange={(value) => setQuoteDeliveryMethod(value as "email" | "sms" | "both")}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="email" disabled={isSyntheticOrInvalidEmail(lead.email) && !!lead.phone}>Email only</SelectItem>
+                        <SelectItem value="sms" disabled={!lead.phone}>Text message only</SelectItem>
+                        <SelectItem value="both" disabled={!lead.phone || isSyntheticOrInvalidEmail(lead.email)}>Email and text message</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {isSyntheticOrInvalidEmail(lead.email) && lead.phone && (
+                      <p className="text-xs text-amber-300">This customer has a test or invalid email, so text message delivery is selected.</p>
+                    )}
+                    {(quoteDeliveryMethod === "sms" || quoteDeliveryMethod === "both") && !lead.smsConsent && (
+                      <label className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+                        <Checkbox checked={recordSmsConsent} onCheckedChange={(value) => setRecordSmsConsent(value === true)} />
+                        <span>I verified the customer gave verbal consent to receive this quote by text message.</span>
+                      </label>
+                    )}
+                    {(quoteDeliveryMethod === "sms" || quoteDeliveryMethod === "both") && lead.smsConsent && (
+                      <p className="text-xs text-emerald-300">SMS consent is already recorded for this customer.</p>
+                    )}
                   </div>
 
                   {/* Note textarea */}
@@ -2352,8 +2618,8 @@ export default function LeadDetailPage() {
                   {/* Primary action: Send Quote Email + Square Invoice + SMS together */}
                   <Button
                     className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold"
-                    onClick={() => sendQuoteMutation.mutate("email")}
-                    disabled={sendQuoteMutation.isPending || !(lead.totalPrice || lead.basePrice)}
+                    onClick={() => sendQuoteMutation.mutate(quoteDeliveryMethod)}
+                    disabled={sendQuoteMutation.isPending || !(lead.totalPrice || lead.basePrice) || ((quoteDeliveryMethod === "sms" || quoteDeliveryMethod === "both") && !lead.smsConsent && !recordSmsConsent)}
                   >
                     {sendQuoteMutation.isPending ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -2362,7 +2628,16 @@ export default function LeadDetailPage() {
                     )}
                     {(quoteSentAt || lead.quoteSentAt) ? "Re-send Quote & Invoice" : "Send Quote & Invoice"}
                   </Button>
-                  <p className="text-[10px] text-slate-500 text-center">Sends email + SMS (if phone on file) + Square invoice in one action</p>
+                  <p className="text-[10px] text-slate-500 text-center">Square creates the secure payment link; text delivery uses the recorded customer consent.</p>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-red-500/40 text-red-300 hover:bg-red-950/40 hover:text-red-200"
+                    onClick={() => { setRemoveIntent("delete"); setShowArchiveDialog(true); }}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />Delete Job
+                  </Button>
 
                   {!(lead.totalPrice || lead.basePrice) && (
                     <p className="text-xs text-amber-400 flex items-center gap-1.5">
@@ -2747,7 +3022,7 @@ export default function LeadDetailPage() {
                   : removeIntent === "delete"
                     ? <Trash2 className="h-4 w-4 mr-2" />
                     : <Archive className="h-4 w-4 mr-2" />}
-                Archive job
+                {removeIntent === "delete" ? "Delete job" : "Archive job"}
               </Button>
             </DialogFooter>
           )}
@@ -2774,18 +3049,24 @@ export default function LeadDetailPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="email">
+                  <SelectItem value="email" disabled={isSyntheticOrInvalidEmail(lead.email) && !!lead.phone}>
                     <span className="flex items-center gap-2"><Mail className="h-3.5 w-3.5" /> Email only — {lead.email}</span>
                   </SelectItem>
                   <SelectItem value="sms" disabled={!lead.phone}>
                     <span className="flex items-center gap-2"><Phone className="h-3.5 w-3.5" /> Text (SMS) only{lead.phone ? ` — ${lead.phone}` : " — no phone on file"}</span>
                   </SelectItem>
-                  <SelectItem value="both" disabled={!lead.phone}>
+                  <SelectItem value="both" disabled={!lead.phone || isSyntheticOrInvalidEmail(lead.email)}>
                     <span className="flex items-center gap-2"><Send className="h-3.5 w-3.5" /> Email + Text{!lead.phone ? " — no phone on file" : ""}</span>
                   </SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-[10px] text-muted-foreground mt-1">Square sends the invoice natively — no third-party service needed.</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Square creates the payment link. Text delivery is sent by JC ON THE MOVE after consent is recorded.</p>
+              {(invoiceDeliveryMethod === "sms" || invoiceDeliveryMethod === "both") && !lead.smsConsent && (
+                <label className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+                  <Checkbox checked={recordSmsConsent} onCheckedChange={(value) => setRecordSmsConsent(value === true)} />
+                  <span>I verified the customer gave verbal consent to receive this invoice by text message.</span>
+                </label>
+              )}
             </div>
             <div>
               <Label>Amount ($)</Label>
@@ -2842,7 +3123,7 @@ export default function LeadDetailPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowInvoiceDialog(false)}>Cancel</Button>
-            <Button onClick={() => createInvoiceMutation.mutate()} disabled={createInvoiceMutation.isPending || !invoiceAmount || parseFloat(invoiceAmount) <= 0} className="bg-emerald-600 hover:bg-emerald-700">
+            <Button onClick={() => createInvoiceMutation.mutate()} disabled={createInvoiceMutation.isPending || !invoiceAmount || parseFloat(invoiceAmount) <= 0 || ((invoiceDeliveryMethod === "sms" || invoiceDeliveryMethod === "both") && !lead.smsConsent && !recordSmsConsent)} className="bg-emerald-600 hover:bg-emerald-700">
               {createInvoiceMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
               {createInvoiceMutation.isPending ? "Sending..." : "Send Invoice"}
             </Button>

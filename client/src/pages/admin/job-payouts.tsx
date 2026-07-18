@@ -120,6 +120,7 @@ export default function AdminJobPayoutsPage() {
 
   const selectedJob = jobs.find((job) => job.id === selectedJobId) || null;
   const selectedJobCanFinalize = canFinalizeProfitSharePayout(selectedJob?.status);
+  const selectedJobCanApprove = selectedJob?.status === "completed";
 
   const previewBody = {
     grossRevenue: grossRevenue || numberValue(selectedJob?.totalPrice || selectedJob?.basePrice),
@@ -264,6 +265,20 @@ export default function AdminJobPayoutsPage() {
       toast({ title: "Payout finalized", description: "Worker payout records are now pending manual payment." });
     },
     onError: (error: Error) => toast({ title: "Finalize blocked", description: error.message, variant: "destructive" }),
+  });
+
+  const approveForPayoutMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedJobId) throw new Error("Select a completed job first");
+      const res = await apiRequest("PATCH", `/api/leads/${selectedJobId}/status`, { status: "customer_approved" });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/job-payouts/jobs"] });
+      queryClient.invalidateQueries({ queryKey: previewQueryKey });
+      toast({ title: "Customer approval recorded", description: "Worker payout records can now be finalized." });
+    },
+    onError: (error: Error) => toast({ title: "Approval failed", description: error.message, variant: "destructive" }),
   });
 
   const rewardsMutation = useMutation({
@@ -485,6 +500,17 @@ export default function AdminJobPayoutsPage() {
                           {assignmentMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
                           Save workers
                         </Button>
+                        {selectedJobCanApprove && (
+                          <Button
+                            variant="outline"
+                            onClick={() => approveForPayoutMutation.mutate()}
+                            disabled={approveForPayoutMutation.isPending}
+                            className="border-emerald-400/50 text-emerald-200 hover:bg-emerald-500/15"
+                          >
+                            {approveForPayoutMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                            Approve for Payout
+                          </Button>
+                        )}
                         <Button
                           onClick={() => finalizeMutation.mutate()}
                           disabled={!selectedJobCanFinalize || finalizeMutation.isPending}
@@ -508,7 +534,9 @@ export default function AdminJobPayoutsPage() {
                         </div>
                         {!selectedJobCanFinalize && (
                           <p className="mt-1 text-xs opacity-85">
-                            Current status: {selectedJob.status.replace(/_/g, " ")}. Calculations can be previewed, exported, and adjusted before approval.
+                            Current status: {selectedJob.status.replace(/_/g, " ")}. {selectedJobCanApprove
+                              ? "Confirm customer approval to unlock final worker payout records."
+                              : "Calculations can be previewed, exported, and adjusted before approval."}
                           </p>
                         )}
                       </div>
