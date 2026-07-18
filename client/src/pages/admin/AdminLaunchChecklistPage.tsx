@@ -24,10 +24,10 @@ interface Result   { id: string; label: string; ok: boolean; detail: string; ran
 
 const publishBlockers = [
   {
-    title: "Render environment",
+    title: "Railway environment",
     icon: Server,
     probeIds: ["env_required", "public_deploy_freshness"],
-    action: "In Render, set DATABASE_URL, SESSION_SECRET, SQUARE_ACCESS_TOKEN, SQUARE_ENVIRONMENT=production, and APP_URL=https://www.jconthemove.com.",
+    action: "In Railway, set DATABASE_URL, SESSION_SECRET, SQUARE_ACCESS_TOKEN, SQUARE_ENVIRONMENT=production, and APP_URL=https://www.jconthemove.com.",
     note: "Missing env vars make /api/health return not_ready even when /health is alive.",
   },
   {
@@ -38,18 +38,18 @@ const publishBlockers = [
     note: "Cash payouts can stay manual, but Square links need a live token to collect customer payment.",
   },
   {
-    title: "Forced deploy trigger",
+    title: "Railway auto-deploy verification",
     icon: Rocket,
     probeIds: ["public_deploy_freshness"],
-    action: "Add RENDER_DEPLOY_HOOK_URL, or RENDER_API_KEY plus RENDER_SERVICE_ID, to GitHub Actions so main can force Render to pull the newest commit.",
-    note: "Without this, Render can stay behind GitHub even after the code is pushed.",
+    action: "Keep Railway connected to the main branch. The production workflow waits for the public health endpoint to report the pushed commit.",
+    note: "A deployment that never reaches the public commit check fails the workflow instead of silently leaving production behind GitHub.",
   },
   {
-    title: "Cloudflare DNS",
+    title: "Custom-domain routing",
     icon: Globe2,
     probeIds: ["custom_domain_routing", "public_app_url"],
-    action: "Point www.jconthemove.com at the Render custom-domain target, then keep the bare domain redirecting to www while preserving path/query.",
-    note: "The public launch domain should serve the same Render build that passes the checklist.",
+    action: "Point www.jconthemove.com at the Railway custom-domain target, then keep the bare domain redirecting to www while preserving path/query.",
+    note: "The public launch domain should serve the same Railway build that passes the checklist.",
   },
 ];
 
@@ -179,11 +179,11 @@ export default function AdminLaunchChecklistPage() {
           <div>
             <div className="text-xs font-bold uppercase tracking-[0.18em] text-blue-300">Publish blockers</div>
             <p className="mt-1 max-w-3xl text-sm text-slate-300">
-              Clear these four items when the checklist says not ready. This keeps Square, Render, GitHub deploys, and DNS lined up before paid traffic goes live.
+              Clear these four items when the checklist says not ready. This keeps Square, Railway, GitHub deploys, and DNS lined up before paid traffic goes live.
             </p>
           </div>
           <code className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-300">
-            npm run render:doctor
+            npm run verify:production
           </code>
         </div>
 

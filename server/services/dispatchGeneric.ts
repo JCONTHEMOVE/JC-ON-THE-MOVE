@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { users, leads, notifications } from "@shared/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, inArray, or, sql } from "drizzle-orm";
 
 export type JobKind = "moving" | "labor";
 
@@ -29,7 +29,13 @@ export async function dispatchGenericJob(opts: DispatchGenericOptions): Promise<
 
   const baseWhere = and(
     eq(users.isAvailable, true),
-    eq(users.role, "employee"),
+    or(
+      eq(users.role, "employee"),
+      and(
+        inArray(users.role, ["admin", "business_owner"]),
+        sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+      ),
+    ),
     eq(users.status, "approved"),
     skipIds.length > 0
       ? sql`${users.id} != ALL(${skipIds}::text[])`

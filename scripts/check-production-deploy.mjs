@@ -1,7 +1,8 @@
 import dns from "node:dns/promises";
 
-const healthUrl = process.argv[2] || process.env.PUBLIC_HEALTH_URL || "https://jc-on-the-move.onrender.com/health";
-const expectedCommit = (process.env.EXPECTED_COMMIT || process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null;
+const healthUrl = process.argv[2] || process.env.PUBLIC_HEALTH_URL || "https://www.jconthemove.com/api/health";
+const expectedCommit = (process.env.EXPECTED_COMMIT || process.env.DEPLOY_GIT_COMMIT || process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null;
+const expectedProvider = String(process.env.EXPECTED_HOSTING_PROVIDER ?? "railway").trim().toLowerCase();
 const healthPath = new URL(healthUrl).pathname.replace(/\/+$/, "") || "/";
 const platformHealth = healthPath === "/health" || healthPath === "/version";
 const requestTimeoutMs = Number(process.env.DEPLOY_CHECK_TIMEOUT_MS || 15_000);
@@ -17,6 +18,12 @@ function hostSignals(res) {
     header(res, "x-render-origin-server") ? "render" : "",
     header(res, "cf-ray") ? "cloudflare" : "",
   ].filter(Boolean);
+}
+
+function detectedProvider(signals) {
+  if (signals.includes("railway")) return "railway";
+  if (signals.includes("render")) return "render";
+  return null;
 }
 
 async function getDnsSignals(url) {
@@ -48,6 +55,7 @@ try {
     signal,
   });
   const signals = hostSignals(res);
+  const provider = detectedProvider(signals);
   const raw = await res.text();
 
   let body = null;
@@ -65,11 +73,11 @@ try {
   if (!parseFailed) {
     const publicCommit = body?.version?.shortCommit || null;
     const problems = [];
-    if (dnsSignals.some((signal) => signal.toLowerCase().includes("railway"))) {
-      problems.push("DNS still points at Railway instead of Render");
+    if (expectedProvider && provider !== expectedProvider) {
+      problems.push(`public domain is served by ${provider || "an unknown provider"}, expected ${expectedProvider}`);
     }
-    if (signals.includes("railway")) {
-      problems.push("public domain is still served by Railway");
+    if (expectedProvider && dnsSignals.length > 0 && !dnsSignals.some((signal) => signal.toLowerCase().includes(expectedProvider))) {
+      problems.push(`DNS does not identify the expected ${expectedProvider} host`);
     }
     if (!body?.version) {
       problems.push("public health is missing the version block, so it is an older build");
@@ -96,6 +104,7 @@ try {
       `appStatus=${body?.status || "unknown"}`,
       `commit=${publicCommit || "missing"}`,
       `uptime=${body?.uptimeSeconds ?? "unknown"}`,
+      `provider=${provider || "unknown"}`,
       `signals=${signals.join(",") || "none"}`,
       `dns=${dnsSignals.join(",") || "none"}`,
     ].join(" ");

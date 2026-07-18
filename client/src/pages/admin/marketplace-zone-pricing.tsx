@@ -26,6 +26,7 @@ type ZoneRate = {
   serviceCode: string;
   serviceLabel: string;
   crewSize: number;
+  dayOfWeek: number;
   hourlyRate: string | number;
   minimumHours: string | number;
   discountAfterHours: string | number | null;
@@ -50,6 +51,8 @@ type ZonesResponse = {
   zones: PricingZone[];
 };
 
+const RATE_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 function money(value: string | number | null | undefined) {
   const n = Number(value ?? 0);
   return Number.isFinite(n) ? `$${n.toFixed(2)}` : "$0.00";
@@ -73,10 +76,12 @@ export default function MarketplaceZonePricingPage() {
     zip: "49938",
     serviceCode: "load_unload",
     crewSize: "2",
-    hours: "3",
+    hours: "2",
     distanceMiles: "0",
+    moveDate: new Date().toISOString().slice(0, 10),
   });
   const [rateDrafts, setRateDrafts] = useState<Record<string, Partial<ZoneRate>>>({});
+  const [selectedDay, setSelectedDay] = useState(new Date().getDay());
 
   const zonesQuery = useQuery<ZonesResponse>({
     queryKey: ["/api/admin/marketplace/pricing-zones"],
@@ -99,6 +104,7 @@ export default function MarketplaceZonePricingPage() {
         crewSize: Number(preview.crewSize),
         hours: Number(preview.hours),
         distanceMiles: Number(preview.distanceMiles || 0),
+        moveDate: preview.moveDate,
       });
       return res.json() as Promise<MarketplaceQuotePreview>;
     },
@@ -115,6 +121,7 @@ export default function MarketplaceZonePricingPage() {
         serviceCode: draft.serviceCode ?? rate.serviceCode,
         serviceLabel: draft.serviceLabel ?? rate.serviceLabel,
         crewSize: Number(draft.crewSize ?? rate.crewSize),
+        dayOfWeek: rate.dayOfWeek,
         hourlyRate: Number(draft.hourlyRate ?? rate.hourlyRate),
         minimumHours: Number(draft.minimumHours ?? rate.minimumHours),
         discountAfterHours:
@@ -135,6 +142,23 @@ export default function MarketplaceZonePricingPage() {
     },
     onError: (err: Error) => {
       toast({ title: "Could not save rate", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const copyDayMutation = useMutation({
+    mutationFn: async (zoneId: string) => {
+      const res = await apiRequest("POST", "/api/admin/marketplace/zone-rates/copy-day", {
+        zoneId: Number(zoneId),
+        sourceDayOfWeek: selectedDay,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/marketplace/pricing-zones"] });
+      toast({ title: `Copied ${RATE_DAYS[selectedDay]} rates to all days` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not copy daily rates", description: err.message, variant: "destructive" });
     },
   });
 
@@ -197,6 +221,21 @@ export default function MarketplaceZonePricingPage() {
             </div>
           </div>
 
+          <div className="mt-4 flex flex-wrap gap-1.5" aria-label="Rate day">
+            {RATE_DAYS.map((day, dayIndex) => (
+              <Button
+                key={day}
+                type="button"
+                size="sm"
+                variant={selectedDay === dayIndex ? "default" : "outline"}
+                onClick={() => setSelectedDay(dayIndex)}
+                className={selectedDay === dayIndex ? "bg-blue-600 hover:bg-blue-500" : "border-slate-700 text-slate-300 hover:bg-slate-800"}
+              >
+                {day.slice(0, 3)}
+              </Button>
+            ))}
+          </div>
+
           {zonesQuery.isLoading ? (
             <p className="mt-6 text-sm text-slate-400">Loading zone pricing...</p>
           ) : zones.length === 0 ? (
@@ -216,8 +255,21 @@ export default function MarketplaceZonePricingPage() {
                       {zone.active ? "Active" : "Paused"}
                     </span>
                   </div>
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-2">
+                    <p className="text-xs font-medium text-slate-300">{RATE_DAYS[selectedDay]} rates</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => copyDayMutation.mutate(zone.id)}
+                      disabled={copyDayMutation.isPending}
+                      className="h-7 border-slate-700 text-xs text-slate-300 hover:bg-slate-800"
+                    >
+                      Copy to all days
+                    </Button>
+                  </div>
                   <div className="divide-y divide-slate-800">
-                    {zone.rates.map((rate) => (
+                    {zone.rates.filter((rate) => rate.dayOfWeek === selectedDay).map((rate) => (
                       <div key={rate.id} className="grid gap-3 px-4 py-4 md:grid-cols-[1.2fr_90px_110px_110px_110px_110px_auto] md:items-end">
                         <div>
                           <Label className="text-[11px] text-slate-500">Service</Label>
@@ -314,6 +366,10 @@ export default function MarketplaceZonePricingPage() {
               <Input value={preview.zip} onChange={(e) => setPreview((p) => ({ ...p, zip: e.target.value }))} className="mt-1 bg-slate-950 border-slate-700 text-white" />
             </div>
             <div>
+              <Label className="text-xs text-slate-400">Move date</Label>
+              <Input type="date" value={preview.moveDate} onChange={(e) => setPreview((p) => ({ ...p, moveDate: e.target.value }))} className="mt-1 bg-slate-950 border-slate-700 text-white" />
+            </div>
+            <div>
               <Label className="text-xs text-slate-400">Service</Label>
               <select
                 value={preview.serviceCode}
@@ -353,7 +409,7 @@ export default function MarketplaceZonePricingPage() {
               </div>
               <div>
                 <Label className="text-xs text-slate-400">Hours</Label>
-                <Input type="number" min="1" step="0.5" value={preview.hours} onChange={(e) => setPreview((p) => ({ ...p, hours: e.target.value }))} className="mt-1 bg-slate-950 border-slate-700 text-white" />
+                <Input type="number" min="2" step="1" value={preview.hours} onChange={(e) => setPreview((p) => ({ ...p, hours: e.target.value }))} className="mt-1 bg-slate-950 border-slate-700 text-white" />
               </div>
             </div>
             <div>

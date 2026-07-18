@@ -96,6 +96,50 @@ const CHATBOT_DRIVE_BASE_LNG = -90.1715;
 const CHATBOT_JUNK_TRAVEL_TIER_MILES = 25;
 const CHATBOT_JUNK_TRAVEL_CHARGE_PER_TIER = 50;
 
+type CustomerQuoteDeliveryMethod = "email" | "sms" | "both";
+
+function isSyntheticOrInvalidCustomerEmail(email: string | null | undefined): boolean {
+  const value = String(email || "").trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return true;
+  return /@(?:jconthemove\.local|example\.(?:com|org|net)|test)$/i.test(value);
+}
+
+function includesSmsDelivery(method: CustomerQuoteDeliveryMethod): boolean {
+  return method === "sms" || method === "both";
+}
+
+function includesEmailDelivery(method: CustomerQuoteDeliveryMethod): boolean {
+  return method === "email" || method === "both";
+}
+
+let smsConsentAuditColumnsReady: Promise<void> | null = null;
+
+function ensureSmsConsentAuditColumns(): Promise<void> {
+  if (!smsConsentAuditColumnsReady) {
+    smsConsentAuditColumnsReady = Promise.all([
+      pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS sms_consent_recorded_at TIMESTAMP`),
+      pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS sms_consent_source TEXT`),
+      pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS sms_consent_recorded_by VARCHAR`),
+    ]).then(() => undefined).catch((error) => {
+      smsConsentAuditColumnsReady = null;
+      throw error;
+    });
+  }
+  return smsConsentAuditColumnsReady;
+}
+
+async function recordVerbalSmsConsent(leadId: string, actorId: string | null): Promise<void> {
+  await ensureSmsConsentAuditColumns();
+  await pool.query(`
+    UPDATE leads
+    SET sms_consent = true,
+        sms_consent_recorded_at = NOW(),
+        sms_consent_source = 'verbal_staff',
+        sms_consent_recorded_by = $2
+    WHERE id = $1
+  `, [leadId, actorId]);
+}
+
 const staffJobIntakeSchema = z.object({
   customerName: z.string().trim().min(1, "Customer name is required").max(120),
   phone: z.string().trim().min(7, "A customer phone number is required").max(32),
@@ -4235,7 +4279,13 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       const { rows } = await pool.query(
         `SELECT COUNT(*) AS count FROM users
          WHERE is_available = true
-           AND role = 'employee'
+           AND (
+             role = 'employee'
+             OR (
+               role IN ('admin', 'business_owner')
+               AND COALESCE(capabilities, ARRAY[]::text[]) @> ARRAY['mover']::text[]
+             )
+           )
            AND available_until IS NOT NULL
            AND available_until > $1`,
         [now]
@@ -4256,7 +4306,16 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
 
       if (zipEtaCache.has(zip)) {
         const [crewRow] = await db.select({ count: sql<number>`count(*)` }).from(users)
-          .where(and(eq(users.isAvailable, true), eq(users.role, "employee")));
+          .where(and(
+            eq(users.isAvailable, true),
+            or(
+              eq(users.role, "employee"),
+              and(
+                inArray(users.role, ["admin", "business_owner"]),
+                sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+              ),
+            ),
+          ));
         const crewCount = Number(crewRow?.count ?? 0);
         const cached = zipEtaCache.get(zip)!;
         return res.json({ ...cached, crewCount });
@@ -4310,7 +4369,16 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
 
       // Live crew availability count
       const [crewRow] = await db.select({ count: sql<number>`count(*)` }).from(users)
-        .where(and(eq(users.isAvailable, true), eq(users.role, "employee")));
+        .where(and(
+          eq(users.isAvailable, true),
+          or(
+            eq(users.role, "employee"),
+            and(
+              inArray(users.role, ["admin", "business_owner"]),
+              sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+            ),
+          ),
+        ));
       const crewCount = Number(crewRow?.count ?? 0);
 
       return res.json({ ...payload, crewCount });
@@ -4352,7 +4420,13 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
 
     const whereClause = and(
       eq(users.isAvailable, true),
-      eq(users.role, "employee"),
+      or(
+        eq(users.role, "employee"),
+        and(
+          inArray(users.role, ["admin", "business_owner"]),
+          sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+        ),
+      ),
       eq(users.status, "approved"),
       skipIds.length > 0
         ? sql`${users.id} != ALL(${skipIds}::text[])`
@@ -7732,7 +7806,13 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         and(
           eq(users.isAvailable, true),
           eq(users.status, 'approved'),
-          inArray(users.role, ['employee', 'admin', 'business_owner'])
+          or(
+            eq(users.role, 'employee'),
+            and(
+              inArray(users.role, ['admin', 'business_owner']),
+              sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+            ),
+          ),
         )
       );
       res.json(available);
@@ -9085,6 +9165,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
     "quoted":         "available",
     "confirmed":      "in_progress",  // legacy alias: confirmed = available
     "available":      "in_progress",
+    "assigned":       "in_progress",  // admin-pinned crew can begin work
     "accepted":       "in_progress",  // crew-full accepted jobs progress to in_progress
     "dispatched":     "in_progress",  // paid + dispatched jobs can start from the lead page
     "in_progress":    "completed",
@@ -9168,8 +9249,15 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       if (!existingLead) return res.status(404).json({ error: "Lead not found" });
 
       const convertibleStatuses = new Set(["new", "quote_requested", "contacted", "quoted", "chatbot_pending"]);
-      if (!convertibleStatuses.has(existingLead.status)) {
-        return res.status(400).json({ error: `Lead status '${existingLead.status}' cannot be converted to an available job.` });
+      // The Ops Board also opens this editor for jobs that are already
+      // scheduled or dispatched. A later save must preserve that lifecycle
+      // status rather than trying to convert the job back to "available".
+      const editableJobStatuses = new Set(["available", "assigned", "accepted", "dispatched", "in_progress"]);
+      const isExistingJob = editableJobStatuses.has(existingLead.status);
+      if (!convertibleStatuses.has(existingLead.status) && !isExistingJob) {
+        return res.status(400).json({
+          error: `Job status '${existingLead.status}' is no longer editable from the quote board. Open the full job record to continue its lifecycle.`,
+        });
       }
 
       const data = parsed.data;
@@ -9189,15 +9277,25 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         ? existingLead.quoteSnapshot as Record<string, unknown>
         : {};
       const sourceAction = data.sourceAction || "lead_convert_to_job";
+      const crewMembers = Array.from(new Set(
+        (data.crewMembers || [])
+          .map((memberId) => String(memberId || "").trim())
+          .filter(Boolean),
+      ));
+      const primaryAssignee = existingLead.assignedToUserId && crewMembers.includes(existingLead.assignedToUserId)
+        ? existingLead.assignedToUserId
+        : crewMembers[0] || null;
+      const nextStatus = isExistingJob ? existingLead.status : "available";
       const updateData: Record<string, any> = {
-        status: "available",
+        status: nextStatus,
         basePrice: money(basePrice),
         totalPrice: money(totalPrice),
         confirmedDate: data.confirmedDate,
         arrivalWindow: data.arrivalWindow || null,
         crewSize: data.crewSize,
         confirmedHours,
-        crewMembers: data.crewMembers,
+        crewMembers,
+        assignedToUserId: primaryAssignee,
         confirmedFromAddress: data.confirmedFromAddress || existingLead.fromAddress,
         confirmedToAddress: data.confirmedToAddress || existingLead.toAddress || null,
         lastQuoteUpdatedAt: new Date(),
@@ -9245,50 +9343,56 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       await writeLeadHistory(
         id,
         existingLead.status,
-        "available",
+        nextStatus,
         user?.id ?? null,
-        sourceAction === "text_lead_fast_path"
-          ? "Text-message lead booked from small-job admin intake"
-          : "Converted to available job from employee dashboard",
+        isExistingJob
+          ? "Updated quote, schedule, or crew details without changing job lifecycle status"
+          : sourceAction === "text_lead_fast_path"
+            ? "Text-message lead booked from small-job admin intake"
+            : "Converted to available job from employee dashboard",
       );
 
-      try {
-        const employees = await storage.getEmployees();
-        const customerName = `${updatedLead.firstName || ""} ${updatedLead.lastName || ""}`.trim() || "Customer";
-        const jobData = {
-          customerName,
-          serviceType: updatedLead.serviceType || "service",
-          moveDate: updatedLead.confirmedDate || updatedLead.moveDate || undefined,
-          tokensReward: updatedLead.tokenAllocation ? Number(updatedLead.tokenAllocation) : undefined,
-        };
-        await Promise.allSettled(
-          employees.flatMap((employee) => {
-            const sends: Promise<unknown>[] = [];
-            if (employee.email) {
-              sends.push(notifyEmployeeJobAvailable(employee.email, jobData));
-            }
-            if ((employee as any).phoneNumber) {
-              sends.push(smsService.notifyJobAvailable((employee as any).phoneNumber, jobData));
-            }
-            return sends;
-          }),
-        );
-      } catch (notifyError) {
-        console.error("Failed to notify employees after lead conversion:", notifyError);
+      if (!isExistingJob) {
+        try {
+          const employees = await storage.getEmployees();
+          const customerName = `${updatedLead.firstName || ""} ${updatedLead.lastName || ""}`.trim() || "Customer";
+          const jobData = {
+            customerName,
+            serviceType: updatedLead.serviceType || "service",
+            moveDate: updatedLead.confirmedDate || updatedLead.moveDate || undefined,
+            tokensReward: updatedLead.tokenAllocation ? Number(updatedLead.tokenAllocation) : undefined,
+          };
+          await Promise.allSettled(
+            employees.flatMap((employee) => {
+              const sends: Promise<unknown>[] = [];
+              if (employee.email) {
+                sends.push(notifyEmployeeJobAvailable(employee.email, jobData));
+              }
+              if ((employee as any).phoneNumber) {
+                sends.push(smsService.notifyJobAvailable((employee as any).phoneNumber, jobData));
+              }
+              return sends;
+            }),
+          );
+        } catch (notifyError) {
+          console.error("Failed to notify employees after lead conversion:", notifyError);
+        }
       }
 
-      await emitJobEvent("job_available", updatedLead, {
+      await emitJobEvent(isExistingJob ? "job_updated" : "job_available", updatedLead, {
         actorId: user?.id ?? null,
         source: sourceAction,
         previousStatus: existingLead.status,
-        status: "available",
-        note: sourceAction === "text_lead_fast_path"
-          ? "Text-message lead booked from small-job admin intake."
-          : "Converted to available job from employee dashboard.",
+        status: nextStatus,
+        note: isExistingJob
+          ? "Quote, schedule, or crew details were updated while preserving the job lifecycle."
+          : sourceAction === "text_lead_fast_path"
+            ? "Text-message lead booked from small-job admin intake."
+            : "Converted to available job from employee dashboard.",
       });
 
       try {
-        if (authority.rank >= tierRank.silver) {
+        if (!isExistingJob && authority.rank >= tierRank.silver) {
           const evidence = await evaluateOpsTaskCompletion("quote_build", updatedLead);
           if (evidence.ok) {
             await awardOpsTaskBonus({
@@ -9305,7 +9409,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         console.error("quote build authority task bonus failed:", bonusError);
       }
 
-      res.json(updatedLead);
+      res.json({ ...updatedLead, lifecycleAction: isExistingJob ? "updated" : "created" });
     } catch (error) {
       console.error("Error converting lead to job:", error);
       res.status(500).json({ error: "Failed to convert lead to job" });
@@ -9560,6 +9664,14 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           }
 
           // Bundle follow-up email: 10% promo code — only for single-service (non-bundle) bookings
+          // Send exactly one tokenized review link and record it on the job.
+          // A mail failure does not undo completion, rewards, or dispatch data.
+          try {
+            await sendCompletedJobReviewRequest(updatedLead);
+          } catch (reviewError) {
+            console.error("Automatic review request failed (non-fatal):", reviewError);
+          }
+
           if (updatedLead.email && !updatedLead.bundleFollowupSentAt && !updatedLead.selectedPackageId) {
             try {
               const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
@@ -9605,6 +9717,138 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
     }
   });
 
+  // Owner fallback for jobs that were scheduled before today but whose crew
+  // never tapped the field-status buttons. The date guard prevents an active
+  // job from being completed early, while still letting ops close real work
+  // and trigger its normal JCMOVES/review trail.
+  app.post("/api/leads/:id/complete-overdue", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
+    try {
+      const lead = await storage.getLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+      if (lead.status === "completed") return res.json({ lead, alreadyCompleted: true });
+
+      const scheduledDate = String(lead.confirmedDate || lead.moveDate || "").trim().slice(0, 10);
+      const today = getEasternDateStr();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate) || scheduledDate >= today) {
+        return res.status(409).json({
+          error: "Only jobs with a confirmed move date before today can be marked complete from the overdue-job action.",
+        });
+      }
+
+      const completableStatuses = new Set(["available", "assigned", "accepted", "dispatched", "in_progress"]);
+      if (!completableStatuses.has(String(lead.status || "").toLowerCase())) {
+        return res.status(409).json({ error: `Job status '${lead.status}' cannot be completed from the overdue-job action.` });
+      }
+
+      const now = new Date();
+      const [completedLead] = await db.update(leads).set({
+        status: "completed",
+        dispatchState: "completed",
+        enRouteAt: lead.enRouteAt || now,
+        onSiteAt: lead.onSiteAt || now,
+        completedAt: lead.completedAt || now,
+      }).where(eq(leads.id, lead.id)).returning();
+      if (!completedLead) return res.status(404).json({ error: "Lead not found" });
+
+      const actorId = req.currentUser?.id || req.user?.id || null;
+      await writeLeadHistory(lead.id, lead.status, "completed", actorId, "Marked complete after confirmed move date passed");
+
+      const { runCompletionStep } = await import("./pipeline/steps/completion.step");
+      const completion = await runCompletionStep(lead.id);
+      let review: ReviewRequestResult | null = null;
+      try {
+        review = await sendCompletedJobReviewRequest(completedLead);
+      } catch (reviewError) {
+        console.error("Overdue completion review request failed (non-fatal):", reviewError);
+      }
+      await emitJobEvent("job_completed", completedLead, {
+        actorId,
+        source: "overdue_job_completion",
+        previousStatus: lead.status,
+        status: "completed",
+        note: "Owner marked job complete after the confirmed move date passed.",
+      });
+
+      res.json({ lead: completedLead, completion, review });
+    } catch (error: any) {
+      console.error("Error completing overdue job:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to complete overdue job" });
+    }
+  });
+
+  type ReviewRequestResult = {
+    reviewLink: string;
+    sent: boolean;
+    alreadySent: boolean;
+  };
+
+  async function sendCompletedJobReviewRequest(lead: any): Promise<ReviewRequestResult> {
+    if (lead.status !== "completed") {
+      throw Object.assign(new Error("Can only request reviews for completed jobs"), { status: 400 });
+    }
+    if (!String(lead.email || "").trim()) {
+      throw Object.assign(new Error("This completed job has no customer email for a review request"), { status: 400 });
+    }
+
+    const reviewToken = lead.reviewToken || crypto.randomBytes(24).toString("hex");
+    const reviewLink = `${getAppUrl()}/leave-review?token=${encodeURIComponent(reviewToken)}`;
+    if (lead.reviewRequestSentAt) {
+      return { reviewLink, sent: false, alreadySent: true };
+    }
+
+    if (!lead.reviewToken) {
+      await db.update(leads).set({ reviewToken }).where(eq(leads.id, lead.id));
+    }
+
+    const serviceLabels: Record<string, string> = {
+      residential: "Moving",
+      commercial: "Commercial Moving",
+      junk: "Junk Removal",
+      snow: "Snow Removal",
+      cleaning: "Move In/Out Cleaning",
+      handyman: "Handyman",
+      demolition: "Light Demolition",
+      flooring: "Flooring",
+      painting: "Painting",
+    };
+    const serviceLabel = serviceLabels[lead.serviceType] || lead.serviceType || "service";
+    const companyEmail = process.env.COMPANY_EMAIL || "michigankid906@gmail.com";
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">How was your experience with JC ON THE MOVE?</h2>
+        <p>Hi ${lead.firstName},</p>
+        <p>Thank you for choosing JC ON THE MOVE for your ${serviceLabel} service! We hope everything went smoothly.</p>
+        <p>We'd love to hear about your experience. Your feedback helps us improve and helps other customers find quality service.</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${reviewLink}" style="background-color: #f59e0b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Leave a Review</a>
+        </div>
+        <p>Thank you for your business!</p>
+        <p>- The JC ON THE MOVE Team</p>
+      </div>
+    `;
+    const emailText = `Hi ${lead.firstName},
+
+Thank you for choosing JC ON THE MOVE for your ${serviceLabel} service! We hope everything went smoothly.
+
+We'd love to hear about your experience. Your feedback helps us improve and helps other customers find quality service.
+
+Leave a review here: ${reviewLink}
+
+Thank you for your business!
+- The JC ON THE MOVE Team`;
+
+    await sendEmail({
+      to: lead.email,
+      from: companyEmail,
+      subject: `How was your ${serviceLabel} service with JC ON THE MOVE?`,
+      text: emailText,
+      html: emailHtml,
+    });
+    await db.update(leads).set({ reviewToken, reviewRequestSentAt: new Date() }).where(eq(leads.id, lead.id));
+    console.log(`Review request sent to ${lead.email} for job ${lead.id}`);
+    return { reviewLink, sent: true, alreadySent: false };
+  }
+
   // Request a review from customer for completed job
   app.post("/api/leads/:id/request-review", isAuthenticated, async (req: any, res) => {
     try {
@@ -9620,63 +9864,22 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       if (lead.status !== 'completed') {
         return res.status(400).json({ error: "Can only request reviews for completed jobs" });
       }
-      
-      // Get the service type label
-      const serviceLabels: Record<string, string> = {
-        residential: "Moving",
-        commercial: "Commercial Moving",
-        junk: "Junk Removal",
-        snow: "Snow Removal",
-        cleaning: "Move In/Out Cleaning",
-        handyman: "Handyman",
-        demolition: "Light Demolition",
-        flooring: "Flooring",
-        painting: "Painting",
-      };
-      const serviceLabel = serviceLabels[lead.serviceType] || lead.serviceType;
-      
-      // Generate review link
-      const reviewLink = `${getAppUrl()}/leave-review?jobId=${lead.id}`;
-      
-      // Send review request email to customer
-      const companyEmail = process.env.COMPANY_EMAIL || "michigankid906@gmail.com";
-      
-      const emailHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #333;">How was your experience with JC ON THE MOVE?</h2>
-          <p>Hi ${lead.firstName},</p>
-          <p>Thank you for choosing JC ON THE MOVE for your ${serviceLabel} service! We hope everything went smoothly.</p>
-          <p>We'd love to hear about your experience. Your feedback helps us improve and helps other customers find quality service.</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${reviewLink}" style="background-color: #f59e0b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Leave a Review</a>
-          </div>
-          <p>Thank you for your business!</p>
-          <p>- The JC ON THE MOVE Team</p>
-        </div>
-      `;
-      
-      const emailText = `Hi ${lead.firstName},
 
-Thank you for choosing JC ON THE MOVE for your ${serviceLabel} service! We hope everything went smoothly.
+      const actor = req.currentUser || req.user || null;
+      const isOwner = actor?.role === "admin"
+        || actor?.role === "business_owner"
+        || actor?.email === "upmichiganstatemovers@gmail.com";
+      const crewIds = new Set([lead.assignedToUserId, ...(lead.crewMembers || [])].filter(Boolean));
+      if (!isOwner && !crewIds.has(actor?.id)) {
+        return res.status(403).json({ error: "Only the assigned crew or an owner can request this review." });
+      }
 
-We'd love to hear about your experience. Your feedback helps us improve and helps other customers find quality service.
-
-Leave a review here: ${reviewLink}
-
-Thank you for your business!
-- The JC ON THE MOVE Team`;
-      
-      await sendEmail({
-        to: lead.email,
-        from: companyEmail,
-        subject: `How was your ${serviceLabel} service with JC ON THE MOVE?`,
-        text: emailText,
-        html: emailHtml,
+      const result = await sendCompletedJobReviewRequest(lead);
+      return res.json({
+        success: true,
+        message: result.alreadySent ? "Review request was already sent" : "Review request sent successfully",
+        ...result,
       });
-      
-      console.log(`📧 Review request sent to ${lead.email} for job ${id}`);
-      
-      res.json({ success: true, message: "Review request sent successfully" });
     } catch (error) {
       console.error("Error sending review request:", error);
       res.status(500).json({ error: "Failed to send review request" });
@@ -12854,27 +13057,34 @@ Thank you for your business!
   app.post("/api/leads/:id/send-quote", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { message } = req.body as { message?: string };
+      const { message, deliveryMethod, recordSmsConsent } = req.body as {
+        message?: string;
+        deliveryMethod?: CustomerQuoteDeliveryMethod;
+        recordSmsConsent?: boolean;
+      };
       const actorId = (req.session as any)?.userId ?? req.user?.id ?? null;
 
       const lead = await storage.getLead(id);
       if (!lead) return res.status(404).json({ error: "Lead not found" });
 
+      const requestedDelivery = (["email", "sms", "both"] as const).includes(deliveryMethod as CustomerQuoteDeliveryMethod)
+        ? deliveryMethod as CustomerQuoteDeliveryMethod
+        : (isSyntheticOrInvalidCustomerEmail(lead.email) && lead.phone ? "sms" : "email");
+      if (includesSmsDelivery(requestedDelivery)) {
+        if (!lead.phone?.trim()) {
+          return res.status(400).json({ error: "A phone number is required before sending this quote by text message." });
+        }
+        if (!lead.smsConsent && !recordSmsConsent) {
+          return res.status(400).json({ error: "Record the customer's verbal SMS consent before sending a quote by text." });
+        }
+        if (!lead.smsConsent && recordSmsConsent) {
+          await recordVerbalSmsConsent(id, actorId);
+        }
+      }
+
       const price = parseFloat(String(lead.totalPrice || lead.basePrice || "0"));
       if (!price || price <= 0) {
         return res.status(400).json({ error: "A quote total must be set before sending. Please build the quote first." });
-      }
-
-      // Set quote_sent_at
-      const now = new Date();
-      await pool.query(`UPDATE leads SET quote_sent_at = $1 WHERE id = $2`, [now, id]);
-
-      // Advance status to "quoted" using canonical transition logic if applicable
-      const transitionableStatuses = ["new", "quote_requested", "chatbot_pending"];
-      if (transitionableStatuses.includes(lead.status)) {
-        // Use storage method + history log (mirrors the /status endpoint logic)
-        await storage.updateLeadStatus(id, "quoted");
-        await writeLeadHistory(id, lead.status, "quoted", actorId, "Quote sent to customer");
       }
 
       const customerName = `${lead.firstName} ${lead.lastName}`;
@@ -13020,6 +13230,7 @@ Thank you for your business!
 
       let emailSent = false;
 
+      if (includesEmailDelivery(requestedDelivery)) {
       try {
         emailSent = await sendEmail({
           to: lead.email,
@@ -13030,6 +13241,30 @@ Thank you for your business!
         });
       } catch (err) {
         console.error("Quote email send error:", err);
+      }
+      }
+
+      let smsSent = false;
+      if (includesSmsDelivery(requestedDelivery)) {
+        if (!squarePaymentUrl) {
+          return res.status(503).json({ error: "Square did not return a payment link. The quote was not texted; retry after Square is available." });
+        }
+        const sms = await smsService.sendSMS(
+          lead.phone,
+          `Hi ${lead.firstName}, your JC ON THE MOVE quote is ${totalFormatted} for ${serviceLabel}. Review and pay securely: ${squarePaymentUrl}${message ? `\n\n${message}` : ""}`,
+        );
+        if (!sms.success) {
+          return res.status(502).json({ error: `The Square invoice was created, but the text message was not sent: ${sms.error || "unknown SMS error"}` });
+        }
+        smsSent = true;
+      }
+
+      const now = new Date();
+      await pool.query(`UPDATE leads SET quote_sent_at = $1 WHERE id = $2`, [now, id]);
+      const transitionableStatuses = ["new", "quote_requested", "chatbot_pending"];
+      if (transitionableStatuses.includes(lead.status)) {
+        await storage.updateLeadStatus(id, "quoted");
+        await writeLeadHistory(id, lead.status, "quoted", actorId, "Quote sent to customer");
       }
 
       // Invalidate cache so frontend refreshes
@@ -13044,6 +13279,8 @@ Thank you for your business!
           extra: {
             quoteSentAt: now.toISOString(),
             emailSent,
+            smsSent,
+            deliveryMethod: requestedDelivery,
             squareInvoiceCreated,
             paymentUrl: squarePaymentUrl,
             quoteTotal: price,
@@ -13052,7 +13289,7 @@ Thank you for your business!
           },
         });
       }
-      res.json({ success: true, quoteSentAt: now.toISOString(), emailSent, squareInvoiceCreated, paymentUrl: squarePaymentUrl, lead: updatedLead });
+      res.json({ success: true, quoteSentAt: now.toISOString(), emailSent, smsSent, deliveryMethod: requestedDelivery, squareInvoiceCreated, paymentUrl: squarePaymentUrl, lead: updatedLead });
     } catch (error) {
       console.error("Error sending quote:", error);
       res.status(500).json({ error: "Failed to send quote" });
@@ -16121,6 +16358,21 @@ Thank you for your business!
         } catch (e) {
           console.error("[/api/crew/jobs/:id/status] disbursement failed:", e);
         }
+        try {
+          const completedLead = await storage.getLead(id);
+          if (completedLead) {
+            await sendCompletedJobReviewRequest(completedLead);
+            await emitJobEvent("job_completed", completedLead, {
+              actorId: crewId,
+              source: "crew_job_status",
+              previousStatus: job.status,
+              status: "completed",
+              note: "Crew marked the job complete; rewards and review request are queued.",
+            });
+          }
+        } catch (e) {
+          console.error("[/api/crew/jobs/:id/status] review request or completion event failed:", e);
+        }
       }
 
       res.json({ ok: true, state: next });
@@ -16478,6 +16730,21 @@ Thank you for your business!
       res.status(201).json({ rate });
     } catch (e: any) {
       res.status(400).json({ error: e?.message || "Failed to save zone rate" });
+    }
+  });
+
+  app.post("/api/admin/marketplace/zone-rates/copy-day", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
+    try {
+      const { copyZoneRatesToAllDays } = await import("./marketplace/zonePricing");
+      const zoneId = Number(req.body?.zoneId);
+      const sourceDayOfWeek = Number(req.body?.sourceDayOfWeek);
+      if (!Number.isInteger(zoneId) || !Number.isInteger(sourceDayOfWeek)) {
+        return res.status(400).json({ error: "zoneId and sourceDayOfWeek are required" });
+      }
+      const rates = await copyZoneRatesToAllDays(zoneId, sourceDayOfWeek);
+      res.json({ rates });
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message || "Failed to copy daily zone rates" });
     }
   });
 
@@ -20319,7 +20586,7 @@ Thank you for your business!
   app.post("/api/invoices/lead/:leadId", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
     try {
       const { leadId } = req.params;
-      const { amount, description, dueDate, deliveryMethod } = req.body;
+      const { amount, description, dueDate, deliveryMethod, recordSmsConsent } = req.body;
 
       if (!amount || amount <= 0) {
         return res.status(400).json({ error: "Valid amount is required" });
@@ -20337,6 +20604,15 @@ Thank you for your business!
         return res.status(404).json({ error: "Lead not found" });
       }
 
+      const actorId = (req.session as any)?.userId ?? req.user?.id ?? null;
+      if (includesSmsDelivery(dm)) {
+        if (!lead.phone?.trim()) return res.status(400).json({ error: "A phone number is required before sending an invoice by text." });
+        if (!lead.smsConsent && !recordSmsConsent) {
+          return res.status(400).json({ error: "Record the customer's verbal SMS consent before sending an invoice by text." });
+        }
+        if (!lead.smsConsent && recordSmsConsent) await recordVerbalSmsConsent(leadId, actorId);
+      }
+
       if (!squareInvoiceService.isConfigured()) {
         return res.status(503).json({ 
           error: "Square is not configured. Please add SQUARE_ACCESS_TOKEN to your environment secrets." 
@@ -20348,14 +20624,24 @@ Thank you for your business!
         amount,
         description,
         dueDate,
-        dm
+        dm === "sms" ? "none" : dm
       );
+
+      let smsSent = false;
+      if (includesSmsDelivery(dm)) {
+        if (!result.invoiceUrl) return res.status(502).json({ error: "Square created the invoice but did not return a payment link." });
+        const sms = await smsService.sendSMS(lead.phone, `Hi ${lead.firstName}, your JC ON THE MOVE invoice is ready. Review and pay securely: ${result.invoiceUrl}`);
+        if (!sms.success) return res.status(502).json({ error: `The invoice was created, but the text message was not sent: ${sms.error || "unknown SMS error"}` });
+        smsSent = true;
+      }
 
       res.json({
         success: true,
         invoiceId: result.invoiceId,
         invoiceUrl: result.invoiceUrl,
         squareInvoiceId: result.squareInvoiceId,
+        smsSent,
+        deliveryMethod: dm,
         message: "Invoice created and sent to customer"
       });
     } catch (error: any) {
@@ -22002,10 +22288,11 @@ Thank you for your business!
       const lead = await storage.getLead(leadId);
       if (!lead) return res.status(404).json({ error: "Lead not found" });
 
-      const { lineItems, dueDate, deliveryMethod } = req.body as {
+      const { lineItems, dueDate, deliveryMethod, recordSmsConsent } = req.body as {
         lineItems?: Array<{ name: string; qty: number; unitPrice: number; total: number }>;
         dueDate?: string;
         deliveryMethod?: string;
+        recordSmsConsent?: boolean;
       };
 
       const { squareInvoiceService } = await import("./services/square-invoice");
@@ -22016,17 +22303,41 @@ Thank you for your business!
         ? (deliveryMethod as DeliveryMethod)
         : "email";
 
+      const actorId = (req.session as any)?.userId ?? req.user?.id ?? null;
+      if (includesSmsDelivery(dm)) {
+        if (!lead.phone?.trim()) return res.status(400).json({ error: "A phone number is required before sending an invoice by text." });
+        if (!lead.smsConsent && !recordSmsConsent) {
+          return res.status(400).json({ error: "Record the customer's verbal SMS consent before sending an invoice by text." });
+        }
+        if (!lead.smsConsent && recordSmsConsent) await recordVerbalSmsConsent(leadId, actorId);
+      }
+
+      const squareDelivery = dm === "sms" ? "none" : dm;
+
       let result: { invoiceId: string; invoiceUrl: string; squareInvoiceId: string };
 
       if (lineItems && lineItems.length > 0) {
-        result = await squareInvoiceService.createItemizedInvoiceForLead(lead, lineItems, dueDate, dm);
+        result = await squareInvoiceService.createItemizedInvoiceForLead(lead, lineItems, dueDate, squareDelivery);
       } else {
         const amount = parseFloat(lead.totalPrice || lead.basePrice || "0");
         if (!amount) return res.status(400).json({ error: "No price set on lead and no lineItems provided" });
-        result = await squareInvoiceService.createInvoiceForLead(lead, amount, undefined, dueDate, dm);
+        result = await squareInvoiceService.createInvoiceForLead(lead, amount, undefined, dueDate, squareDelivery);
       }
 
-      res.json({ success: true, ...result });
+      let smsSent = false;
+      if (includesSmsDelivery(dm)) {
+        if (!result.invoiceUrl) return res.status(502).json({ error: "Square created the invoice but did not return a payment link." });
+        const sms = await smsService.sendSMS(
+          lead.phone,
+          `Hi ${lead.firstName}, your JC ON THE MOVE invoice is ready. Review and pay securely: ${result.invoiceUrl}`,
+        );
+        if (!sms.success) {
+          return res.status(502).json({ error: `The invoice was created, but the text message was not sent: ${sms.error || "unknown SMS error"}` });
+        }
+        smsSent = true;
+      }
+
+      res.json({ success: true, smsSent, deliveryMethod: dm, ...result });
     } catch (err) {
       console.error("Error creating itemized invoice:", err);
       res.status(500).json({ error: err instanceof Error ? err.message : "Failed to create invoice" });
@@ -25441,7 +25752,13 @@ Thank you for your business!
       }).from(users).where(
         and(
           eq(users.status, "approved"),
-          or(eq(users.role, "employee"), eq(users.role, "admin"))
+          or(
+            eq(users.role, "employee"),
+            and(
+              inArray(users.role, ["admin", "business_owner"]),
+              sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+            ),
+          ),
         )
       );
 
@@ -26912,7 +27229,13 @@ Thank you for your business!
       await pool.query(
         `UPDATE users SET is_available = false
          WHERE is_available = true
-           AND role = 'employee'
+           AND (
+             role = 'employee'
+             OR (
+               role IN ('admin', 'business_owner')
+               AND COALESCE(capabilities, ARRAY[]::text[]) @> ARRAY['mover']::text[]
+             )
+           )
            AND (
              (available_until IS NOT NULL AND available_until <= $1)
              OR (last_active IS NOT NULL AND last_active < $2)

@@ -1,0 +1,38 @@
+name: Production Availability
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      health_url:
+        description: Public readiness URL to verify
+        required: false
+        default: https://www.jconthemove.com/api/health
+      expected_commit:
+        description: Optional commit SHA to verify after a deployment
+        required: false
+
+concurrency:
+  group: production-availability
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    env:
+      PUBLIC_HEALTH_URL: ${{ github.event.inputs.health_url || vars.PUBLIC_HEALTH_URL || 'https://www.jconthemove.com/api/health' }}
+      EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit || '' }}
+      EXPECTED_HOSTING_PROVIDER: ${{ vars.EXPECTED_HOSTING_PROVIDER || 'railway' }}
+      DEPLOY_CHECK_TIMEOUT_MS: ${{ vars.DEPLOY_CHECK_TIMEOUT_MS || '15000' }}
+    steps:
+      - name: Checkout readiness verifier
+        uses: actions/checkout@v4
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify public readiness
+        run: node scripts/check-production-deploy.mjs "$PUBLIC_HEALTH_URL"

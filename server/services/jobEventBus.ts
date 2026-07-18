@@ -147,6 +147,8 @@ async function ownerRecipients(): Promise<UserRecipient[]> {
           inArray(sql<string>`lower(${users.email})`, Array.from(OWNER_EMAILS)),
         ),
         or(eq(users.notificationsEnabled, true), sql`${users.notificationsEnabled} IS NULL`),
+        sql`lower(coalesce(${users.email}, '')) NOT LIKE '%.internal'`,
+        sql`lower(coalesce(${users.email}, '')) NOT LIKE '%@system.internal'`,
       ),
     );
 }
@@ -164,9 +166,18 @@ async function eligibleCrewRecipients(lead: Lead): Promise<UserRecipient[]> {
     .from(users)
     .where(
       and(
-        eq(users.role, "employee"),
-        or(eq(users.status, "approved"), eq(users.status, "active"), eq(users.isApproved, true)),
+        or(
+          eq(users.role, "employee"),
+          and(
+            inArray(users.role, ["admin", "business_owner"]),
+            sql`COALESCE(${users.capabilities}, ARRAY[]::text[]) @> ARRAY['mover']::text[]`,
+          ),
+        ),
+        or(eq(users.status, "approved"), eq(users.status, "active")),
+        or(eq(users.isApproved, true), sql`${users.isApproved} IS NULL`),
         or(eq(users.notificationsEnabled, true), sql`${users.notificationsEnabled} IS NULL`),
+        sql`lower(coalesce(${users.email}, '')) NOT LIKE '%.internal'`,
+        sql`lower(coalesce(${users.email}, '')) NOT LIKE '%@system.internal'`,
         service
           ? sql`(${users.acceptedJobTypes} IS NULL OR cardinality(${users.acceptedJobTypes}) = 0 OR ${users.acceptedJobTypes} @> ARRAY[${service}]::text[])`
           : sql`true`,
@@ -188,7 +199,11 @@ async function assignedCrewRecipients(lead: Lead): Promise<UserRecipient[]> {
     .where(
       and(
         inArray(users.id, Array.from(ids)),
+        or(eq(users.status, "approved"), eq(users.status, "active")),
+        or(eq(users.isApproved, true), sql`${users.isApproved} IS NULL`),
         or(eq(users.notificationsEnabled, true), sql`${users.notificationsEnabled} IS NULL`),
+        sql`lower(coalesce(${users.email}, '')) NOT LIKE '%.internal'`,
+        sql`lower(coalesce(${users.email}, '')) NOT LIKE '%@system.internal'`,
       ),
     );
 }

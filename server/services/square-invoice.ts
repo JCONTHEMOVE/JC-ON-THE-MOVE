@@ -36,9 +36,15 @@ function getSquareClient(): SquareClient {
 }
 
 function primarySquareDeliveryMethod(method: InvoiceDeliveryMethod): any {
-  if (method === "sms") return "SMS";
-  if (method === "none") return "SHARE_MANUALLY";
-  return "EMAIL";
+  // Square supports API email delivery or a manually shared payment link.
+  // Consent-aware SMS delivery is sent by the application after publication.
+  return method === "email" ? "EMAIL" : "SHARE_MANUALLY";
+}
+
+function isDeliverableEmail(email: string | null | undefined): email is string {
+  const value = String(email || "").trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return false;
+  return !/@(?:jconthemove\.local|example\.(?:com|org|net)|test)$/i.test(value);
 }
 
 async function applyDualDelivery(
@@ -95,29 +101,32 @@ export class SquareInvoiceService {
     }
   }
 
-  async createOrGetCustomer(email: string, name: string, phone?: string): Promise<string> {
+  async createOrGetCustomer(email: string | null | undefined, name: string, phone?: string): Promise<string> {
     try {
       const client = getSquareClient();
+      const customerEmail = isDeliverableEmail(email) ? email.trim() : undefined;
 
-      const searchResponse = await client.customers.search({
-        query: {
-          filter: {
-            emailAddress: {
-              exact: email,
+      if (customerEmail) {
+        const searchResponse = await client.customers.search({
+          query: {
+            filter: {
+              emailAddress: {
+                exact: customerEmail,
+              },
             },
           },
-        },
-      });
+        });
 
-      if (searchResponse.customers && searchResponse.customers.length > 0) {
-        const existing = searchResponse.customers[0];
-        if (phone && !existing.phoneNumber) {
-          await client.customers.update({
-            customerId: existing.id!,
-            phoneNumber: phone,
-          });
+        if (searchResponse.customers && searchResponse.customers.length > 0) {
+          const existing = searchResponse.customers[0];
+          if (phone && !existing.phoneNumber) {
+            await client.customers.update({
+              customerId: existing.id!,
+              phoneNumber: phone,
+            });
+          }
+          return existing.id!;
         }
-        return existing.id!;
       }
 
       const nameParts = name.split(" ");
@@ -125,11 +134,11 @@ export class SquareInvoiceService {
       const lastName = nameParts.slice(1).join(" ") || "";
 
       const createResponse = await client.customers.create({
-        emailAddress: email,
+        ...(customerEmail ? { emailAddress: customerEmail } : {}),
         givenName: firstName,
         familyName: lastName,
         phoneNumber: phone,
-        idempotencyKey: `customer-${email}-${Date.now()}`,
+        idempotencyKey: `customer-${customerEmail || phone || name}-${Date.now()}`,
       });
 
       return createResponse.customer!.id!;
@@ -211,10 +220,6 @@ export class SquareInvoiceService {
     });
 
     const publishedInvoice = publishResponse.invoice!;
-
-    if (deliveryMethod === "both") {
-      await applyDualDelivery(client, publishedInvoice.id!, publishedInvoice.version!, lead);
-    }
 
     const invoiceData: InsertSquareInvoice = {
       leadId: safeLeadId(lead.id),
@@ -313,10 +318,6 @@ export class SquareInvoiceService {
     });
 
     const publishedInvoice = publishResponse.invoice!;
-
-    if (deliveryMethod === "both" && phone) {
-      await applyDualDelivery(client, publishedInvoice.id!, publishedInvoice.version!, { phone });
-    }
 
     const invoiceData: InsertSquareInvoice = {
       squareInvoiceId: publishedInvoice.id!,
@@ -473,10 +474,6 @@ export class SquareInvoiceService {
       idempotencyKey: `publish-itemized-${squareInvoice.id}-${Date.now()}`,
     });
     const publishedInvoice = publishResponse.invoice!;
-
-    if (deliveryMethod === "both") {
-      await applyDualDelivery(client, publishedInvoice.id!, publishedInvoice.version!, lead);
-    }
 
     const invoiceData: InsertSquareInvoice = {
       leadId: safeLeadId(lead.id),

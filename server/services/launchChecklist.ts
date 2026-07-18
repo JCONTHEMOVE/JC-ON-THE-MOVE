@@ -165,14 +165,16 @@ function readBuiltClientText(): string | null {
   return chunks.join("\n");
 }
 
-function publicRenderHealthUrl(): string {
-  const explicit = process.env.PUBLIC_HEALTH_URL?.trim() || process.env.RENDER_HEALTH_URL?.trim();
+function publicDeploymentHealthUrl(): string {
+  const explicit = process.env.PUBLIC_HEALTH_URL?.trim()
+    || process.env.DEPLOYMENT_HEALTH_URL?.trim()
+    || process.env.RENDER_HEALTH_URL?.trim();
   if (explicit) return explicit;
 
-  const renderUrl = process.env.RENDER_EXTERNAL_URL?.trim();
-  if (renderUrl) return new URL("/health", renderUrl).toString();
+  const publicAppUrl = process.env.APP_URL?.trim() || process.env.PUBLIC_APP_URL?.trim();
+  if (publicAppUrl) return new URL("/health", publicAppUrl).toString();
 
-  return "https://jc-on-the-move.onrender.com/health";
+  return "https://www.jconthemove.com/health";
 }
 
 function siblingHealthUrl(baseHealthUrl: string, pathname: string): string {
@@ -218,7 +220,7 @@ function hostSignals(headers: Headers): string[] {
 }
 
 function customDomainHealthUrl(): string {
-  return process.env.CUSTOM_DOMAIN_HEALTH_URL?.trim() || "https://www.jconthemove.com/health";
+  return process.env.CUSTOM_DOMAIN_HEALTH_URL?.trim() || "https://www.jconthemove.com/api/health";
 }
 
 type MarketingProbeIds = {
@@ -578,9 +580,9 @@ const SCENARIOS: Scenario[] = [
   },
   {
     id: "public_deploy_freshness",
-    label: "Public Render deployment is fresh and ready",
+    label: "Public deployment is fresh and ready",
     run: async () => {
-      const healthUrl = publicRenderHealthUrl();
+      const healthUrl = publicDeploymentHealthUrl();
       const readinessUrl = siblingHealthUrl(healthUrl, "/api/health");
       const expectedCommit = readExpectedDeployCommit();
       const problems: string[] = [];
@@ -591,7 +593,7 @@ const SCENARIOS: Scenario[] = [
         problems.push(`${healthUrl} not alive: http=${liveness.status} status=${liveness.body.status || "unknown"}`);
       }
       if (!liveCommit) {
-        problems.push(`${healthUrl} is missing version.shortCommit; public Render is serving an older build`);
+        problems.push(`${healthUrl} is missing version.shortCommit; the public deployment is serving an older build`);
       }
       if (expectedCommit && liveCommit !== expectedCommit) {
         problems.push(`${healthUrl} commit ${liveCommit || "missing"} does not match current build ${expectedCommit}`);
@@ -621,7 +623,7 @@ const SCENARIOS: Scenario[] = [
   },
   {
     id: "custom_domain_routing",
-    label: "Custom domain routes to the current Render app",
+    label: "Custom domain routes to the current production app",
     run: async () => {
       const domainHealthUrl = customDomainHealthUrl();
       if (domainHealthUrl.toLowerCase() === "skip") {
@@ -637,8 +639,9 @@ const SCENARIOS: Scenario[] = [
       if (!health.ok || !["alive", "ready"].includes(health.body.status || "")) {
         problems.push(`${domainHealthUrl} not alive: http=${health.status} status=${health.body.status || "unknown"}`);
       }
-      if (signals.includes("railway") || signals.some((signal) => signal.toLowerCase().includes("railway"))) {
-        problems.push(`${new URL(domainHealthUrl).hostname} is still served by Railway`);
+      const expectedProvider = (process.env.EXPECTED_HOSTING_PROVIDER ?? "railway").trim().toLowerCase();
+      if (expectedProvider && !signals.some((signal) => signal.toLowerCase().includes(expectedProvider))) {
+        problems.push(`${new URL(domainHealthUrl).hostname} is not served by the expected ${expectedProvider} host`);
       }
       if (!liveCommit) {
         problems.push(`${domainHealthUrl} is missing version.shortCommit`);

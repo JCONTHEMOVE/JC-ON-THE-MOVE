@@ -11,9 +11,10 @@ import { Separator } from "@/components/ui/separator";
 import {
   Users, Clock, DollarSign, Truck, Package2, Zap, AlertTriangle,
   CheckCircle2, Star, ShoppingCart, ChevronDown, ChevronUp,
-  Wrench, Sofa, Navigation, Info
+  Wrench, Sofa, Navigation, Info, UserRound, Minus, Plus, MapPin, CalendarDays, Phone
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiRequest } from "@/lib/queryClient";
 
 interface Pricing {
   ratePerMoverHour: number;
@@ -65,9 +66,14 @@ interface Lead {
   confirmedFromAddress?: string;
   toAddress?: string;
   confirmedToAddress?: string;
+  moveDate?: string;
+  confirmedDate?: string;
+  phone?: string;
+  truckConfig?: string;
   basePrice?: string;
   totalPrice?: string;
   crewSize?: number;
+  confirmedHours?: number;
   quoteNotes?: string;
   hasHotTub?: boolean;
   hotTubFee?: string;
@@ -155,6 +161,7 @@ interface JobOrderBuilderProps {
     pianoFee: string;
     totalSpecialItemsFee: string;
     lineItems: LineItem[];
+    zoneSnapshot?: Record<string, unknown>;
   }) => void;
 }
 
@@ -362,7 +369,256 @@ function JunkPackageCard({ pkg, selected, onSelect }: {
   );
 }
 
-export function JobOrderBuilder({ lead, leadId, disabled, onApply }: JobOrderBuilderProps) {
+type ZoneQuotePreview = {
+  matched: boolean;
+  moveDate?: string | null;
+  dayName?: string | null;
+  dayOfWeek?: number | null;
+  quote: {
+    labor: number;
+    travel: number;
+    subtotal: number;
+    zone: { id: number; code: string; name: string } | null;
+    rate: { hourlyRate: number; minimumHours: number; discountAfterHours: number | null; discountedHourlyRate: number | null } | null;
+  };
+};
+
+function zipFromAddress(address: string | undefined): string | null {
+  return address?.match(/\b\d{5}(?:-\d{4})?\b/)?.[0] ?? null;
+}
+
+function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
+  const { data: pricing, isLoading: pricingLoading } = useQuery<Pricing>({ queryKey: ["/api/pricing"] });
+  const [selectedCrew, setSelectedCrew] = useState(() => Math.min(4, Math.max(2, lead.crewSize || 2)));
+  const [hours, setHours] = useState(() => Math.max(2, lead.confirmedHours || 2));
+  const [truckIncluded, setTruckIncluded] = useState(() => lead.truckConfig === "company_truck" || lead.truckConfig === "customer_truck");
+  const [travelMiles, setTravelMiles] = useState("");
+  const [showExtras, setShowExtras] = useState(false);
+  const [addonQty, setAddonQty] = useState<Record<string, number>>({});
+  const [specialItems, setSpecialItems] = useState({
+    hasHotTub: !!lead.hasHotTub,
+    hasPiano: !!lead.hasPiano,
+    hasHeavySafe: !!lead.hasHeavySafe,
+    hasPoolTable: !!lead.hasPoolTable,
+  });
+
+  const moveDate = lead.confirmedDate || lead.moveDate || "";
+  const pickupAddress = lead.confirmedFromAddress || lead.fromAddress || "";
+  const zip = useMemo(() => zipFromAddress(pickupAddress), [pickupAddress]);
+  const specialtyCrewMinimum = MOVING_SPECIAL_ITEMS.reduce((minimum, item) =>
+    specialItems[item.key] ? Math.max(minimum, item.crewMin) : minimum,
+  2);
+  const effectiveCrew = Math.max(selectedCrew, specialtyCrewMinimum);
+
+  const zoneQuote = useQuery<ZoneQuotePreview>({
+    queryKey: ["/api/marketplace/quote-preview", zip, moveDate, effectiveCrew, hours, travelMiles],
+    queryFn: async () => {
+      const response = await apiRequest("POST", "/api/marketplace/quote-preview", {
+        zip,
+        moveDate,
+        serviceCode: "load_unload",
+        crewSize: effectiveCrew,
+        hours,
+        distanceMiles: Number(travelMiles || 0),
+      });
+      return response.json();
+    },
+    enabled: !!zip && !!moveDate,
+    staleTime: 0,
+  });
+
+  const summary = useMemo(() => {
+    if (!pricing) return null;
+    const fallbackBase = Math.max(effectiveCrew * hours * pricing.ratePerMoverHour, pricing.shortJobFull);
+    const fallbackDiscount = getHourDiscount(hours);
+    const fallbackLabor = fallbackDiscount > 0
+      ? Math.round(fallbackBase * (1 - fallbackDiscount / 100))
+      : fallbackBase;
+    const fallbackTravel = travelMiles
+      ? Math.round((Number(travelMiles) / Math.max(pricing.driveSpeedMph, 1)) * pricing.driveRate)
+      : 0;
+    const zonePricing = zoneQuote.data?.matched ? zoneQuote.data.quote : null;
+    const laborTotal = zonePricing ? Number(zonePricing.labor) : fallbackLabor;
+    const travelTotal = zonePricing ? Number(zonePricing.travel) : fallbackTravel;
+    const lineItems: LineItem[] = [{
+      id: "moving_labor",
+      name: `Moving labor - ${effectiveCrew} movers x ${hours} hrs${zonePricing ? ` (${zonePricing.zone?.name || "zone rate"})` : ""}`,
+      qty: 1,
+      unitPrice: laborTotal,
+      total: laborTotal,
+      category: "labor",
+    }];
+
+    if (travelTotal > 0) {
+      lineItems.push({ id: "travel", name: "Travel", qty: 1, unitPrice: travelTotal, total: travelTotal, category: "travel" });
+    }
+
+    if (truckIncluded) {
+      const truckTotal = pricing.truckAdd * hours;
+      lineItems.push({ id: "truck", name: "Truck included", qty: hours, unitPrice: pricing.truckAdd, total: truckTotal, category: "truck" });
+    }
+
+    for (const addon of MOVING_ADDONS) {
+      const qty = addonQty[addon.id] || 0;
+      if (!qty) continue;
+      const unitPrice = addon.id === "stairs" ? pricing.stairsPerFlight
+        : addon.id === "long_carry" ? pricing.longCarryFlat
+        : addon.id === "elevator" ? pricing.elevatorFlat
+        : addon.id === "tight_access" ? pricing.tightAccessFlat
+        : addon.unitPrice;
+      lineItems.push({ id: addon.id, name: addon.name, qty, unitPrice, total: unitPrice * qty, category: addon.category || "addon" });
+    }
+
+    for (const item of MOVING_SPECIAL_ITEMS) {
+      if (!specialItems[item.key]) continue;
+      const unitPrice = pricing[item.pricingKey] || item.baseFee;
+      lineItems.push({ id: item.id, name: `${item.name} surcharge`, qty: 1, unitPrice, total: unitPrice, category: "specialty" });
+    }
+
+    const basePrice = lineItems.filter((item) => item.category !== "specialty").reduce((total, item) => total + item.total, 0);
+    const grandTotal = lineItems.reduce((total, item) => total + item.total, 0);
+    const specialFee = grandTotal - basePrice;
+    return { basePrice, grandTotal, specialFee, laborTotal, lineItems, zonePricing, fallbackDiscount };
+  }, [addonQty, effectiveCrew, hours, pricing, specialItems, travelMiles, truckIncluded, zoneQuote.data]);
+
+  if (pricingLoading) {
+    return <Card className="border-slate-700/50 bg-slate-900/60"><CardContent className="py-8 text-center text-sm text-slate-400">Loading quote settings...</CardContent></Card>;
+  }
+  if (!pricing || !summary) return null;
+
+  const selectedSpecialFee = (key: keyof typeof specialItems, pricingKey: keyof Pricing, fallback: number) =>
+    specialItems[key] ? Number(pricing[pricingKey] || fallback) : 0;
+  const zoneStatus = zoneQuote.isFetching
+    ? "Checking zone rate..."
+    : summary.zonePricing
+      ? `${summary.zonePricing.zone?.name || "Matched zone"} - ${zoneQuote.data?.dayName || "scheduled day"}`
+      : moveDate
+        ? "Global moving rate"
+        : "Set a move date to use the zone rate";
+
+  return (
+    <Card className="border-blue-500/30 bg-slate-900/80">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-white"><ShoppingCart className="h-5 w-5 text-blue-400" />Build Moving Quote</CardTitle>
+        <CardDescription>Choose the crew, set the hours, and save the live total.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <section className="grid gap-2 text-sm sm:grid-cols-2">
+          <div className="flex min-w-0 items-center gap-2 text-slate-300"><Users className="h-4 w-4 text-blue-400" /><span className="truncate">{lead.fromAddress || "Pickup address not set"}</span></div>
+          <div className="flex min-w-0 items-center gap-2 text-slate-300"><CalendarDays className="h-4 w-4 text-blue-400" /><span className="truncate">{moveDate || "Move date not set"}</span></div>
+          {lead.phone && <a href={`tel:${lead.phone}`} className="flex items-center gap-2 text-blue-300 hover:text-blue-200"><Phone className="h-4 w-4" />{lead.phone}</a>}
+          <div className="flex min-w-0 items-center gap-2 text-slate-400"><MapPin className="h-4 w-4" /><span className="truncate">{zoneStatus}</span></div>
+        </section>
+
+        <section className="border-t border-slate-700/60 pt-4">
+          <Label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Crew</Label>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {[2, 3, 4].map((crew) => (
+              <button
+                key={crew}
+                type="button"
+                aria-pressed={selectedCrew === crew}
+                onClick={() => setSelectedCrew(crew)}
+                className={cn(
+                  "min-h-20 border px-2 py-3 text-center transition-colors",
+                  selectedCrew === crew ? "border-blue-400 bg-blue-500/15 text-white" : "border-slate-700 bg-slate-950/50 text-slate-300 hover:border-slate-500",
+                )}
+              >
+                <span className="flex justify-center gap-0.5 text-blue-300">{Array.from({ length: crew }, (_, index) => <UserRound key={index} className="h-4 w-4" />)}</span>
+                <span className="mt-2 block text-xs font-semibold">{crew} movers</span>
+              </button>
+            ))}
+          </div>
+          {effectiveCrew > selectedCrew && <p className="mt-2 text-xs text-amber-300">Specialty items require {effectiveCrew} movers for this quote.</p>}
+        </section>
+
+        <section className="border-t border-slate-700/60 pt-4">
+          <Label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Hours</Label>
+          <div className="mt-2 flex items-center gap-3">
+            <Button type="button" size="icon" variant="outline" onClick={() => setHours((value) => Math.max(2, value - 1))} disabled={hours <= 2}><Minus className="h-4 w-4" /></Button>
+            <div className="w-20 text-center"><p className="text-2xl font-bold text-white">{hours}</p><p className="text-xs text-slate-400">hours</p></div>
+            <Button type="button" size="icon" variant="outline" onClick={() => setHours((value) => value + 1)}><Plus className="h-4 w-4" /></Button>
+            <p className="text-xs text-slate-500">2-hour minimum</p>
+          </div>
+        </section>
+
+        <section className="border-t border-slate-700/60 pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <label className="flex items-center gap-2 text-sm text-slate-300"><Checkbox checked={truckIncluded} onCheckedChange={(value) => setTruckIncluded(!!value)} />Truck included</label>
+            <span className="text-xs text-slate-500">${pricing.truckAdd}/hr</span>
+          </div>
+          <div className="mt-3">
+            <Label className="text-xs text-slate-400">One-way miles outside the zone</Label>
+            <Input type="number" min="0" step="1" value={travelMiles} onChange={(event) => setTravelMiles(event.target.value)} placeholder="0" className="mt-1 bg-slate-950 border-slate-700 text-white" />
+          </div>
+        </section>
+
+        <section className="border-t border-slate-700/60 pt-4">
+          <Button type="button" variant="ghost" className="h-auto w-full justify-between px-0 text-sm text-slate-300 hover:bg-transparent" onClick={() => setShowExtras((value) => !value)}>
+            Optional adjustments {showExtras ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+          {showExtras && (
+            <div className="mt-3 space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {MOVING_ADDONS.map((addon) => {
+                  const selected = !!addonQty[addon.id];
+                  return <label key={addon.id} className="flex items-start gap-2 text-sm text-slate-300"><Checkbox checked={selected} onCheckedChange={(value) => setAddonQty((current) => ({ ...current, [addon.id]: value ? 1 : 0 }))} /><span>{addon.name} <span className="text-emerald-400">+${addon.unitPrice}</span></span></label>;
+                })}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {MOVING_SPECIAL_ITEMS.map((item) => <label key={item.id} className="flex items-start gap-2 text-sm text-slate-300"><Checkbox checked={specialItems[item.key]} onCheckedChange={(value) => setSpecialItems((current) => ({ ...current, [item.key]: !!value }))} /><span>{item.name} <span className="text-amber-300">+${pricing[item.pricingKey] || item.baseFee}</span></span></label>)}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="border-t border-slate-700/60 pt-4">
+          <div className="flex items-end justify-between gap-3"><div><p className="text-xs uppercase tracking-wide text-slate-500">Quote total</p><p className="mt-1 text-xs text-slate-400">{effectiveCrew} movers x {hours} hrs{summary.zonePricing ? ` - ${zoneQuote.data?.dayName}` : summary.fallbackDiscount ? ` - ${summary.fallbackDiscount}% longer-job discount` : ""}</p></div><p className="text-3xl font-bold text-emerald-400">${summary.grandTotal.toFixed(2)}</p></div>
+          <div className="mt-3 space-y-1 text-xs text-slate-400">{summary.lineItems.map((item) => <div key={item.id} className="flex justify-between gap-3"><span>{item.name}{item.qty > 1 ? ` x ${item.qty}` : ""}</span><span className="shrink-0">${item.total.toFixed(2)}</span></div>)}</div>
+        </section>
+
+        <Button
+          type="button"
+          className="w-full bg-blue-600 hover:bg-blue-500"
+          disabled={disabled}
+          onClick={() => onApply({
+            basePrice: summary.basePrice.toFixed(2),
+            totalPrice: summary.grandTotal.toFixed(2),
+            crewSize: effectiveCrew,
+            confirmedHours: hours,
+            quoteNotes: `Moving labor: ${effectiveCrew} movers x ${hours} hours. ${summary.zonePricing ? `${summary.zonePricing.zone?.name || "Zone"} ${zoneQuote.data?.dayName || "scheduled day"} rate applied.` : "Global rate applied."}`,
+            hasHotTub: specialItems.hasHotTub,
+            hotTubFee: selectedSpecialFee("hasHotTub", "specialtyHotTub", 600).toFixed(2),
+            hasHeavySafe: specialItems.hasHeavySafe,
+            heavySafeFee: selectedSpecialFee("hasHeavySafe", "specialtySafe", 400).toFixed(2),
+            hasPoolTable: specialItems.hasPoolTable,
+            poolTableFee: selectedSpecialFee("hasPoolTable", "specialtyPoolTable", 400).toFixed(2),
+            hasPiano: specialItems.hasPiano,
+            pianoFee: selectedSpecialFee("hasPiano", "specialtyPiano", 400).toFixed(2),
+            totalSpecialItemsFee: summary.specialFee.toFixed(2),
+            lineItems: summary.lineItems,
+            zoneSnapshot: {
+              source: summary.zonePricing ? "marketplace_zone_pricing" : "global_fallback",
+              serviceCode: "load_unload",
+              moveDate: moveDate || null,
+              dayOfWeek: zoneQuote.data?.dayOfWeek ?? null,
+              preview: zoneQuote.data ?? null,
+            },
+          })}
+        >
+          <CheckCircle2 className="mr-2 h-4 w-4" />Apply quote
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function JobOrderBuilder(props: JobOrderBuilderProps) {
+  const isMoving = !["junk", "junk_removal"].includes(props.lead.serviceType?.toLowerCase() ?? "");
+  return isMoving ? <MovingQuoteBuilder {...props} /> : <LegacyJobOrderBuilder {...props} />;
+}
+
+function LegacyJobOrderBuilder({ lead, leadId, disabled, onApply }: JobOrderBuilderProps) {
   const isMoving = !["junk", "junk_removal"].includes(lead.serviceType?.toLowerCase() ?? "");
   const isJunk = !isMoving;
 
