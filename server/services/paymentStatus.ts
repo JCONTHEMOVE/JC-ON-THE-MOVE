@@ -36,6 +36,33 @@ export function makeStatus(key: PaymentStatusKey): PaymentStatus {
   return { key, ...TABLE[key] };
 }
 
+type PaymentStatusRecord = {
+  depositRequired?: boolean | null;
+  depositPaid?: boolean | null;
+  paymentPlan?: string | null;
+  paymentPaidAt?: Date | string | null;
+};
+
+/**
+ * Pure status derivation used by the universal job-flow list as well as the
+ * single-job endpoint below.  Keeping this here prevents a job from showing
+ * one payment state in Admin and another state on a crew card.
+ */
+export function derivePaymentStatusFromRecord(record: PaymentStatusRecord): PaymentStatus {
+  if (record.paymentPaidAt != null) {
+    return record.paymentPlan === "wallet_pay_now"
+      ? makeStatus("wallet_paid")
+      : makeStatus("fully_paid");
+  }
+  if (record.paymentPlan === "wallet_pay_now") return makeStatus("wallet_paid");
+  if (record.paymentPlan === "cash_or_btc") return makeStatus("cash_on_site");
+  if (record.depositRequired) {
+    return record.depositPaid ? makeStatus("deposit_paid") : makeStatus("awaiting_deposit");
+  }
+  if (record.paymentPlan === "pay_on_completion") return makeStatus("pay_on_completion");
+  return makeStatus("unknown");
+}
+
 /** Loads the latest known payment status for a leads-row job. Wraps the
  *  raw DB shape so callers don't sprinkle column names everywhere. The
  *  payment_plan / payment_paid_at columns are added at boot via the
@@ -64,18 +91,12 @@ export async function deriveLeadPaymentStatus(leadId: string): Promise<PaymentSt
     if (rows.length === 0) return makeStatus("unknown");
     const r = rows[0];
 
-    if (r.payment_paid_at != null) {
-      return r.payment_plan === "wallet_pay_now"
-        ? makeStatus("wallet_paid")
-        : makeStatus("fully_paid");
-    }
-    if (r.payment_plan === "wallet_pay_now") return makeStatus("wallet_paid");
-    if (r.payment_plan === "cash_or_btc") return makeStatus("cash_on_site");
-    if (r.deposit_required) {
-      return r.deposit_paid ? makeStatus("deposit_paid") : makeStatus("awaiting_deposit");
-    }
-    if (r.payment_plan === "pay_on_completion") return makeStatus("pay_on_completion");
-    return makeStatus("unknown");
+    return derivePaymentStatusFromRecord({
+      depositRequired: r.deposit_required,
+      depositPaid: r.deposit_paid,
+      paymentPlan: r.payment_plan,
+      paymentPaidAt: r.payment_paid_at,
+    });
   } catch (e) {
     // eslint-disable-next-line no-console
     console.warn("[paymentStatus] derive failed:", e instanceof Error ? e.message : e);

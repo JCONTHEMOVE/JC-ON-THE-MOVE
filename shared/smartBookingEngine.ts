@@ -10,6 +10,7 @@ import {
   type MarketplaceSmartBookingStep,
   type MarketplaceSmartBookingStepId,
 } from "./marketplaceShapes";
+import { calculateLaborBooking, recommendLaborBooking } from "./laborBooking";
 
 export type SmartBookingAnswers = Record<string, unknown>;
 
@@ -107,10 +108,10 @@ export const SMART_MOVING_PACKAGES: SmartMovingPackage[] = [
     label: "2 movers / 2 hours",
     crew: 2,
     hours: 2,
-    localMin: 300,
-    localMax: 425,
-    outsideMin: 450,
-    outsideMax: 650,
+    localMin: 350,
+    localMax: 350,
+    outsideMin: 350,
+    outsideMax: 350,
     notes: "Small load, unload, apartment, or quick truck help.",
   },
   {
@@ -118,10 +119,10 @@ export const SMART_MOVING_PACKAGES: SmartMovingPackage[] = [
     label: "2 movers / 3 hours",
     crew: 2,
     hours: 3,
-    localMin: 400,
-    localMax: 500,
-    outsideMin: 500,
-    outsideMax: 750,
+    localMin: 525,
+    localMax: 525,
+    outsideMin: 525,
+    outsideMax: 525,
     notes: "Common local moving-help package.",
   },
   {
@@ -129,10 +130,10 @@ export const SMART_MOVING_PACKAGES: SmartMovingPackage[] = [
     label: "3 movers / 2 hours",
     crew: 3,
     hours: 2,
-    localMin: 400,
-    localMax: 550,
-    outsideMin: 550,
-    outsideMax: 775,
+    localMin: 498.75,
+    localMax: 498.75,
+    outsideMin: 498.75,
+    outsideMax: 498.75,
     notes: "Fast unload/load path when speed matters more than total hours.",
   },
   {
@@ -140,10 +141,10 @@ export const SMART_MOVING_PACKAGES: SmartMovingPackage[] = [
     label: "3 movers / 3 hours",
     crew: 3,
     hours: 3,
-    localMin: 525,
-    localMax: 725,
-    outsideMin: 725,
-    outsideMax: 950,
+    localMin: 748.13,
+    localMax: 748.13,
+    outsideMin: 748.13,
+    outsideMax: 748.13,
     notes: "Medium move or heavier access path.",
   },
   {
@@ -151,10 +152,10 @@ export const SMART_MOVING_PACKAGES: SmartMovingPackage[] = [
     label: "4 movers / 4 hours",
     crew: 4,
     hours: 4,
-    localMin: 900,
-    localMax: 1200,
-    outsideMin: 1200,
-    outsideMax: 1700,
+    localMin: 1295,
+    localMax: 1295,
+    outsideMin: 1295,
+    outsideMax: 1295,
     notes: "Large move, heavy access, or full-house quote-review path.",
   },
 ];
@@ -269,17 +270,17 @@ export function getSmartMovingPackage(crew: unknown, hours: unknown): SmartMovin
   const exact = SMART_MOVING_PACKAGES.find((pkg) => pkg.crew === normalizedCrew && pkg.hours === normalizedHours);
   if (exact) return exact;
 
-  const laborBase = normalizedCrew * normalizedHours * 85;
+  const laborBase = calculateLaborBooking({ crewSize: normalizedCrew, hours: normalizedHours }).laborTotal;
   const safeHours = String(normalizedHours).replace(".", "p");
   return {
     id: `moving_${normalizedCrew}m_${safeHours}h`,
     label: `${normalizedCrew} movers / ${numberText(normalizedHours)} hours`,
     crew: normalizedCrew,
     hours: normalizedHours,
-    localMin: Math.round(laborBase * 0.95),
-    localMax: Math.round(laborBase * 1.2),
-    outsideMin: Math.round(laborBase * 1.15 + 125),
-    outsideMax: Math.round(laborBase * 1.45 + 250),
+    localMin: laborBase,
+    localMax: laborBase,
+    outsideMin: laborBase,
+    outsideMax: laborBase,
     notes: "Custom smart moving-help package.",
   };
 }
@@ -400,8 +401,12 @@ export function estimateMovingCrewHours(answers: SmartBookingAnswers): { crew: n
   const specialItems = Array.isArray(answers.specialItems) ? answers.specialItems.map(String).join(" ").toLowerCase() : "";
   const specialty = includesAny(specialItems, ["piano", "pool table", "safe", "hot tub", "heavy"]);
 
-  if (specialty) return { crew: 3, hours: 3, reason: "specialty/heavy item default" };
-  if (size.includes("4") || size.includes("full house") || truck.includes("26")) {
+  if (specialty) return { crew: 3, hours: 2, reason: "specialty/heavy item default" };
+  if (/\b(10|12|15|16|17|20|22|24|26)\b/.test(truck)) {
+    const plan = recommendLaborBooking({ truckSize: truck });
+    return { crew: plan.crewSize, hours: plan.hours, reason: plan.reason };
+  }
+  if (size.includes("4") || size.includes("full house")) {
     return { crew: 4, hours: 4, reason: "large move default" };
   }
   if (size.includes("3 bedroom")) return { crew: 3, hours: 3, reason: "3 bedroom default" };

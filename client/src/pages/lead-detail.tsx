@@ -29,6 +29,7 @@ import MarketplaceProcessGuide from "@/components/MarketplaceProcessGuide";
 import { BookingMenuIntelligenceCard } from "@/components/BookingMenuIntelligenceCard";
 import { extractBookingMenuIntelligence } from "@/lib/booking-menu-intelligence";
 import type { MarketplaceActionPhase } from "@shared/marketplaceShapes";
+import type { JobFlow } from "@shared/job-flow";
 
 interface SquareInvoice {
   id: string;
@@ -162,6 +163,7 @@ interface Lead {
   depositPaid?: boolean;
   isQuoteOnly?: boolean;
   selectedPackageId?: string;
+  flow?: JobFlow;
 }
 
 interface Reward {
@@ -448,6 +450,11 @@ export default function LeadDetailPage() {
 
   const { data: lead, isLoading, isError, error } = useQuery<Lead>({
     queryKey: ["/api/leads", params?.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/jobs/${params?.id}/flow`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to load job");
+      return response.json();
+    },
     enabled: !!params?.id,
     retry: 1,
     retryDelay: 1000,

@@ -1,4 +1,4 @@
-import { SquareClient, SquareEnvironment } from "square";
+import type { SquareClient } from "square";
 import { storage } from "../storage";
 import type { InsertSquareInvoice, Lead } from "@shared/schema";
 
@@ -26,7 +26,8 @@ function safeLeadId(id: string | undefined | null): string | null {
   return UUID_RE.test(id) ? id : null;
 }
 
-function getSquareClient(): SquareClient {
+async function getSquareClient(): Promise<SquareClient> {
+  const { SquareClient, SquareEnvironment } = await import("square");
   return new SquareClient({
     token: process.env.SQUARE_ACCESS_TOKEN || "",
     environment: process.env.SQUARE_ENVIRONMENT === "production"
@@ -79,7 +80,7 @@ export class SquareInvoiceService {
     if (this.locationId) return this.locationId;
 
     try {
-      const client = getSquareClient();
+      const client = await getSquareClient();
       const response = await client.locations.list();
       const locations = response.locations;
       if (!locations || locations.length === 0) {
@@ -103,7 +104,7 @@ export class SquareInvoiceService {
 
   async createOrGetCustomer(email: string | null | undefined, name: string, phone?: string): Promise<string> {
     try {
-      const client = getSquareClient();
+      const client = await getSquareClient();
       const customerEmail = isDeliverableEmail(email) ? email.trim() : undefined;
 
       if (customerEmail) {
@@ -156,7 +157,7 @@ export class SquareInvoiceService {
     dueDate?: string,
     deliveryMethod: InvoiceDeliveryMethod = "email"
   ): Promise<{ invoiceId: string; invoiceUrl: string; squareInvoiceId: string }> {
-    const client = getSquareClient();
+    const client = await getSquareClient();
     const locationId = await this.getLocationId();
     const customerName = `${lead.firstName} ${lead.lastName}`;
     const customerId = await this.createOrGetCustomer(lead.email, customerName, lead.phone || undefined);
@@ -255,7 +256,7 @@ export class SquareInvoiceService {
     dueDate?: string,
     deliveryMethod: InvoiceDeliveryMethod = "email"
   ): Promise<{ invoiceId: string; invoiceUrl: string; squareInvoiceId: string }> {
-    const client = getSquareClient();
+    const client = await getSquareClient();
     const locationId = await this.getLocationId();
     const customerId = await this.createOrGetCustomer(email, name, phone);
 
@@ -357,7 +358,7 @@ export class SquareInvoiceService {
     dueDate?: string,
     deliveryMethod: InvoiceDeliveryMethod = "email"
   ): Promise<{ invoiceId: string; invoiceUrl: string; squareInvoiceId: string }> {
-    const client = getSquareClient();
+    const client = await getSquareClient();
     const locationId = await this.getLocationId();
     const customerName = `${lead.firstName} ${lead.lastName}`;
     const customerId = await this.createOrGetCustomer(lead.email, customerName, lead.phone || undefined);
@@ -501,7 +502,7 @@ export class SquareInvoiceService {
 
   async getInvoiceStatus(squareInvoiceId: string): Promise<string> {
     try {
-      const client = getSquareClient();
+      const client = await getSquareClient();
       const response = await client.invoices.get({ invoiceId: squareInvoiceId });
       return response.invoice?.status || "UNKNOWN";
     } catch (error: unknown) {
@@ -513,7 +514,7 @@ export class SquareInvoiceService {
 
   async cancelInvoice(squareInvoiceId: string): Promise<void> {
     try {
-      const client = getSquareClient();
+      const client = await getSquareClient();
       const getResponse = await client.invoices.get({ invoiceId: squareInvoiceId });
       const version = getResponse.invoice?.version;
 
@@ -536,7 +537,7 @@ export class SquareInvoiceService {
 
   async syncInvoiceStatus(squareInvoiceId: string): Promise<string> {
     try {
-      const client = getSquareClient();
+      const client = await getSquareClient();
       const response = await client.invoices.get({ invoiceId: squareInvoiceId });
       const invoice = response.invoice;
 

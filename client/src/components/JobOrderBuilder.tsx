@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
+import { calculateLaborBooking, type LaborWorkScope } from "@shared/laborBooking";
 
 interface Pricing {
   ratePerMoverHour: number;
@@ -376,6 +377,7 @@ type ZoneQuotePreview = {
   dayOfWeek?: number | null;
   quote: {
     labor: number;
+    booking?: { billableHours: number; laborTotal: number; zoneMultiplier: number; longBookingDiscountPct: number } | null;
     travel: number;
     subtotal: number;
     zone: { id: number; code: string; name: string } | null;
@@ -390,7 +392,8 @@ function zipFromAddress(address: string | undefined): string | null {
 function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
   const { data: pricing, isLoading: pricingLoading } = useQuery<Pricing>({ queryKey: ["/api/pricing"] });
   const [selectedCrew, setSelectedCrew] = useState(() => Math.min(4, Math.max(2, lead.crewSize || 2)));
-  const [hours, setHours] = useState(() => Math.max(2, lead.confirmedHours || 2));
+  const [hours, setHours] = useState(() => Math.max(1, lead.confirmedHours || 1));
+  const [workScope, setWorkScope] = useState<LaborWorkScope>("load_unload");
   const [truckIncluded, setTruckIncluded] = useState(() => lead.truckConfig === "company_truck" || lead.truckConfig === "customer_truck");
   const [travelMiles, setTravelMiles] = useState("");
   const [showExtras, setShowExtras] = useState(false);
@@ -409,9 +412,10 @@ function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
     specialItems[item.key] ? Math.max(minimum, item.crewMin) : minimum,
   2);
   const effectiveCrew = Math.max(selectedCrew, specialtyCrewMinimum);
+  const hasOversizedItems = specialItems.hasHotTub || specialItems.hasPiano || specialItems.hasHeavySafe;
 
   const zoneQuote = useQuery<ZoneQuotePreview>({
-    queryKey: ["/api/marketplace/quote-preview", zip, moveDate, effectiveCrew, hours, travelMiles],
+    queryKey: ["/api/marketplace/quote-preview", zip, moveDate, effectiveCrew, hours, workScope, hasOversizedItems, travelMiles],
     queryFn: async () => {
       const response = await apiRequest("POST", "/api/marketplace/quote-preview", {
         zip,
@@ -419,6 +423,8 @@ function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
         serviceCode: "load_unload",
         crewSize: effectiveCrew,
         hours,
+        workScope,
+        oversized: hasOversizedItems,
         distanceMiles: Number(travelMiles || 0),
       });
       return response.json();
@@ -429,11 +435,13 @@ function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
 
   const summary = useMemo(() => {
     if (!pricing) return null;
-    const fallbackBase = Math.max(effectiveCrew * hours * pricing.ratePerMoverHour, pricing.shortJobFull);
-    const fallbackDiscount = getHourDiscount(hours);
-    const fallbackLabor = fallbackDiscount > 0
-      ? Math.round(fallbackBase * (1 - fallbackDiscount / 100))
-      : fallbackBase;
+    const fallbackBooking = calculateLaborBooking({
+      crewSize: effectiveCrew,
+      hours,
+      workScope,
+      oversized: hasOversizedItems,
+    });
+    const fallbackLabor = fallbackBooking.laborTotal;
     const fallbackTravel = travelMiles
       ? Math.round((Number(travelMiles) / Math.max(pricing.driveSpeedMph, 1)) * pricing.driveRate)
       : 0;
@@ -478,8 +486,8 @@ function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
     const basePrice = lineItems.filter((item) => item.category !== "specialty").reduce((total, item) => total + item.total, 0);
     const grandTotal = lineItems.reduce((total, item) => total + item.total, 0);
     const specialFee = grandTotal - basePrice;
-    return { basePrice, grandTotal, specialFee, laborTotal, lineItems, zonePricing, fallbackDiscount };
-  }, [addonQty, effectiveCrew, hours, pricing, specialItems, travelMiles, truckIncluded, zoneQuote.data]);
+    return { basePrice, grandTotal, specialFee, laborTotal, lineItems, zonePricing, fallbackBooking };
+  }, [addonQty, effectiveCrew, hasOversizedItems, hours, pricing, specialItems, travelMiles, truckIncluded, workScope, zoneQuote.data]);
 
   if (pricingLoading) {
     return <Card className="border-slate-700/50 bg-slate-900/60"><CardContent className="py-8 text-center text-sm text-slate-400">Loading quote settings...</CardContent></Card>;
@@ -533,12 +541,28 @@ function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
         </section>
 
         <section className="border-t border-slate-700/60 pt-4">
+          <Label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Work scope</Label>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {([
+              ["load_only", "Load only"],
+              ["unload_only", "Unload only"],
+              ["load_unload", "Load + unload"],
+            ] as const).map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={workScope === value} onClick={() => setWorkScope(value)} className={cn("rounded-md border px-2 py-2 text-xs font-medium", workScope === value ? "border-blue-400 bg-blue-500/15 text-white" : "border-slate-700 bg-slate-950/50 text-slate-300 hover:border-slate-500")}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {workScope === "load_unload" && <p className="mt-2 text-xs text-amber-200">Two work phases: the booked labor hours are doubled automatically.</p>}
+        </section>
+
+        <section className="border-t border-slate-700/60 pt-4">
           <Label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Hours</Label>
           <div className="mt-2 flex items-center gap-3">
-            <Button type="button" size="icon" variant="outline" onClick={() => setHours((value) => Math.max(2, value - 1))} disabled={hours <= 2}><Minus className="h-4 w-4" /></Button>
+            <Button type="button" size="icon" variant="outline" onClick={() => setHours((value) => Math.max(1, value - 1))} disabled={hours <= 1}><Minus className="h-4 w-4" /></Button>
             <div className="w-20 text-center"><p className="text-2xl font-bold text-white">{hours}</p><p className="text-xs text-slate-400">hours</p></div>
             <Button type="button" size="icon" variant="outline" onClick={() => setHours((value) => value + 1)}><Plus className="h-4 w-4" /></Button>
-            <p className="text-xs text-slate-500">2-hour minimum</p>
+            <p className="text-xs text-slate-500">1-hour quick booking</p>
           </div>
         </section>
 
@@ -573,7 +597,7 @@ function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
         </section>
 
         <section className="border-t border-slate-700/60 pt-4">
-          <div className="flex items-end justify-between gap-3"><div><p className="text-xs uppercase tracking-wide text-slate-500">Quote total</p><p className="mt-1 text-xs text-slate-400">{effectiveCrew} movers x {hours} hrs{summary.zonePricing ? ` - ${zoneQuote.data?.dayName}` : summary.fallbackDiscount ? ` - ${summary.fallbackDiscount}% longer-job discount` : ""}</p></div><p className="text-3xl font-bold text-emerald-400">${summary.grandTotal.toFixed(2)}</p></div>
+          <div className="flex items-end justify-between gap-3"><div><p className="text-xs uppercase tracking-wide text-slate-500">Quote total</p><p className="mt-1 text-xs text-slate-400">{effectiveCrew} movers x {zoneQuote.data?.quote.booking?.billableHours ?? summary.fallbackBooking.billableHours} labor hrs{summary.zonePricing ? ` - ${zoneQuote.data?.dayName}` : summary.fallbackBooking.discountedHours ? ` - ${summary.fallbackBooking.longBookingDiscountPct}% after 4 hrs` : ""}</p></div><p className="text-3xl font-bold text-emerald-400">${summary.grandTotal.toFixed(2)}</p></div>
           <div className="mt-3 space-y-1 text-xs text-slate-400">{summary.lineItems.map((item) => <div key={item.id} className="flex justify-between gap-3"><span>{item.name}{item.qty > 1 ? ` x ${item.qty}` : ""}</span><span className="shrink-0">${item.total.toFixed(2)}</span></div>)}</div>
         </section>
 
@@ -585,8 +609,8 @@ function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
             basePrice: summary.basePrice.toFixed(2),
             totalPrice: summary.grandTotal.toFixed(2),
             crewSize: effectiveCrew,
-            confirmedHours: hours,
-            quoteNotes: `Moving labor: ${effectiveCrew} movers x ${hours} hours. ${summary.zonePricing ? `${summary.zonePricing.zone?.name || "Zone"} ${zoneQuote.data?.dayName || "scheduled day"} rate applied.` : "Global rate applied."}`,
+            confirmedHours: zoneQuote.data?.quote.booking?.billableHours ?? summary.fallbackBooking.billableHours,
+            quoteNotes: `Moving labor: ${effectiveCrew} movers x ${zoneQuote.data?.quote.booking?.billableHours ?? summary.fallbackBooking.billableHours} billable hours (${workScope.replace("_", " + ")}). ${summary.zonePricing ? `${summary.zonePricing.zone?.name || "Zone"} multiplier and travel applied.` : "Standard labor menu applied."}`,
             hasHotTub: specialItems.hasHotTub,
             hotTubFee: selectedSpecialFee("hasHotTub", "specialtyHotTub", 600).toFixed(2),
             hasHeavySafe: specialItems.hasHeavySafe,

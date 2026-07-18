@@ -34,6 +34,7 @@ type Draft = {
   priority: string;
   travelBaseFee: string;
   travelPerMile: string;
+  laborMultiplier: string;
   estimatePaddingPct: string;
 };
 
@@ -53,6 +54,7 @@ const initialDraft: Draft = {
   priority: "50",
   travelBaseFee: "0",
   travelPerMile: "0",
+  laborMultiplier: "1",
   estimatePaddingPct: "0.12",
 };
 
@@ -151,6 +153,7 @@ export default function MarketplaceZoneMapBuilder({
         priority: Number(draft.priority || 100),
         travelBaseFee: Number(draft.travelBaseFee || 0),
         travelPerMile: Number(draft.travelPerMile || 0),
+        laborMultiplier: Number(draft.laborMultiplier || 1),
         estimatePaddingPct: Number(draft.estimatePaddingPct || 0.12),
       });
       return res.json();
@@ -237,7 +240,7 @@ export default function MarketplaceZoneMapBuilder({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             <div>
               <Label className="text-xs text-slate-400">Lat</Label>
               <Input value={draft.lat} onChange={(e) => patch({ lat: e.target.value })} className="mt-1 border-slate-700 bg-slate-950 text-white" />
@@ -260,6 +263,10 @@ export default function MarketplaceZoneMapBuilder({
             <div>
               <Label className="text-xs text-slate-400">Per mile</Label>
               <Input type="number" min="0" value={draft.travelPerMile} onChange={(e) => patch({ travelPerMile: e.target.value })} className="mt-1 border-slate-700 bg-slate-950 text-white" />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-400">Labor multiplier</Label>
+              <Input type="number" min="0" step="0.01" value={draft.laborMultiplier} onChange={(e) => patch({ laborMultiplier: e.target.value })} className="mt-1 border-slate-700 bg-slate-950 text-white" />
             </div>
             <div>
               <Label className="text-xs text-slate-400">Padding</Label>

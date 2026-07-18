@@ -8,6 +8,7 @@ export type JobEventType =
   | "quote_requested"
   | "quote_sent"
   | "job_available"
+  | "crew_claimed"
   | "crew_assigned"
   | "job_updated"
   | "job_completed";
@@ -111,6 +112,13 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
         notificationType: "system_alert",
         title: "New Job Available",
         message: `${service} job for ${name} is open for crew on ${date}.`,
+      };
+    case "crew_claimed":
+      return {
+        scope: "owners",
+        notificationType: "job_status_change",
+        title: "Crew Claim Needs Review",
+        message: `A crew member claimed a slot on ${name}'s ${service} job. Confirm the crew and dispatch when it is ready.`,
       };
     case "crew_assigned":
       return {

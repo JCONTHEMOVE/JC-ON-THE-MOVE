@@ -42,6 +42,7 @@ type PricingZone = {
   priority: number;
   travelBaseFee: string | number;
   travelPerMile: string | number;
+  laborMultiplier: string | number;
   estimatePaddingPct: string | number;
   polygon?: [number, number][];
   rates: ZoneRate[];
@@ -81,6 +82,7 @@ export default function MarketplaceZonePricingPage() {
     moveDate: new Date().toISOString().slice(0, 10),
   });
   const [rateDrafts, setRateDrafts] = useState<Record<string, Partial<ZoneRate>>>({});
+  const [zoneMultiplierDrafts, setZoneMultiplierDrafts] = useState<Record<string, string>>({});
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
 
   const zonesQuery = useQuery<ZonesResponse>({
@@ -112,6 +114,23 @@ export default function MarketplaceZonePricingPage() {
   const previewData = previewMutation.data;
   const previewCrewSize = previewData ? marketplacePreviewCrewSize(previewData, Number(preview.crewSize)) : 0;
   const previewBillableHours = previewData ? marketplacePreviewBillableHours(previewData, Number(preview.hours)) : 0;
+
+  const zoneMutation = useMutation({
+    mutationFn: async ({ zone, laborMultiplier }: { zone: PricingZone; laborMultiplier: number }) => {
+      const res = await apiRequest("PATCH", `/api/admin/marketplace/pricing-zones/${zone.id}`, {
+        ...zone,
+        laborMultiplier,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/marketplace/pricing-zones"] });
+      toast({ title: "Zone labor multiplier saved" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not save zone multiplier", description: err.message, variant: "destructive" });
+    },
+  });
 
   const rateMutation = useMutation({
     mutationFn: async (rate: ZoneRate) => {
@@ -248,12 +267,35 @@ export default function MarketplaceZonePricingPage() {
                     <div>
                       <p className="text-sm font-black text-white">{zone.name}</p>
                       <p className="text-xs text-slate-500">
-                        {zone.code} - padding {percentValue(zone.estimatePaddingPct)} - travel {money(zone.travelBaseFee)} + {money(zone.travelPerMile)}/mi
+                        {zone.code} - labor {numberValue(zone.laborMultiplier || 1).toFixed(2)}× - travel {money(zone.travelBaseFee)} + {money(zone.travelPerMile)}/mi - padding {percentValue(zone.estimatePaddingPct)}
                       </p>
                     </div>
                     <span className={`rounded-full px-2 py-1 text-xs font-bold ${zone.active ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700 text-slate-300"}`}>
                       {zone.active ? "Active" : "Paused"}
                     </span>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-2 border-b border-slate-800 px-4 py-3">
+                    <div className="w-44">
+                      <Label className="text-[11px] text-slate-500">Labor multiplier</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={zoneMultiplierDrafts[zone.id] ?? String(zone.laborMultiplier ?? 1)}
+                        onChange={(event) => setZoneMultiplierDrafts((current) => ({ ...current, [zone.id]: event.target.value }))}
+                        className="mt-1 h-8 border-slate-700 bg-slate-950 text-sm text-white"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={zoneMutation.isPending}
+                      onClick={() => zoneMutation.mutate({ zone, laborMultiplier: Number(zoneMultiplierDrafts[zone.id] ?? zone.laborMultiplier ?? 1) })}
+                      className="h-8 border-cyan-400/35 text-cyan-200 hover:bg-cyan-500/10"
+                    >
+                      Save multiplier
+                    </Button>
                   </div>
                   <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-2">
                     <p className="text-xs font-medium text-slate-300">{RATE_DAYS[selectedDay]} rates</p>

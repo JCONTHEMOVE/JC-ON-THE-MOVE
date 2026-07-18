@@ -20,19 +20,12 @@ import { useLocation } from "wouter";
 import type { User } from "@shared/schema";
 import LawnJobBrief from "@/components/LawnJobBrief";
 import { PaymentStatusPill } from "@/components/PaymentStatusPill";
-import AuthorityTasksCard from "@/components/AuthorityTasksCard";
-import JobLifecycleRail from "@/components/JobLifecycleRail";
-import MarketplaceActionMatrix from "@/components/MarketplaceActionMatrix";
 import MarketplaceShapeBadge from "@/components/MarketplaceShapeBadge";
-import MarketplaceShapeContext from "@/components/MarketplaceShapeContext";
-import MarketplaceProcessGuide from "@/components/MarketplaceProcessGuide";
-import MarketplaceNextStepFlow from "@/components/MarketplaceNextStepFlow";
-import MarketplaceSourceFlowStrip from "@/components/MarketplaceSourceFlowStrip";
-import MarketplaceTaskSplit from "@/components/MarketplaceTaskSplit";
 import SmartBookingGuidanceCard from "@/components/SmartBookingGuidanceCard";
 import { BookingMenuIntelligenceCard } from "@/components/BookingMenuIntelligenceCard";
 import { extractBookingMenuIntelligence, extractSmartBookingAnswersFromQuoteSnapshot } from "@/lib/booking-menu-intelligence";
 import type { SmartBookingAnswers } from "@shared/smartBookingEngine";
+import type { JobFlow } from "@shared/job-flow";
 import { useAdminViewMode } from "@/hooks/useAdminViewMode";
 
 const SERVICE_ICONS: Record<string, string> = {
@@ -82,10 +75,6 @@ const DEFAULT_HOURS = 3;
 
 function calcEstimatedTokens(hours: number | null): number {
   return FLAT_TOKEN_BASE + TOKENS_PER_HOUR * (hours || DEFAULT_HOURS);
-}
-
-function workerActionPhaseForLead(lead: { status: string | null }): "progress" | "finish" {
-  return String(lead.status || "").toLowerCase() === "completed" ? "finish" : "progress";
 }
 
 function extractZipFromText(value: string | null | undefined): string | undefined {
@@ -164,6 +153,7 @@ type JobBoardLead = {
   dispatchState?: string | null;
   quoteSnapshot?: unknown;
   bonus?: { amount: number; reasons: string[] } | null;
+  flow: JobFlow;
 };
 
 type EnrichedLead = {
@@ -201,6 +191,7 @@ type EnrichedLead = {
     amount?: number;
     reasons?: string[];
   } | null;
+  flow: JobFlow;
 };
 
 type TradeRequestStatus = {
@@ -946,8 +937,8 @@ function JobDetailSheet({
     },
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/job-board"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
       onLeadUpdated(updated);
       setEditForm(buildJobEditForm(updated));
       setEditOpen(false);
@@ -971,9 +962,7 @@ function JobDetailSheet({
   const guidanceAnswers = smartBookingAnswersForCrewLead(lead);
   const fallbackServiceLabel = SERVICE_LABELS[lead.serviceType] || lead.serviceType;
   const menuIntelligence = extractBookingMenuIntelligence(lead.quoteSnapshot, fallbackServiceLabel);
-  const marketplaceSourceContext = menuIntelligence?.sourceSignal || null;
   const marketplaceServiceLabel = menuIntelligence?.serviceLabel || fallbackServiceLabel;
-  const marketplaceWorkerPhase = workerActionPhaseForLead(lead);
 
   const crewEmployees = crewMembersArr
     .map(id => employees.find(e => e.id === id))
@@ -1297,51 +1286,12 @@ function JobDetailSheet({
             </div>
           )}
 
-          <JobLifecycleRail lead={lead} />
-          <SmartBookingGuidanceCard
-            answers={guidanceAnswers}
-            serviceLabel={lead.serviceType}
-            compact
-          />
-          <MarketplaceProcessGuide
-            source={marketplaceSourceContext}
-            serviceCode={lead.serviceType}
-            serviceLabel={marketplaceServiceLabel}
-            audience="worker"
-            compact
-          />
-          <MarketplaceActionMatrix
-            rail="worker"
-            phase={marketplaceWorkerPhase}
-            source={marketplaceSourceContext}
-            serviceCode={lead.serviceType}
-            serviceLabel={marketplaceServiceLabel}
-            compact
-            limit={3}
-          />
-          <MarketplaceTaskSplit
-            rails={["bronze", "silver", "gold"]}
-            phase={marketplaceWorkerPhase}
-            source={marketplaceSourceContext}
-            serviceCode={lead.serviceType}
-            serviceLabel={marketplaceServiceLabel}
-            compact
-            limitPerRail={2}
-          />
-          <MarketplaceSourceFlowStrip
-            source={marketplaceSourceContext}
-            serviceCode={lead.serviceType}
-            serviceLabel={marketplaceServiceLabel}
-            audience="worker"
-            phase={marketplaceWorkerPhase}
-          />
-          <MarketplaceShapeContext
-            serviceCode={lead.serviceType}
-            source={marketplaceSourceContext}
-            audience="worker"
-            maxIdeas={2}
-            maxFlows={1}
-          />
+          <div className="rounded-lg border border-blue-500/25 bg-blue-500/10 px-3 py-2.5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-blue-300">Next action</p>
+            <p className="mt-0.5 text-sm font-bold text-white">{lead.flow?.nextAction.label || "Open job"}</p>
+            <p className="mt-0.5 text-xs text-slate-300">{lead.flow?.nextAction.description || "Review the job details and complete the next permitted step."}</p>
+          </div>
+          <SmartBookingGuidanceCard answers={guidanceAnswers} serviceLabel={lead.serviceType} compact />
           <BookingMenuIntelligenceCard
             quoteSnapshot={lead.quoteSnapshot}
             fallbackServiceLabel={marketplaceServiceLabel}
@@ -1544,14 +1494,14 @@ export default function CrewJobsPage() {
   const isAdmin = ["admin", "business_owner"].includes(user?.role || "") && !isCrewPreview;
 
   const { data: boardJobs = [], isLoading: boardLoading } = useQuery<JobBoardLead[]>({
-    queryKey: ["/api/leads/job-board"],
+    queryKey: ["/api/jobs/flow?scope=board"],
     staleTime: 0,
     refetchOnMount: true,
     refetchInterval: 30000,
   });
 
   const { data: myJobs = [], isLoading: myJobsLoading } = useQuery<EnrichedLead[]>({
-    queryKey: ["/api/leads/my-jobs"],
+    queryKey: ["/api/jobs/flow?scope=mine"],
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -1567,18 +1517,22 @@ export default function CrewJobsPage() {
 
   const applyMutation = useMutation({
     mutationFn: async (leadId: string) => {
-      const res = await apiRequest("POST", `/api/leads/${leadId}/crew-apply`, {});
+      const res = await apiRequest("POST", `/api/jobs/${leadId}/claim`, {});
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Failed to sign up" }));
         throw new Error(err.error || "Failed to sign up");
       }
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/job-board"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
       setApplyingId(null);
-      toast({ title: "Signed up!", description: "Admin will confirm your assignment." });
+      if (data?.job) {
+        setSelectedJob(data.job);
+        setDetailOpen(true);
+      }
+      toast({ title: "Job claimed", description: "Admin will confirm the crew and dispatch it when ready." });
     },
     onError: (e: Error) => {
       setApplyingId(null);
@@ -1599,8 +1553,8 @@ export default function CrewJobsPage() {
     },
     onMutate: (leadId) => setAcceptPending(leadId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/job-board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=board"] });
       setAcceptPending(null);
       toast({ title: "✅ Offer accepted", description: "You're on the job — tap Start when en route." });
     },
@@ -1622,7 +1576,7 @@ export default function CrewJobsPage() {
     },
     onMutate: ({ leadId }) => setStatusPending(leadId),
     onSuccess: (_d, { status }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       // On completion, also refresh earnings so the crew sees their
       // base + bonus payout land on the Earnings tab immediately.
@@ -1653,8 +1607,8 @@ export default function CrewJobsPage() {
     },
     onMutate: (leadId) => setDeclinePending(leadId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/job-board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=board"] });
       setDeclinePending(null);
       toast({ title: "Offer declined", description: "We'll offer it to the next available crew." });
     },
@@ -1672,8 +1626,8 @@ export default function CrewJobsPage() {
     onMutate: ({ leadId }) => setArchivingId(leadId),
     onSuccess: (_data, { label }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/job-board"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
       setArchivingId(null);
       setDetailOpen(false);
       setSelectedJob(null);
@@ -1693,8 +1647,8 @@ export default function CrewJobsPage() {
     onMutate: () => setArchivingId("completed-bulk"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/job-board"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
       setArchivingId(null);
       toast({ title: "Completed leads archived", description: "Completed customer leads moved out of active job views." });
     },
@@ -1757,6 +1711,9 @@ export default function CrewJobsPage() {
     : false;
 
   const openCount = boardJobs.filter(j => !j.alreadyApplied && (j.crewSize || 2) > j.crewSlotsFilled).length;
+  const nextActionJob = myJobs.find((job) => job.flow?.stage !== "completed" && job.flow?.stage !== "closed")
+    || boardJobs.find((job) => job.flow?.canClaim)
+    || null;
 
   return (
     <div className="max-w-2xl mx-auto px-4 pt-6 pb-8">
@@ -1770,9 +1727,20 @@ export default function CrewJobsPage() {
         </Button>
       </div>
 
-      <AuthorityTasksCard className="mb-5" />
-      <MarketplaceNextStepFlow side="worker" rails={["bronze", "silver", "gold"]} compact className="mb-5" />
-      <MarketplaceTaskSplit rails={["bronze", "silver", "gold"]} compact className="mb-5" />
+      {nextActionJob && (
+        <button
+          type="button"
+          onClick={() => openDetail(nextActionJob)}
+          className="mb-4 flex w-full items-center gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-left hover:bg-blue-500/15"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0 text-blue-300" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[10px] font-black uppercase tracking-widest text-blue-300">Next action</span>
+            <span className="block truncate text-sm font-bold text-white">{nextActionJob.flow.nextAction.label} · {nextActionJob.flow.label}</span>
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-blue-200" />
+        </button>
+      )}
 
       <Tabs defaultValue="board">
         <TabsList className="bg-slate-800/50 border border-slate-700/50 mb-5 w-full">

@@ -65,6 +65,8 @@ import { getDepositInfo, extractZip } from "@shared/depositRules";
 import { MIN_REDEMPTION_TOKENS, REDEMPTION_INCREMENT, roundToIncrement, validateRedemption, tokensToDollars } from "@shared/tokenRedemptionRules";
 import { buildLeadJobPayoutPreview } from "./services/jobPayoutEngine";
 import { emitJobEvent, eventTypeForStatus } from "./services/jobEventBus";
+import { buildJobFlowRecords, jobBelongsToCrew, toCrewBoardFlow } from "./services/jobFlow";
+import { calculateLaborBooking, normalizeLaborWorkScope } from "@shared/laborBooking";
 import { calculateProfitSharingPayout, defaultBonusWeightsForCrew, defaultHourlyRateForRole, normalizeProfitShareSettings } from "./services/profitSharingPayoutEngine";
 import { canFinalizeProfitSharePayout, shouldIssueJcmovesRewardForPayoutStatus, type ProfitShareRole, type ProfitShareWorkerInput } from "@shared/jobPayout";
 import { QUOTE_HELPER_MESSAGE_LIMIT, summarizeQuoteRequest } from "./services/geminiQuoteHelper";
@@ -1445,6 +1447,15 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
+      -- Existing deployments can have an earlier version of this table.
+      -- CREATE TABLE IF NOT EXISTS does not upgrade it, which previously
+      -- surfaced to crew as an unhelpful "Failed to save quote vote" 500.
+      ALTER TABLE quote_consensus_votes ADD COLUMN IF NOT EXISTS choice_label TEXT;
+      ALTER TABLE quote_consensus_votes ADD COLUMN IF NOT EXISTS authority_tier TEXT NOT NULL DEFAULT 'bronze';
+      ALTER TABLE quote_consensus_votes ADD COLUMN IF NOT EXISTS notes TEXT;
+      ALTER TABLE quote_consensus_votes ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
+      ALTER TABLE quote_consensus_votes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+      UPDATE quote_consensus_votes SET choice_label = COALESCE(choice_label, choice_key) WHERE choice_label IS NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS uq_quote_consensus_vote_lead_user
         ON quote_consensus_votes(lead_id, user_id);
       CREATE INDEX IF NOT EXISTS idx_quote_consensus_votes_lead ON quote_consensus_votes(lead_id);
@@ -1460,6 +1471,10 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         metadata JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
+      ALTER TABLE quote_attributions ADD COLUMN IF NOT EXISTS booking_id VARCHAR;
+      ALTER TABLE quote_attributions ADD COLUMN IF NOT EXISTS user_id VARCHAR REFERENCES users(id);
+      ALTER TABLE quote_attributions ADD COLUMN IF NOT EXISTS promo_code TEXT;
+      ALTER TABLE quote_attributions ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
       CREATE INDEX IF NOT EXISTS idx_quote_attributions_lead ON quote_attributions(lead_id);
       CREATE INDEX IF NOT EXISTS idx_quote_attributions_booking ON quote_attributions(booking_id);
       CREATE INDEX IF NOT EXISTS idx_quote_attributions_user ON quote_attributions(user_id);
@@ -4574,24 +4589,20 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
   // POST /api/jobs/create-moving — create a moving job and auto-dispatch
   app.post("/api/jobs/create-moving", isAuthenticatedAllowPending, async (req: any, res) => {
     try {
-      const { movers, hours, address, notes, customerName, phone, email } = req.body;
+      const { movers, hours, address, notes, customerName, phone, email, workScope, oversized } = req.body;
 
       const moverCount = Math.floor(Number(movers) || 0);
       const hourCount  = Math.floor(Number(hours)  || 0);
 
-      if (moverCount < 1 || moverCount > 10) return res.status(400).json({ error: "Mover count must be between 1 and 10" });
+      if (moverCount < 2 || moverCount > 4) return res.status(400).json({ error: "Choose 2–4 movers; five or more movers require staff review" });
       if (hourCount < 1 || hourCount > 24)   return res.status(400).json({ error: "Hours must be between 1 and 24" });
       const addrTrimmed = typeof address === "string" ? address.trim() : "";
       if (!addrTrimmed || addrTrimmed.length < 8 || !/[a-zA-Z]/.test(addrTrimmed) || !/\d/.test(addrTrimmed)) {
         return res.status(400).json({ error: "A full street address is required (e.g. 123 Main St, Ironwood, MI)" });
       }
 
-      // Calculate price from live pricing config
-      const { rows: pricingRows } = await pool.query(
-        `SELECT setting_key, setting_value FROM spin_config WHERE setting_key IN ('pricing_rate_per_mover_hour') LIMIT 1`
-      );
-      const ratePerMoverHour = parseFloat(pricingRows[0]?.setting_value ?? "65");
-      const totalPrice = Math.round(moverCount * hourCount * ratePerMoverHour);
+      const laborBooking = calculateLaborBooking({ crewSize: moverCount, hours: hourCount, workScope, oversized: Boolean(oversized) });
+      const totalPrice = laborBooking.laborTotal;
 
       const nameParts = (customerName || "").trim().split(" ");
       const firstName = nameParts[0] || "Customer";
@@ -4606,14 +4617,15 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         serviceType: "moving",
         fromAddress: address.trim(),
         status: "new",
-        crewSize: moverCount,
+        crewSize: laborBooking.crewSize,
+        confirmedHours: laborBooking.billableHours,
         basePrice: String(totalPrice),
         totalPrice: String(totalPrice),
-        details: `Moving job: ${moverCount} mover${moverCount > 1 ? "s" : ""}, ${hourCount} hour${hourCount > 1 ? "s" : ""}${notes ? ` — ${notes}` : ""}`,
+        details: `Moving job: ${laborBooking.crewSize} movers, ${laborBooking.billableHours} billable hours (${laborBooking.workScope.replace("_", " + ")}).${notes ? ` — ${notes}` : ""}`,
         createdByUserId: (req.session as any).userId || req.user?.id || null,
       }).returning();
 
-      const assignedCrew = await dispatchGenericJob({ leadId: lead.id, kind: "moving", crewSize: moverCount });
+      const assignedCrew = await dispatchGenericJob({ leadId: lead.id, kind: "moving", crewSize: laborBooking.crewSize });
 
       // Notify admin
       const companyEmail = process.env.COMPANY_EMAIL || "michigankid906@gmail.com";
@@ -4653,19 +4665,15 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       const moverCount = Math.floor(Number(movers) || 0);
       const hourCount  = Math.floor(Number(hours)  || 0);
 
-      if (moverCount < 1 || moverCount > 10) return res.status(400).json({ error: "Mover count must be between 1 and 10" });
+      if (moverCount < 2 || moverCount > 4) return res.status(400).json({ error: "Choose 2–4 movers; five or more movers require staff review" });
       if (hourCount < 1 || hourCount > 24)   return res.status(400).json({ error: "Hours must be between 1 and 24" });
       const addrTrimmed = typeof address === "string" ? address.trim() : "";
       if (!addrTrimmed || addrTrimmed.length < 8 || !/[a-zA-Z]/.test(addrTrimmed) || !/\d/.test(addrTrimmed)) {
         return res.status(400).json({ error: "A full street address is required (e.g. 123 Main St, Ironwood, MI)" });
       }
 
-      // Calculate price from live pricing config (labor uses same per-mover-hour rate)
-      const { rows: pricingRows } = await pool.query(
-        `SELECT setting_value FROM spin_config WHERE setting_key='pricing_rate_per_mover_hour' LIMIT 1`
-      );
-      const ratePerMoverHour = parseFloat(pricingRows[0]?.setting_value ?? "65");
-      const totalPrice = Math.round(moverCount * hourCount * ratePerMoverHour);
+      const laborBooking = calculateLaborBooking({ crewSize: moverCount, hours: hourCount, workScope: "load_only" });
+      const totalPrice = laborBooking.laborTotal;
 
       const nameParts = (customerName || "").trim().split(" ");
       const firstName = nameParts[0] || "Customer";
@@ -4680,14 +4688,15 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         serviceType: "labor",
         fromAddress: address.trim(),
         status: "new",
-        crewSize: moverCount,
+        crewSize: laborBooking.crewSize,
+        confirmedHours: laborBooking.billableHours,
         basePrice: String(totalPrice),
         totalPrice: String(totalPrice),
-        details: `Labor only: ${moverCount} helper${moverCount > 1 ? "s" : ""}, ${hourCount} hour${hourCount > 1 ? "s" : ""}${notes ? ` — ${notes}` : ""}`,
+        details: `Labor only: ${laborBooking.crewSize} movers, ${laborBooking.billableHours} billable hours.${notes ? ` — ${notes}` : ""}`,
         createdByUserId: (req.session as any).userId || req.user?.id || null,
       }).returning();
 
-      const assignedCrew = await dispatchGenericJob({ leadId: lead.id, kind: "labor", crewSize: moverCount });
+      const assignedCrew = await dispatchGenericJob({ leadId: lead.id, kind: "labor", crewSize: laborBooking.crewSize });
 
       // Notify admin
       const companyEmail = process.env.COMPANY_EMAIL || "michigankid906@gmail.com";
@@ -7301,23 +7310,48 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         },
       });
 
-      const consensus = await summarizeQuoteConsensus(lead.id, user.id);
-      const applyResult = await applyQuoteConsensusIfReady(lead, choice, consensus, user);
+      let consensus: Awaited<ReturnType<typeof summarizeQuoteConsensus>>;
+      let applyResult: Awaited<ReturnType<typeof applyQuoteConsensusIfReady>>;
+      try {
+        consensus = await summarizeQuoteConsensus(lead.id, user.id);
+        applyResult = await applyQuoteConsensusIfReady(lead, choice, consensus, user);
+      } catch (applyError: any) {
+        // The vote is durable even if an optional automatic application needs
+        // review. Do not make a crew member retry and create a duplicate vote.
+        console.error("[quote-consensus] vote saved but application failed:", {
+          leadId: lead.id,
+          userId: user.id,
+          code: applyError?.code,
+          message: applyError?.message,
+        });
+        return res.status(202).json({
+          success: true,
+          saved: true,
+          applied: false,
+          code: "QUOTE_VOTE_SAVED_REVIEW_REQUIRED",
+          message: "Your quote recommendation was saved for Admin review.",
+        });
+      }
 
-      await db.insert(quoteAttributions).values({
-        leadId: lead.id,
-        userId: user.id,
-        attributionType: consensus.autoApproved && consensus.topChoiceKey === choice.key ? "quote_consensus_auto" : "quote_consensus_vote",
-        metadata: {
-          choiceKey: choice.key,
-          choiceLabel: choice.label,
-          topChoiceKey: consensus.topChoiceKey,
-          topVotes: consensus.topVotes,
-          totalVotes: consensus.totalVotes,
-          applied: applyResult.applied,
-          notes,
-        },
-      });
+      try {
+        await db.insert(quoteAttributions).values({
+          leadId: lead.id,
+          userId: user.id,
+          attributionType: consensus.autoApproved && consensus.topChoiceKey === choice.key ? "quote_consensus_auto" : "quote_consensus_vote",
+          metadata: {
+            choiceKey: choice.key,
+            choiceLabel: choice.label,
+            topChoiceKey: consensus.topChoiceKey,
+            topVotes: consensus.topVotes,
+            totalVotes: consensus.totalVotes,
+            applied: applyResult.applied,
+            notes,
+          },
+        });
+      } catch (attributionError) {
+        // Attribution is analytical only; voting and quoting must remain usable.
+        console.error("[quote-consensus] non-blocking attribution failure:", attributionError);
+      }
 
       try {
         await awardOpsTaskBonus({
@@ -7345,9 +7379,20 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         applied: applyResult.applied,
         lead: applyResult.updatedLead,
       });
-    } catch (error) {
-      console.error("quote consensus vote error:", error);
-      res.status(500).json({ message: "Failed to save quote vote" });
+    } catch (error: any) {
+      const schemaFailure = ["42P01", "42703", "42704"].includes(String(error?.code || ""));
+      console.error("[quote-consensus] vote save failed:", {
+        leadId: req.params.id,
+        userId: req.currentUser?.id,
+        code: error?.code,
+        message: error?.message,
+      });
+      res.status(schemaFailure ? 503 : 500).json({
+        code: schemaFailure ? "QUOTE_CONSENSUS_UNAVAILABLE" : "QUOTE_VOTE_FAILED",
+        message: schemaFailure
+          ? "Quote selection is temporarily unavailable. Please open the job and try again shortly."
+          : "We could not save that quote recommendation. Please try again.",
+      });
     }
   });
 
@@ -8847,7 +8892,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         }
       }
 
-      res.json(leadRows.map((lead) => ({
+      const flowRows = await buildJobFlowRecords(leadRows);
+      res.json(flowRows.map((lead) => ({
         ...lead,
         attribution: attributionByLead.get(lead.id) || null,
       })));
@@ -9002,8 +9048,9 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
   // Employee-only routes MUST be registered before /:id to avoid being captured by the parametric route
   app.get("/api/leads/available", isAuthenticated, requireEmployee, async (req, res) => {
     try {
-      const availableLeads = await storage.getAvailableLeads();
-      res.json(await enrichLeadsWithPhone(availableLeads));
+      const currentUser = (req as any).currentUser;
+      const records = await buildJobFlowRecords(await storage.getLeads());
+      res.json(await decorateCrewBoardRecords(records.filter(isCrewBoardEligible), currentUser.id));
     } catch (error) {
       console.error("Error fetching available leads:", error);
       res.status(500).json({ error: "Failed to fetch available jobs" });
@@ -9013,23 +9060,11 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
   app.get("/api/leads/my-jobs", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
       const employeeId = req.currentUser.id;
-      const assignedLeads = await storage.getAssignedLeads(employeeId);
-      const assignedIds = new Set(assignedLeads.map((l: any) => l.id));
-      const openLeads = await db.select().from(leads)
-        .where(and(inArray(leads.status, ["new", "quote_requested", "available", "quoted", "open", "assigned"]), isNull(leads.archivedAt)))
-        .orderBy(desc(leads.createdAt));
-      const merged = [
-        ...assignedLeads,
-        ...openLeads.filter((l: any) => !assignedIds.has(l.id)),
-      ];
-      const enriched = await enrichLeadsWithPhone(merged);
-      // Task #173 — decorate every job with the per-crew incentive bonus
-      // so the offered card (Accept/Decline) can show the same $ amount
-      // the worker sees on the job-board signup card. Keeps the source
-      // of truth in @shared/crewIncentives so UI and dispatch agree.
+      const assigned = (await buildJobFlowRecords(await storage.getLeads()))
+        .filter((record) => jobBelongsToCrew(record, employeeId));
       const { calcCrewBonus } = await import("@shared/crewIncentives");
-      const withBonus = enriched.map((lead: any) => {
-        const crewSlotsFilled = Array.isArray(lead.crewMembers) ? lead.crewMembers.length : 0;
+      const withBonus = assigned.map((lead: any) => {
+        const crewSlotsFilled = lead.flow?.crew?.claimed ?? (Array.isArray(lead.crewMembers) ? lead.crewMembers.length : 0);
         const bonus = calcCrewBonus({
           urgency: lead.urgency,
           arrivalWindow: lead.arrivalWindow,
@@ -9052,68 +9087,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
   app.get("/api/leads/job-board", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
       const userId = req.currentUser.id;
-      const openLeads = await db.select({
-        id: leads.id,
-        serviceType: leads.serviceType,
-        fromAddress: leads.fromAddress,
-        toAddress: leads.toAddress,
-        moveDate: leads.moveDate,
-        confirmedDate: leads.confirmedDate,
-        arrivalWindow: leads.arrivalWindow,
-        crewSize: leads.crewSize,
-        status: leads.status,
-        basePrice: leads.basePrice,
-        totalPrice: leads.totalPrice,
-        confirmedHours: leads.confirmedHours,
-        hasHotTub: leads.hasHotTub,
-        hasPiano: leads.hasPiano,
-        hasHeavySafe: leads.hasHeavySafe,
-        hasPoolTable: leads.hasPoolTable,
-        details: leads.details,
-        dispatchNotes: leads.dispatchNotes,
-        quoteSnapshot: leads.quoteSnapshot,
-        crewMembers: leads.crewMembers,
-        createdAt: leads.createdAt,
-        urgency: leads.urgency,
-      })
-        .from(leads)
-        .where(
-          and(
-            inArray(leads.status, ["new", "quote_requested", "quoted", "available", "open", "assigned", "in_progress"]),
-            isNull(leads.archivedAt),
-          )
-        )
-        .orderBy(desc(leads.createdAt));
-
-      // Canonical worker payout: 500 flat + 25/hr * estimatedHrs (matches disburse-job-tokens.ts)
-      const FLAT_TOKEN_BASE = 500;
-      const TOKENS_PER_HOUR = 25;
-      const DEFAULT_HOURS = 3;
-
-      const { calcCrewBonus } = await import("@shared/crewIncentives");
-      const masked = openLeads.map(lead => {
-        const estimatedHrs = lead.confirmedHours || DEFAULT_HOURS;
-        const crewSlotsFilled = Array.isArray(lead.crewMembers) ? lead.crewMembers.length : 0;
-        const bonus = calcCrewBonus({
-          urgency: lead.urgency,
-          arrivalWindow: lead.arrivalWindow,
-          moveDate: lead.moveDate,
-          confirmedDate: lead.confirmedDate,
-          crewSize: lead.crewSize,
-          crewSlotsFilled,
-          totalPrice: lead.totalPrice,
-          serviceType: lead.serviceType,
-        });
-        return {
-          ...lead,
-          estimatedTokens: FLAT_TOKEN_BASE + TOKENS_PER_HOUR * estimatedHrs,
-          alreadyApplied: Array.isArray(lead.crewMembers) && lead.crewMembers.includes(userId),
-          crewSlotsFilled,
-          bonus,
-        };
-      });
-
-      res.json(masked);
+      const records = await buildJobFlowRecords(await storage.getLeads());
+      res.json(await decorateCrewBoardRecords(records.filter(isCrewBoardEligible), userId));
     } catch (error) {
       console.error("Error fetching job board:", error);
       res.status(500).json({ error: "Failed to fetch job board" });
@@ -12470,8 +12445,90 @@ Thank you for your business!
     }));
   }
 
-  // Worker signs up for a job (adds self to crewMembers)
-  app.post("/api/leads/:id/crew-apply", isAuthenticated, requireEmployee, async (req: any, res) => {
+  const isBusinessOwnerUser = (user: any) => Boolean(
+    user && (["admin", "business_owner"].includes(String(user.role || "")) || user.email === "upmichiganstatemovers@gmail.com"),
+  );
+
+  const isCrewBoardEligible = (record: Awaited<ReturnType<typeof buildJobFlowRecords>>[number]) => {
+    const status = String(record.status || "").toLowerCase();
+    return ["available", "open"].includes(status)
+      && ["ready_for_crew", "crew_claimed"].includes(record.flow.stage)
+      && record.flow.crew.openSlots > 0;
+  };
+
+  const decorateCrewBoardRecords = async (records: Awaited<ReturnType<typeof buildJobFlowRecords>>, userId: string) => {
+    const { calcCrewBonus } = await import("@shared/crewIncentives");
+    const FLAT_TOKEN_BASE = 500;
+    const TOKENS_PER_HOUR = 25;
+    const DEFAULT_HOURS = 3;
+    return records.map((record) => {
+      const boardRecord = toCrewBoardFlow(record, userId);
+      const estimatedHrs = record.confirmedHours || DEFAULT_HOURS;
+      return {
+        ...boardRecord,
+        estimatedTokens: FLAT_TOKEN_BASE + TOKENS_PER_HOUR * estimatedHrs,
+        bonus: calcCrewBonus({
+          urgency: record.urgency,
+          arrivalWindow: record.arrivalWindow,
+          moveDate: record.moveDate,
+          confirmedDate: record.confirmedDate,
+          crewSize: record.crewSize,
+          crewSlotsFilled: record.flow.crew.claimed,
+          totalPrice: record.totalPrice,
+          serviceType: record.serviceType,
+        }),
+      };
+    });
+  };
+
+  /**
+   * One canonical job feed.  It intentionally returns the same lead record
+   * shape that legacy screens expect, augmented with `flow`, so individual
+   * pages can migrate without changing payments, dispatch, or payout APIs.
+   */
+  app.get("/api/jobs/flow", isAuthenticated, requireEmployee, async (req: any, res) => {
+    try {
+      const scope = String(req.query.scope || "mine");
+      if (!["admin", "board", "mine"].includes(scope)) {
+        return res.status(400).json({ error: "scope must be admin, board, or mine" });
+      }
+      const user = req.currentUser;
+      if (scope === "admin" && !isBusinessOwnerUser(user)) {
+        return res.status(403).json({ error: "Business owner access required" });
+      }
+
+      const allRecords = await buildJobFlowRecords(await storage.getLeads());
+      if (scope === "admin") return res.json(allRecords);
+      if (scope === "board") {
+        return res.json(await decorateCrewBoardRecords(allRecords.filter(isCrewBoardEligible), user.id));
+      }
+      return res.json(allRecords.filter((record) => jobBelongsToCrew(record, user.id)));
+    } catch (error) {
+      console.error("Error fetching universal job flow:", error);
+      res.status(500).json({ error: "Failed to fetch job flow" });
+    }
+  });
+
+  app.get("/api/jobs/:id/flow", isAuthenticated, requireEmployee, async (req: any, res) => {
+    try {
+      const user = req.currentUser;
+      const lead = await storage.getLead(req.params.id);
+      if (!lead || lead.archivedAt) return res.status(404).json({ error: "Job not found" });
+      const [record] = await buildJobFlowRecords([lead]);
+      if (isBusinessOwnerUser(user) || jobBelongsToCrew(record, user.id)) return res.json(record);
+      if (isCrewBoardEligible(record)) return res.json((await decorateCrewBoardRecords([record], user.id))[0]);
+      return res.status(403).json({ error: "Access denied" });
+    } catch (error) {
+      console.error("Error fetching universal job detail:", error);
+      res.status(500).json({ error: "Failed to fetch job detail" });
+    }
+  });
+
+  // Worker claim keeps the provisional crew on the canonical lead record.
+  // `acceptedByEmployees` remains untouched until the formal dispatch offer
+  // is accepted, so Admin can see the difference between a claim and a job
+  // that has actually been dispatched.
+  const handleCrewClaim = async (req: any, res: any) => {
     try {
       const leadId = req.params.id;
       const userId = req.currentUser.id;
@@ -12483,20 +12540,55 @@ Thank you for your business!
         return res.status(400).json({ error: "This job is no longer open" });
       }
 
+      const [flowRecord] = await buildJobFlowRecords([lead]);
+      if (!isCrewBoardEligible(flowRecord)) {
+        return res.status(409).json({
+          error: "This job is not ready for crew claims",
+          code: "JOB_NOT_READY_FOR_CLAIM",
+          flow: flowRecord.flow,
+        });
+      }
+
       const currentMembers: string[] = Array.isArray(lead.crewMembers) ? lead.crewMembers : [];
       if (currentMembers.includes(userId)) {
         return res.status(400).json({ error: "You have already signed up for this job" });
       }
 
-      const updatedMembers = [...currentMembers, userId];
-      await db.update(leads).set({ crewMembers: updatedMembers }).where(eq(leads.id, leadId));
+      const crewSize = Math.max(1, lead.crewSize || 2);
+      if (currentMembers.length >= crewSize) {
+        return res.status(409).json({ error: "This crew is already full", code: "CREW_FULL" });
+      }
 
-      res.json({ success: true, message: "You're signed up! The admin will confirm your assignment." });
+      const updatedMembers = [...currentMembers, userId];
+      const [updatedLead] = await db.update(leads)
+        .set({ crewMembers: updatedMembers })
+        .where(eq(leads.id, leadId))
+        .returning();
+      if (!updatedLead) return res.status(404).json({ error: "Job not found" });
+
+      await emitJobEvent("crew_claimed", updatedLead, {
+        actorId: userId,
+        source: "crew_claim",
+        note: "Crew member claimed an open job slot.",
+        extra: { claimedByUserId: userId, claimedSlots: updatedMembers.length, crewSize },
+      });
+
+      const [updatedFlow] = await buildJobFlowRecords([updatedLead]);
+
+      res.json({
+        success: true,
+        message: "Claimed — Admin will confirm the crew and dispatch the job.",
+        job: updatedFlow,
+      });
     } catch (error) {
       console.error("Error applying to job:", error);
       res.status(500).json({ error: "Failed to sign up for job" });
     }
-  });
+  };
+
+  app.post("/api/jobs/:id/claim", isAuthenticated, requireEmployee, handleCrewClaim);
+  // Legacy client compatibility. Both paths call the same canonical command.
+  app.post("/api/leads/:id/crew-apply", isAuthenticated, requireEmployee, handleCrewClaim);
 
   // ── Trade Requests ─────────────────────────────────────────────────────────
 
@@ -26688,6 +26780,51 @@ Thank you for your business!
         serverVerifiedDriveMiles = Math.max(0, Number(verifiedDriveMiles));
       }
 
+      let canonicalLaborBooking: any = null;
+      if (serviceType === "residential") {
+        const requestedCrew = Number(
+          (selectedPackage && typeof selectedPackage === "object" ? selectedPackage.crew : null)
+          ?? quote.crew
+          ?? 2,
+        );
+        const requestedHours = Number(
+          (selectedPackage && typeof selectedPackage === "object" ? selectedPackage.hours : null)
+          ?? quote.minHrs
+          ?? 1,
+        );
+        const specialItems = Array.isArray(a.specialItems) ? a.specialItems : [];
+        const oversized = specialItems.some((item: unknown) => {
+          const label = String(item || "").toLowerCase();
+          return label && !label.includes("none") && /piano|pool table|safe|hot tub|heavy|appliance|fitness/.test(label);
+        });
+        const workScope = normalizeLaborWorkScope(a.loadType);
+        try {
+          const { previewZoneQuote } = await import("./marketplace/zonePricing");
+          const preview = await previewZoneQuote({
+            zip: fromZip || customerZip || undefined,
+            moveDate: typeof a.moveDate === "string" ? a.moveDate : undefined,
+            serviceCode: "load_unload",
+            crewSize: requestedCrew,
+            hours: requestedHours,
+            workScope,
+            oversized,
+            distanceMiles: serverVerifiedDriveMiles,
+          });
+          canonicalLaborBooking = {
+            ...(preview.quote.booking || calculateLaborBooking({ crewSize: requestedCrew, hours: requestedHours, workScope, oversized })),
+            travel: Number(preview.quote.travel || 0),
+            zone: preview.quote.zone,
+          };
+        } catch (pricingError) {
+          console.warn("[chatbot-quote] labor menu preview failed; using standard menu:", pricingError);
+          canonicalLaborBooking = {
+            ...calculateLaborBooking({ crewSize: requestedCrew, hours: requestedHours, workScope, oversized }),
+            travel: calculateMovingTravelCharge(serverVerifiedDriveMiles).fee,
+            zone: null,
+          };
+        }
+      }
+
       // Store all chatbot Q&A in details as JSON (uses server-computed deposit values)
       const photoList = Array.isArray(submittedPhotos) ? submittedPhotos : [];
       const detailsJson = JSON.stringify({
@@ -26696,6 +26833,7 @@ Thank you for your business!
         estimatedQuote: quote,
         bookingIntake: bookingIntake && typeof bookingIntake === "object" ? bookingIntake : null,
         bookingEngineQuote: bookingEngineQuote && typeof bookingEngineQuote === "object" ? bookingEngineQuote : null,
+        laborBooking: canonicalLaborBooking,
         verifiedDriveMiles: serverVerifiedDriveMiles || undefined,
         selectedPackage: (selectedPackage && typeof selectedPackage === "object") ? selectedPackage : null,
         depositRequired: serverDepositRequired,
@@ -26779,7 +26917,7 @@ Thank you for your business!
         ?? selectedPackageMax
         ?? fallbackQuoteMax
         ?? authoritativeMin;
-      const authoritativeCrew =
+      let authoritativeCrew =
         (selectedPackage && typeof selectedPackage === "object" ? selectedPackage.crew : null)
         ?? quote.crew
         ?? 2;
@@ -26794,7 +26932,15 @@ Thank you for your business!
           : 0;
       const missingTravelCharge = Math.max(0, verifiedTravelCharge - submittedTravelCharge);
 
-      if ((serviceType === "residential" || serviceType === "junk") && missingTravelCharge > 0) {
+      if (canonicalLaborBooking) {
+        const specialSurcharge = Math.max(0, Number(quote?.specialSurcharge || 0));
+        const menuTotal = Number(canonicalLaborBooking.laborTotal || 0) + Number(canonicalLaborBooking.travel || 0) + specialSurcharge;
+        authoritativeMin = menuTotal;
+        authoritativeMax = menuTotal;
+        authoritativeCrew = canonicalLaborBooking.crewSize;
+      }
+
+      if ((serviceType === "residential" || serviceType === "junk") && missingTravelCharge > 0 && !canonicalLaborBooking) {
         authoritativeMin += missingTravelCharge;
         authoritativeMax += missingTravelCharge;
       }
@@ -26854,6 +27000,7 @@ Thank you for your business!
         moveDate: moveDate || null,
         status: (serverDepositRequired ? "deposit_pending" : "chatbot_pending") as any,
         crewSize: authoritativeCrew,
+        confirmedHours: canonicalLaborBooking?.billableHours ?? (selectedPackage && typeof selectedPackage === "object" ? selectedPackage.hours : quote.minHrs ?? null),
         basePrice: String(authoritativeMin),
         totalPrice: chatbotBundleDiscount.applied
           ? String(chatbotBundleDiscount.finalTotal)

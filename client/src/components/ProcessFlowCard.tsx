@@ -1,5 +1,6 @@
-import { ArrowRight, CheckCircle2, Circle, Clock } from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle, Clock, Info } from "lucide-react";
 import { Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
 
 export type ProcessPhase = "start" | "progress" | "finish";
 export type ProcessStepState = "done" | "active" | "waiting";
@@ -65,18 +66,100 @@ function ProcessStepBlock({ step }: { step: ProcessFlowStep }) {
   return <Link href={step.href}>{content}</Link>;
 }
 
+function CompactProcessStep({ step }: { step: ProcessFlowStep }) {
+  const { toast } = useToast();
+  const state = step.state || "waiting";
+  const isActive = state === "active";
+  const action = (
+    <div className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2">
+      <StateIcon state={state} />
+      <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-slate-500">
+        {PHASE_LABELS[step.phase]}
+      </span>
+      <span className="min-w-0 truncate text-xs font-black text-white">{step.label}</span>
+      {isActive && (
+        <span className="ml-auto shrink-0 rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-blue-200">
+          Do now
+        </span>
+      )}
+      {step.href && step.actionLabel && (
+        <span className="ml-auto inline-flex shrink-0 items-center gap-0.5 text-[10px] font-black text-blue-200">
+          {step.actionLabel}
+          <ArrowRight className="h-3 w-3" />
+        </span>
+      )}
+    </div>
+  );
+
+  const actionTarget = !step.href ? action : step.href.startsWith("#") || /^https?:\/\//i.test(step.href) ? (
+    <a
+      className="min-w-0 flex-1"
+      href={step.href}
+      target={step.href.startsWith("http") ? "_blank" : undefined}
+      rel={step.href.startsWith("http") ? "noreferrer" : undefined}
+    >
+      {action}
+    </a>
+  ) : (
+    <Link className="min-w-0 flex-1" href={step.href}>
+      {action}
+    </Link>
+  );
+
+  return (
+    <div
+      className={`flex min-w-0 items-center rounded-lg border ${stateClasses(state)} ${
+        isActive ? "ring-1 ring-blue-400/40" : ""
+      }`}
+    >
+      {actionTarget}
+      <button
+        type="button"
+        aria-label={`Show details for ${step.label}`}
+        className="mr-1.5 shrink-0 rounded-md p-1 text-slate-400 hover:bg-white/10 hover:text-white"
+        onClick={() =>
+          toast({
+            title: isActive ? `Do now: ${step.label}` : step.label,
+            description: step.detail,
+          })
+        }
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 export default function ProcessFlowCard({
   title,
   description,
   steps,
   className = "",
+  compact = false,
 }: {
   title: string;
   description?: string;
   steps: ProcessFlowStep[];
   className?: string;
+  compact?: boolean;
 }) {
   const ordered = PHASE_ORDER.map((phase) => steps.find((step) => step.phase === phase)).filter(Boolean) as ProcessFlowStep[];
+
+  if (compact) {
+    return (
+      <section className={`rounded-xl border border-slate-700/50 bg-slate-900/60 p-3 ${className}`}>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <h2 className="truncate text-sm font-black text-white">{title}</h2>
+          <span className="shrink-0 text-[10px] font-bold text-slate-500">Tap ⓘ for details</span>
+        </div>
+        <div className="space-y-1.5">
+          {ordered.map((step) => (
+            <CompactProcessStep key={step.phase} step={step} />
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className={`rounded-2xl border border-slate-700/50 bg-slate-900/60 p-4 ${className}`}>

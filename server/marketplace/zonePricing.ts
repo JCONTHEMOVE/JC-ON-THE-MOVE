@@ -1,4 +1,5 @@
 import { pool } from "../db";
+import { calculateLaborBooking, type LaborWorkScope } from "@shared/laborBooking";
 
 export type LngLat = [number, number];
 
@@ -11,6 +12,7 @@ export interface MarketplacePricingZone {
   priority: number;
   travelBaseFee: number;
   travelPerMile: number;
+  laborMultiplier: number;
   estimatePaddingPct: number;
 }
 
@@ -66,6 +68,7 @@ function rowToZone(row: any): MarketplacePricingZone {
     priority: Number(row.priority ?? 100),
     travelBaseFee: Number(row.travel_base_fee ?? 0),
     travelPerMile: Number(row.travel_per_mile ?? 0),
+    laborMultiplier: Number(row.labor_multiplier ?? 1),
     estimatePaddingPct: Number(row.estimate_padding_pct ?? 0.12),
   };
 }
@@ -103,6 +106,7 @@ export async function ensureMarketplaceZonePricing() {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE marketplace_pricing_zones ADD COLUMN IF NOT EXISTS labor_multiplier NUMERIC(6,3) NOT NULL DEFAULT 1.000`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS marketplace_zone_rates (
       id SERIAL PRIMARY KEY,
@@ -226,7 +230,7 @@ export async function upsertPricingZone(input: Partial<MarketplacePricingZone> &
     const { rows } = await pool.query(`
       UPDATE marketplace_pricing_zones
       SET code=$2, name=$3, polygon=$4::jsonb, active=$5, priority=$6,
-          travel_base_fee=$7, travel_per_mile=$8, estimate_padding_pct=$9, updated_at=NOW()
+          travel_base_fee=$7, travel_per_mile=$8, labor_multiplier=$9, estimate_padding_pct=$10, updated_at=NOW()
       WHERE id=$1
       RETURNING *
     `, [
@@ -238,6 +242,7 @@ export async function upsertPricingZone(input: Partial<MarketplacePricingZone> &
       toNumber(input.priority, 100),
       toNumber(input.travelBaseFee, 0),
       toNumber(input.travelPerMile, 0),
+      Math.max(0, toNumber(input.laborMultiplier, 1)),
       toNumber(input.estimatePaddingPct, 0.12),
     ]);
     if (!rows[0]) throw new Error("zone not found");
@@ -245,8 +250,8 @@ export async function upsertPricingZone(input: Partial<MarketplacePricingZone> &
   }
   const { rows } = await pool.query(`
     INSERT INTO marketplace_pricing_zones
-      (code, name, polygon, active, priority, travel_base_fee, travel_per_mile, estimate_padding_pct)
-    VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8)
+      (code, name, polygon, active, priority, travel_base_fee, travel_per_mile, labor_multiplier, estimate_padding_pct)
+    VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9)
     RETURNING *
   `, [
     String(input.code).trim().toUpperCase(),
@@ -256,6 +261,7 @@ export async function upsertPricingZone(input: Partial<MarketplacePricingZone> &
     toNumber(input.priority, 100),
     toNumber(input.travelBaseFee, 0),
     toNumber(input.travelPerMile, 0),
+    Math.max(0, toNumber(input.laborMultiplier, 1)),
     toNumber(input.estimatePaddingPct, 0.12),
   ]);
   return rowToZone(rows[0]);
@@ -355,6 +361,8 @@ export async function previewZoneQuote(input: {
   hours?: number;
   distanceMiles?: number;
   moveDate?: string;
+  workScope?: LaborWorkScope | string;
+  oversized?: boolean;
 }) {
   await ensureMarketplaceZonePricing();
   let lat = input.lat;
@@ -366,7 +374,7 @@ export async function previewZoneQuote(input: {
   }
   const serviceCode = input.serviceCode || "load_unload";
   const crewSize = Math.max(1, Math.round(toNumber(input.crewSize, 2)));
-  const hours = Math.max(2, toNumber(input.hours, 2));
+  const hours = Math.max(1, toNumber(input.hours, 1));
   const distanceMiles = Math.max(0, toNumber(input.distanceMiles, 0));
   const moveDate = typeof input.moveDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.moveDate)
     ? input.moveDate
@@ -379,15 +387,30 @@ export async function previewZoneQuote(input: {
   const candidates = matched.flatMap((zone) => {
     const rate = zone.rates.find((r) =>
       r.active && r.serviceCode === serviceCode && r.crewSize === crewSize && r.dayOfWeek === dayOfWeek,
-    );
-    if (!rate) return [];
-    const labor = calculateHourly(rate, hours);
+    ) || null;
+    if (!rate && serviceCode !== "load_unload") return [];
+    const zoneDiscountPct = rate?.discountedHourlyRate != null && rate.hourlyRate > 0
+      ? Math.max(0, Math.min(100, (1 - rate.discountedHourlyRate / rate.hourlyRate) * 100))
+      : undefined;
+    const booking = serviceCode === "load_unload"
+      ? calculateLaborBooking({
+          crewSize,
+          hours,
+          workScope: input.workScope,
+          oversized: input.oversized,
+          zoneMultiplier: zone.laborMultiplier,
+          longBookingDiscountPct: zoneDiscountPct,
+          longBookingDiscountAfterHours: rate?.discountAfterHours ?? 4,
+        })
+      : null;
+    const labor = booking ? booking.laborTotal : calculateHourly(rate!, hours);
     const travel = zone.travelBaseFee + zone.travelPerMile * distanceMiles;
     const subtotal = labor + travel;
     const padding = Math.max(0, zone.estimatePaddingPct);
     return [{
       zone,
       rate,
+      booking,
       labor,
       travel,
       subtotal,
@@ -407,7 +430,10 @@ export async function previewZoneQuote(input: {
       coordinates: lat != null && lng != null ? { lat, lng } : null,
     };
   }
-  const fallbackSubtotal = (crewSize === 2 && hours === 3) ? 625 : crewSize * hours * 100;
+  const booking = serviceCode === "load_unload"
+    ? calculateLaborBooking({ crewSize, hours, workScope: input.workScope, oversized: input.oversized })
+    : null;
+  const fallbackSubtotal = booking ? booking.laborTotal : crewSize * Math.max(hours, 2) * 100;
   return {
     matched: false,
     coordinates: lat != null && lng != null ? { lat, lng } : null,
@@ -417,6 +443,7 @@ export async function previewZoneQuote(input: {
     quote: {
       zone: null,
       rate: null,
+      booking,
       labor: fallbackSubtotal,
       travel: distanceMiles * 2,
       subtotal: fallbackSubtotal + distanceMiles * 2,

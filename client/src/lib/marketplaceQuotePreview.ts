@@ -21,6 +21,15 @@ export type MarketplaceQuotePreview = {
       active?: boolean;
     } | null;
     labor: number;
+    booking?: {
+      crewSize: number;
+      requestedHours: number;
+      billableHours: number;
+      workScope: "load_only" | "unload_only" | "load_unload";
+      laborTotal: number;
+      zoneMultiplier: number;
+      longBookingDiscountPct: number;
+    } | null;
     travel: number;
     subtotal: number;
     minEstimate: number;
@@ -43,13 +52,13 @@ export function marketplacePreviewZoneName(preview: MarketplaceQuotePreview) {
 }
 
 export function marketplacePreviewCrewSize(preview: MarketplaceQuotePreview, fallbackCrewSize = 2) {
-  const n = Number(preview.quote.rate?.crewSize ?? fallbackCrewSize);
+  const n = Number(preview.quote.booking?.crewSize ?? preview.quote.rate?.crewSize ?? fallbackCrewSize);
   return Number.isFinite(n) && n > 0 ? n : fallbackCrewSize;
 }
 
 export function marketplacePreviewBillableHours(preview: MarketplaceQuotePreview, requestedHours = 0) {
   const requested = Number(requestedHours);
-  const minimum = Number(preview.quote.rate?.minimumHours ?? requested);
+  const minimum = Number(preview.quote.booking?.billableHours ?? preview.quote.rate?.minimumHours ?? requested);
   const billable = Math.max(
     Number.isFinite(requested) ? requested : 0,
     Number.isFinite(minimum) ? minimum : 0,

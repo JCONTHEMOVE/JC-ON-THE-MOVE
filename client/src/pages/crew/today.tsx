@@ -18,8 +18,9 @@ import {
   XCircle, Plus, LogOut, Briefcase, Users, CheckCircle2,
   ChevronDown, ChevronLeft, Ban, Settings2, Navigation, Play, Flag,
 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import type { Lead, User } from "@shared/schema";
+import type { JobFlow } from "@shared/job-flow";
 import { UserStatusBar } from "@/components/UserStatusBar";
 import { PaymentStatusPill } from "@/components/PaymentStatusPill";
 import { LevelBadge } from "@/components/LevelBadge";
@@ -28,9 +29,7 @@ import { ConfettiBurst } from "@/components/ConfettiBurst";
 import { getWorkerLevel, type LoyaltyTierKey } from "@/lib/loyalty";
 import { useAdminViewMode } from "@/hooks/useAdminViewMode";
 import ProcessFlowCard, { type ProcessFlowStep } from "@/components/ProcessFlowCard";
-import MarketplaceSourceFlowStrip from "@/components/MarketplaceSourceFlowStrip";
 import MarketplaceShapeBadge from "@/components/MarketplaceShapeBadge";
-import type { MarketplaceActionPhase } from "@shared/marketplaceShapes";
 
 const MONTH_NAMES_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAY_NAMES_SHORT = ["Su","Mo","Tu","We","Th","Fr","Sa"];
@@ -48,7 +47,10 @@ type JobBoardLead = {
   estimatedTokens: number;
   alreadyApplied: boolean;
   crewSlotsFilled: number;
+  flow: JobFlow;
 };
+
+type FlowLead = Lead & { flow?: JobFlow };
 
 type TrashJobSub = {
   customerName: string;
@@ -71,13 +73,6 @@ type TrashJob = {
 type TrashJobRow = {
   job: TrashJob;
   sub: TrashJobSub;
-};
-
-type TodayMarketplaceFocus = {
-  source?: string | null;
-  serviceType?: string | null;
-  details?: string | null;
-  status?: string | null;
 };
 
 const SCRIPTURES = [
@@ -163,39 +158,6 @@ function dedupeLeadsById<T extends { id: string }>(items: T[]): T[] {
     seen.add(item.id);
     return true;
   });
-}
-
-function marketplacePhaseForToday({
-  completedToday,
-  hasActiveWork,
-  hasOpenWork,
-}: {
-  completedToday: boolean;
-  hasActiveWork: boolean;
-  hasOpenWork: boolean;
-}): MarketplaceActionPhase {
-  if (hasActiveWork || hasOpenWork) return "progress";
-  if (completedToday) return "finish";
-  return "start";
-}
-
-function marketplaceSourceForToday({
-  focus,
-  completedToday,
-  hasActiveWork,
-  hasOpenWork,
-}: {
-  focus: TodayMarketplaceFocus | null;
-  completedToday: boolean;
-  hasActiveWork: boolean;
-  hasOpenWork: boolean;
-}) {
-  const explicitSource = typeof focus?.source === "string" ? focus.source.trim() : "";
-  if (explicitSource) return explicitSource;
-  if (hasActiveWork) return "two_men";
-  if (hasOpenWork) return "movinghelp";
-  if (completedToday) return "jcmoves";
-  return "facebook";
 }
 
 function getBeaconKey(userId: string | number) {
@@ -312,6 +274,7 @@ export default function CrewTodayPage() {
   const { isCrewPreview } = useAdminViewMode();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const isAdmin = ["admin", "business_owner"].includes(user?.role || "") && !isCrewPreview;
 
   const dayOfYear = getDayOfYear();
@@ -468,14 +431,14 @@ export default function CrewTodayPage() {
     return () => clearTimeout(t);
   }, [availableUntil, dutyStatus]);
 
-  const { data: leads = [] } = useQuery<Lead[]>({
-    queryKey: [isAdmin ? "/api/leads" : "/api/leads/my-jobs"],
+  const { data: leads = [] } = useQuery<FlowLead[]>({
+    queryKey: [isAdmin ? "/api/jobs/flow?scope=admin" : "/api/jobs/flow?scope=mine"],
     refetchInterval: 15000,
     staleTime: 0,
   });
 
   const { data: boardJobs = [] } = useQuery<JobBoardLead[]>({
-    queryKey: ["/api/leads/job-board"],
+    queryKey: ["/api/jobs/flow?scope=board"],
     staleTime: 0,
     refetchOnMount: true,
     refetchInterval: 15000,
@@ -487,7 +450,7 @@ export default function CrewTodayPage() {
   const prevCompletedIdsRef = useRef<Set<string>>(new Set());
   const applyMutation = useMutation({
     mutationFn: async (leadId: string) => {
-      const res = await apiRequest("POST", `/api/leads/${leadId}/crew-apply`, {});
+      const res = await apiRequest("POST", `/api/jobs/${leadId}/claim`, {});
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Failed to sign up" }));
         throw new Error(err.error || "Failed to sign up");
@@ -495,11 +458,12 @@ export default function CrewTodayPage() {
       return res.json();
     },
     onSuccess: (_data, leadId) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/job-board"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
       setApplyingId(null);
       setClaimedJobId(leadId);
-      setTimeout(() => setClaimedJobId(null), 2000);
+      toast({ title: "Job claimed", description: "Admin will confirm the crew and dispatch it when ready." });
+      navigate(`/crew/jobs?lead=${encodeURIComponent(leadId)}`);
     },
     onError: (e: Error) => {
       setApplyingId(null);
@@ -520,8 +484,8 @@ export default function CrewTodayPage() {
     },
     onMutate: ({ leadId }) => setStatusPending(leadId),
     onSuccess: (_d, { status }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=admin"] });
       // Refresh earnings on completion so base + bonus appear immediately.
       if (status === "completed") {
         queryClient.invalidateQueries({ queryKey: ["/api/rewards/wallet"] });
@@ -549,8 +513,8 @@ export default function CrewTodayPage() {
     },
     onMutate: (leadId) => setAcceptPending(leadId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=admin"] });
       setAcceptPending(null);
       toast({ title: "✅ Offer accepted", description: "Tap Start when en route." });
     },
@@ -572,8 +536,8 @@ export default function CrewTodayPage() {
     },
     onMutate: (leadId) => setDeclinePending(leadId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=admin"] });
       setDeclinePending(null);
       toast({ title: "Offer declined", description: "We'll route it to the next crew." });
     },
@@ -904,15 +868,6 @@ export default function CrewTodayPage() {
   });
   const hasActiveWork = myAssignments.length > 0 || todayJobs.length > 0;
   const hasOpenWork = visibleUpcomingBoardJobs.length > 0;
-  const marketplaceFocus: TodayMarketplaceFocus | null =
-    primaryActiveJob?.job ?? myAssignments[0] ?? todayJobs[0] ?? visibleUpcomingBoardJobs[0] ?? null;
-  const marketplacePhase = marketplacePhaseForToday({ completedToday, hasActiveWork, hasOpenWork });
-  const marketplaceSource = marketplaceSourceForToday({
-    focus: marketplaceFocus,
-    completedToday,
-    hasActiveWork,
-    hasOpenWork,
-  });
   const crewProcessSteps: ProcessFlowStep[] = [
     {
       phase: "start",
@@ -1056,16 +1011,8 @@ export default function CrewTodayPage() {
 
       <ProcessFlowCard
         title="Today's work loop"
-        description="Use the same simple path for marketing, quotes, jobs, and payouts: start the opportunity, progress the card, finish the closeout."
         steps={crewProcessSteps}
-      />
-
-      <MarketplaceSourceFlowStrip
-        source={marketplaceSource}
-        serviceCode={marketplaceFocus?.serviceType || "moving"}
-        audience="worker"
-        phase={marketplacePhase}
-        className="border-orange-400/20 bg-slate-950/80"
+        compact
       />
 
       {/* Worker-side job completion celebration overlay */}
@@ -1473,7 +1420,19 @@ export default function CrewTodayPage() {
                 ? new Date(job.moveDate.split("T")[0] + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
                 : "Date TBD";
               return (
-                <div key={job.id} className="relative bg-white/[0.04] rounded-xl p-3 pr-9 border border-white/5 space-y-2 overflow-hidden">
+                <div
+                  key={job.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/crew/jobs?lead=${encodeURIComponent(job.id)}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/crew/jobs?lead=${encodeURIComponent(job.id)}`);
+                    }
+                  }}
+                  className="relative cursor-pointer bg-white/[0.04] rounded-xl p-3 pr-9 border border-white/5 space-y-2 overflow-hidden transition-colors hover:border-blue-400/40 hover:bg-white/[0.07] focus:outline-none focus:ring-2 focus:ring-blue-400/70"
+                >
                   <button
                     type="button"
                     aria-label="Dismiss job notice"
@@ -1494,6 +1453,7 @@ export default function CrewTodayPage() {
                         <div className="flex flex-wrap items-center gap-1.5">
                           <p className="text-white text-sm font-semibold capitalize">{job.serviceType.replace(/-/g, " ")} Job</p>
                           <MarketplaceShapeBadge serviceCode={job.serviceType} className="text-[8px]" />
+                          <Badge className="border-blue-400/30 bg-blue-500/15 text-[9px] text-blue-200">{job.flow.label}</Badge>
                         </div>
                         <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                           <span className="text-slate-400 text-xs flex items-center gap-1">
@@ -1537,7 +1497,7 @@ export default function CrewTodayPage() {
                       <Button
                         size="sm"
                         disabled={applyingId === job.id && applyMutation.isPending}
-                        onClick={() => { setApplyingId(job.id); applyMutation.mutate(job.id); }}
+                        onClick={(event) => { event.stopPropagation(); setApplyingId(job.id); applyMutation.mutate(job.id); }}
                         className="h-7 text-xs bg-blue-600 hover:bg-blue-500 text-white font-semibold px-3"
                       >
                         {applyingId === job.id && applyMutation.isPending

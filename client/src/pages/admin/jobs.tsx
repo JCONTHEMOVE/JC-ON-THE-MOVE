@@ -1,6 +1,7 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
+import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +27,7 @@ import {
   UserX, XCircle, Check, X, Image, ExternalLink, EyeOff
 } from "lucide-react";
 import type { User } from "@shared/schema";
+import type { JobFlow } from "@shared/job-flow";
 import { PaymentStatusPill } from "@/components/PaymentStatusPill";
 import JobLifecycleRail from "@/components/JobLifecycleRail";
 import { extractCustomerMediaLink } from "@/lib/lead-details";
@@ -155,6 +157,7 @@ type Lead = {
   photos?: Array<{ url?: string; mimeType?: string; name?: string; source?: string; timestamp?: string }>;
   reviewToken?: string;
   archivedAt?: string | null;
+  flow?: JobFlow;
 };
 
 function leadCalendarDate(lead: Lead): Date | null {
@@ -290,6 +293,7 @@ function AdminJobCard({ lead, onClick, employees }: {
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-bold text-white text-sm truncate">{lead.firstName} {lead.lastName}</p>
                   <StatusBadge status={lead.status} />
+                  {lead.flow && <span className="rounded-full border border-blue-400/25 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-200">{lead.flow.label}</span>}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap mt-0.5">
                   <p className="text-xs text-slate-400">{SERVICE_LABELS[lead.serviceType] || lead.serviceType}</p>
@@ -1434,14 +1438,17 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
 export default function AdminJobsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [location] = useLocation();
   const [search, setSearch] = useState("");
   const [calendarView, setCalendarView] = useState<JobCalendarView>("month");
   const [calendarAnchor, setCalendarAnchor] = useState(() => new Date());
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const handledDeepLinkRef = useRef<string | null>(null);
+  const requestedLeadId = useMemo(() => new URLSearchParams(location.split("?")[1] || "").get("lead"), [location]);
 
   const { data: leads = [], isLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/leads"],
+    queryKey: ["/api/jobs/flow?scope=admin"],
     staleTime: 0,
     refetchOnMount: true,
     refetchInterval: 30000,
@@ -1470,6 +1477,17 @@ export default function AdminJobsPage() {
   }, [leads, search]);
 
   const completedLeads = useMemo(() => leads.filter(l => l.status === "completed"), [leads]);
+
+  useEffect(() => {
+    if (!requestedLeadId || handledDeepLinkRef.current === requestedLeadId) return;
+    const lead = leads.find((item) => item.id === requestedLeadId);
+    if (!lead) return;
+    handledDeepLinkRef.current = requestedLeadId;
+    setSelectedLead(lead);
+    setDetailOpen(true);
+    const scheduled = leadCalendarDate(lead);
+    if (scheduled) setCalendarAnchor(scheduled);
+  }, [leads, requestedLeadId]);
 
   const calendarBuckets = useMemo(() => {
     const scheduled: Record<string, Lead[]> = {};
@@ -1593,6 +1611,20 @@ export default function AdminJobsPage() {
           <div className="text-[10px] text-slate-400 mt-0.5">Trade Req.</div>
         </div>
       </div>
+
+      {!isLoading && calendarView !== "list" && calendarBuckets.unscheduled.length > 0 && (
+        <button
+          type="button"
+          onClick={() => openDetail(calendarBuckets.unscheduled[0])}
+          className="mb-5 flex w-full items-center justify-between gap-3 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-left transition-colors hover:bg-amber-500/15"
+        >
+          <span>
+            <span className="block text-sm font-bold text-amber-100">Needs date or review</span>
+            <span className="mt-0.5 block text-xs text-amber-200/70">TBD jobs and crew claims stay visible even when the calendar is empty.</span>
+          </span>
+          <Badge className="border-amber-400/30 bg-amber-500/15 text-amber-100">{calendarBuckets.unscheduled.length} open</Badge>
+        </button>
+      )}
 
       {isLoading ? (
         <div className="flex justify-center py-12">
