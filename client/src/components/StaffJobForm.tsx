@@ -23,6 +23,7 @@ type TruckSize = "none" | "15_ft" | "20_ft" | "26_ft" | "custom";
 
 type StaffJobFormProps = {
   prefilledDate?: string;
+  onSaved?: (leadId: string) => void;
 };
 
 const SERVICES: Array<{ value: StaffServiceCode; label: string; estimateCode: string }> = [
@@ -42,7 +43,7 @@ function money(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value || 0);
 }
 
-export function StaffJobForm({ prefilledDate }: StaffJobFormProps) {
+export function StaffJobForm({ prefilledDate, onSaved }: StaffJobFormProps) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -106,11 +107,18 @@ export function StaffJobForm({ prefilledDate }: StaffJobFormProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/leads/available"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads/my-jobs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/employee/calendar"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/schedule"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=admin"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=board"] });
       toast({
         title: result.requiresOwnerReview ? "Job saved for owner quote review" : "Available calendar job saved",
         description: result.message,
       });
-      setLocation(`/lead/${result.lead.id}`);
+      if (onSaved) {
+        onSaved(result.lead.id);
+      } else {
+        setLocation(`/lead/${result.lead.id}`);
+      }
     },
     onError: (error: Error) => {
       toast({ title: "Could not save job", description: error.message || "Review the required fields and try again.", variant: "destructive" });

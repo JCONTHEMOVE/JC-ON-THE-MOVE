@@ -49,6 +49,7 @@ import {
   type BundleDefinition,
   type Booking,
   type BookingServiceItem,
+  normalizeLeadPhoneNumber,
 } from "@shared/schema";
 import {
   computeBookingQuote,
@@ -69,6 +70,7 @@ import {
   type MarketplaceRequestShapeId,
 } from "@shared/marketplaceShapes";
 import { getRouteDayDiscountEligibility } from "@shared/routeDays";
+import { previewZoneQuote } from "../marketplace/zonePricing";
 
 // Task #218 spec line 44: small moving = "$300 (or $340 if floor lifted;
 // we keep $300)". The labor math 2×2×$85 naturally produces $340, but
@@ -78,6 +80,247 @@ import { getRouteDayDiscountEligibility } from "@shared/routeDays";
 const SMALL_MOVE_SPECIAL_PRICE = 300;
 
 const router = Router();
+
+// ── Instant booking holds ──────────────────────────────────────────────────
+// This is deliberately separate from the legacy date-only calendar rows.
+// A customer may see an exact two-hour start only when enough approved crew
+// capacity remains after both legacy work and other active holds are counted.
+
+const INSTANT_BOOKING_TIME_ZONE = "America/Chicago";
+const INSTANT_BOOKING_START_HOURS = [8, 10, 12, 14, 16] as const;
+const HOLD_LIFETIME_MS = 24 * 60 * 60 * 1000;
+
+const instantBookingRequestSchema = z.object({
+  service: z.enum(["moving", "labor", "junk"]),
+  customerName: z.string().trim().min(2, "Enter your name").max(120),
+  customerEmail: z.union([z.string().trim().email(), z.literal("")]).optional().transform((value) => value || ""),
+  customerPhone: z.string().trim().min(7, "Enter a phone number"),
+  serviceAddress: z.string().trim().min(5, "Enter the service address").max(350),
+  zip: z.string().trim().regex(/^\d{5}(?:-\d{4})?$/, "Enter a 5-digit ZIP code"),
+  requestedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a date"),
+  startTime: z.string().regex(/^\d{2}:00$/, "Choose an available start time").optional(),
+  requestedHours: z.coerce.number().min(1).max(12),
+  truckSource: z.enum(["jc_on_the_move", "customer", "rental", "none"]).default("none"),
+  truckSize: z.enum(["none", "cargo_van", "15_ft", "20_ft", "26_ft", "other"]).default("none"),
+  difficulty: z.enum(["standard", "moderate", "difficult"]).default("standard"),
+  stairsFlights: z.coerce.number().int().min(0).max(20).default(0),
+  heavyItems: z.array(z.object({
+    name: z.string().trim().min(1).max(80),
+    pounds: z.coerce.number().int().min(1).max(5000),
+  })).max(3).default([]),
+  junkVolume: z.enum(["quarter", "half", "three_quarter", "full"]).optional(),
+  distanceMiles: z.coerce.number().min(0).max(500).default(0),
+  notes: z.string().trim().max(2500).optional().transform((value) => value || ""),
+});
+
+type InstantBookingRequest = z.infer<typeof instantBookingRequestSchema>;
+type SqlClient = { query: (text: string, values?: any[]) => Promise<{ rows: any[]; rowCount?: number | null }> };
+type InstantBookingTransactionClient = SqlClient & { release: () => void };
+
+let instantBookingTablesReady: Promise<void> | null = null;
+
+function ensureInstantBookingTables(): Promise<void> {
+  if (!instantBookingTablesReady) {
+    instantBookingTablesReady = pool.query(`
+      CREATE TABLE IF NOT EXISTS booking_slot_holds (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        booking_id VARCHAR NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+        lead_id VARCHAR NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+        service_date DATE NOT NULL,
+        start_at TIMESTAMPTZ NOT NULL,
+        duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0),
+        crew_size INTEGER NOT NULL CHECK (crew_size > 0),
+        status TEXT NOT NULL DEFAULT 'pending_review',
+        expires_at TIMESTAMPTZ,
+        review_required BOOLEAN NOT NULL DEFAULT false,
+        zone_code TEXT,
+        quote_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+        admin_notes TEXT,
+        reviewed_by_user_id VARCHAR REFERENCES users(id),
+        reviewed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_booking_slot_holds_window
+        ON booking_slot_holds (service_date, start_at, status);
+      CREATE INDEX IF NOT EXISTS idx_booking_slot_holds_lead
+        ON booking_slot_holds (lead_id);
+    `).then(() => undefined).catch((error) => {
+      instantBookingTablesReady = null;
+      throw error;
+    });
+  }
+  return instantBookingTablesReady;
+}
+
+function centralDateTimeToUtc(date: string, time: string): Date {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const wantedWallTime = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let instant = wantedWallTime;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: INSTANT_BOOKING_TIME_ZONE,
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  });
+  // Two passes correctly resolve either CST or CDT without assuming a fixed
+  // offset. Booking slots are daytime, so the DST transition hour is avoided.
+  for (let pass = 0; pass < 2; pass += 1) {
+    const parts = formatter.formatToParts(new Date(instant));
+    const part = (type: string) => Number(parts.find((item) => item.type === type)?.value || 0);
+    const renderedWallTime = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), 0);
+    instant += wantedWallTime - renderedWallTime;
+  }
+  return new Date(instant);
+}
+
+function centralDateKey(value = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: INSTANT_BOOKING_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(value);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function timeLabel(time: string) {
+  const hour = Number(time.slice(0, 2));
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:00 ${suffix}`;
+}
+
+function profileForInstantBooking(input: InstantBookingRequest) {
+  const junkDefaults = {
+    quarter: { crewSize: 2, hours: 2 },
+    half: { crewSize: 2, hours: 2.5 },
+    three_quarter: { crewSize: 3, hours: 3 },
+    full: { crewSize: 4, hours: 4 },
+  } as const;
+  const junk = input.service === "junk" ? junkDefaults[input.junkVolume || "half"] : null;
+  const heavyCrew = input.heavyItems.reduce((highest, item) => {
+    if (item.pounds >= 400) return Math.max(highest, 4);
+    if (item.pounds >= 300) return Math.max(highest, 3);
+    if (item.pounds >= 200) return Math.max(highest, 2);
+    return highest;
+  }, 1);
+  const baseCrew = junk?.crewSize || 2;
+  const requestedHours = junk?.hours || input.requestedHours;
+  const crewSize = Math.max(baseCrew, heavyCrew);
+  const difficultyMultiplier = input.difficulty === "difficult" ? 1.3 : input.difficulty === "moderate" ? 1.15 : 1;
+  const stairsMultiplier = input.stairsFlights > 0 ? 1.5 : 1;
+  return {
+    crewSize,
+    requestedHours,
+    durationMinutes: Math.ceil(requestedHours * 60),
+    difficultyMultiplier,
+    stairsMultiplier,
+    reviewRequired: input.difficulty === "difficult",
+    serviceCode: "load_unload",
+  };
+}
+
+async function instantBookingQuote(input: InstantBookingRequest) {
+  const profile = profileForInstantBooking(input);
+  const zonePreview = await previewZoneQuote({
+    zip: input.zip,
+    serviceCode: profile.serviceCode,
+    crewSize: profile.crewSize,
+    hours: profile.requestedHours,
+    distanceMiles: input.distanceMiles,
+    moveDate: input.requestedDate,
+    workScope: input.service === "junk" ? "junk" : "moving",
+    oversized: input.heavyItems.some((item) => item.pounds >= 200),
+  });
+  const rawQuote = zonePreview.quote;
+  const multiplier = profile.difficultyMultiplier * profile.stairsMultiplier;
+  const minEstimate = Math.round(Number(rawQuote.minEstimate || 0) * multiplier);
+  const maxEstimate = Math.max(minEstimate, Math.round(Number(rawQuote.maxEstimate || 0) * multiplier));
+  return {
+    service: input.service,
+    zoneMatched: zonePreview.matched,
+    zoneCode: zonePreview.quote.zone?.code || null,
+    zoneName: zonePreview.quote.zone?.name || null,
+    travelFallback: !zonePreview.matched,
+    conditionalHold: !zonePreview.matched,
+    minEstimate,
+    maxEstimate,
+    estimateLabel: `$${minEstimate.toLocaleString()}–$${maxEstimate.toLocaleString()} estimate`,
+    subjectToReview: true,
+    crewSize: profile.crewSize,
+    requestedHours: profile.requestedHours,
+    durationMinutes: profile.durationMinutes,
+    reviewRequired: profile.reviewRequired || !zonePreview.matched,
+    difficultyMultiplier: profile.difficultyMultiplier,
+    stairsMultiplier: profile.stairsMultiplier,
+    travelEstimate: Math.round(Number(rawQuote.travel || 0)),
+  };
+}
+
+async function capacityForInstantBooking(
+  input: InstantBookingRequest,
+  startTime: string,
+  client: SqlClient = pool,
+  quoteOverride?: Awaited<ReturnType<typeof instantBookingQuote>>,
+) {
+  await ensureInstantBookingTables();
+  const quote = quoteOverride || await instantBookingQuote(input);
+  const startAt = centralDateTimeToUtc(input.requestedDate, startTime);
+  const endAt = new Date(startAt.getTime() + quote.durationMinutes * 60_000);
+  await client.query(`
+    UPDATE booking_slot_holds
+    SET status = 'expired', updated_at = NOW()
+    WHERE status = 'pending_review' AND expires_at IS NOT NULL AND expires_at <= NOW()
+  `);
+
+  const [employees, legacyResult, holdResult] = await Promise.all([
+    storage.getEmployees(),
+    client.query(`
+      SELECT COALESCE(SUM(COALESCE(crew_size, 2)), 0)::int AS reserved_crew
+      FROM leads
+      WHERE (confirmed_date = $1 OR move_date = $1)
+        AND COALESCE(source, '') <> 'instant_booking_hold'
+        AND COALESCE(status, '') NOT IN ('cancelled', 'completed', 'archived')
+        AND archived_at IS NULL
+    `, [input.requestedDate]),
+    client.query(`
+      SELECT COALESCE(SUM(crew_size), 0)::int AS reserved_crew
+      FROM booking_slot_holds
+      WHERE service_date = $1::date
+        AND status IN ('pending_review', 'awaiting_deposit', 'confirmed')
+        AND (expires_at IS NULL OR expires_at > NOW() OR status <> 'pending_review')
+        AND start_at < $3::timestamptz
+        AND start_at + (duration_minutes * INTERVAL '1 minute') > $2::timestamptz
+    `, [input.requestedDate, startAt.toISOString(), endAt.toISOString()]),
+  ]);
+  const capacity = employees.length;
+  const legacyReserved = Number(legacyResult.rows[0]?.reserved_crew || 0);
+  const heldReserved = Number(holdResult.rows[0]?.reserved_crew || 0);
+  const availableCrew = Math.max(0, capacity - legacyReserved - heldReserved);
+  return {
+    quote,
+    startAt,
+    endAt,
+    capacity,
+    legacyReserved,
+    heldReserved,
+    availableCrew,
+    available: capacity > 0 && availableCrew >= quote.crewSize,
+  };
+}
+
+async function availableInstantBookingSlots(input: InstantBookingRequest) {
+  const today = centralDateKey();
+  const quote = await instantBookingQuote(input);
+  if (input.requestedDate < today) return { quote, slots: [] };
+  const slots = [] as Array<{ time: string; label: string; availableCrew: number }>;
+  for (const hour of INSTANT_BOOKING_START_HOURS) {
+    const time = `${String(hour).padStart(2, "0")}:00`;
+    const startAt = centralDateTimeToUtc(input.requestedDate, time);
+    if (startAt.getTime() < Date.now() + 60 * 60_000) continue;
+    const capacity = await capacityForInstantBooking(input, time, pool, quote);
+    if (capacity.available) slots.push({ time, label: timeLabel(time), availableCrew: capacity.availableCrew });
+  }
+  return { quote, slots };
+}
 
 type ServiceAddressDiscount = {
   code: string;
@@ -821,6 +1064,226 @@ function resolveItems(
   }
   return { pricingInputs, persistInputs };
 }
+
+// ── Public instant-estimate and capacity-checked hold flow ─────────────────
+// The quote and capacity checks intentionally recalculate on the server. The
+// client never supplies a price, crew count, or availability decision.
+router.post("/instant-booking/quote", async (req: Request, res: Response) => {
+  try {
+    const input = instantBookingRequestSchema.parse(req.body);
+    const quote = await instantBookingQuote(input);
+    return res.json({ success: true, quote });
+  } catch (error) {
+    if (error instanceof ZodError) return res.status(400).json({ error: "Check the booking details", details: error.errors });
+    console.error("[instant-booking/quote] error:", error);
+    return res.status(500).json({ error: "We could not calculate that estimate. Please try again or call us." });
+  }
+});
+
+router.post("/instant-booking/availability", async (req: Request, res: Response) => {
+  try {
+    const input = instantBookingRequestSchema.parse(req.body);
+    const result = await availableInstantBookingSlots(input);
+    return res.json({
+      success: true,
+      quote: result.quote,
+      slots: result.slots,
+      timeZone: INSTANT_BOOKING_TIME_ZONE,
+      message: result.slots.length
+        ? "Choose a start time to place a 24-hour pending hold. No payment is taken yet."
+        : "No online slots are available for this date. Please request a callback so we can check alternatives.",
+    });
+  } catch (error) {
+    if (error instanceof ZodError) return res.status(400).json({ error: "Check the booking details", details: error.errors });
+    console.error("[instant-booking/availability] error:", error);
+    return res.status(500).json({ error: "We could not check crew capacity. Please try again or request a callback." });
+  }
+});
+
+router.post("/instant-booking/hold", async (req: Request, res: Response) => {
+  let client: InstantBookingTransactionClient | null = null;
+  try {
+    const input = instantBookingRequestSchema.parse(req.body);
+    const normalizedPhone = normalizeLeadPhoneNumber(input.customerPhone);
+    if (!normalizedPhone) {
+      return res.status(400).json({ error: "Enter a complete 10-digit phone number so we can call you back." });
+    }
+    if (!input.startTime || !INSTANT_BOOKING_START_HOURS.includes(Number(input.startTime.slice(0, 2)) as typeof INSTANT_BOOKING_START_HOURS[number])) {
+      return res.status(400).json({ error: "Choose one of the available two-hour start times." });
+    }
+    const chosenStart = centralDateTimeToUtc(input.requestedDate, input.startTime);
+    if (chosenStart.getTime() < Date.now() + 60 * 60_000) {
+      return res.status(409).json({ error: "That start time is no longer available. Please choose another slot." });
+    }
+
+    await ensureInstantBookingTables();
+    const tx = await pool.connect() as unknown as InstantBookingTransactionClient;
+    client = tx;
+    await tx.query("BEGIN");
+    // Serialize competing requests for this exact start. The capacity query
+    // below still counts overlaps, so a longer job cannot overbook a slot.
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`instant-booking:${input.requestedDate}:${input.startTime}`]);
+    const capacity = await capacityForInstantBooking(input, input.startTime, tx);
+    if (!capacity.available) {
+      await tx.query("ROLLBACK");
+      return res.status(409).json({
+        error: "That crew slot was just taken. Please choose another available time.",
+        availableCrew: capacity.availableCrew,
+      });
+    }
+
+    const quote = capacity.quote;
+    const [firstName, ...lastNameParts] = input.customerName.split(/\s+/);
+    const lastName = lastNameParts.join(" ") || "Customer";
+    const details = {
+      bookingFlow: "instant_booking_hold",
+      service: input.service,
+      requestedDate: input.requestedDate,
+      requestedStartTime: input.startTime,
+      timeZone: INSTANT_BOOKING_TIME_ZONE,
+      truckSource: input.truckSource,
+      truckSize: input.truckSize,
+      difficulty: input.difficulty,
+      stairsFlights: input.stairsFlights,
+      heavyItems: input.heavyItems,
+      junkVolume: input.junkVolume || null,
+      requestedHours: quote.requestedHours,
+      requiredCrew: quote.crewSize,
+      notes: input.notes,
+    };
+    const quoteSnapshot = {
+      capturedAt: new Date().toISOString(),
+      quote,
+      request: details,
+      capacity: {
+        configuredCrew: capacity.capacity,
+        legacyReserved: capacity.legacyReserved,
+        heldReserved: capacity.heldReserved,
+      },
+    };
+    const syntheticEmail = `instant-booking+${normalizedPhone.replace(/\D/g, "")}-${crypto.randomUUID()}@jconthemove.local`;
+    const customerEmail = input.customerEmail || syntheticEmail;
+    const bookingResult = await tx.query(`
+      INSERT INTO bookings
+        (customer_name, customer_email, customer_phone, service_address, notes, subtotal, discount_total, final_total, status, source)
+      VALUES ($1,$2,$3,$4,$5,$6,0,$7,'pending_review','instant_booking_hold')
+      RETURNING id
+    `, [
+      input.customerName,
+      customerEmail,
+      normalizedPhone,
+      input.serviceAddress,
+      input.notes || null,
+      quote.minEstimate.toFixed(2),
+      quote.maxEstimate.toFixed(2),
+    ]);
+    const bookingId = String(bookingResult.rows[0]?.id || "");
+    if (!bookingId) throw new Error("Booking insert returned no id");
+    await tx.query(`
+      INSERT INTO booking_service_items
+        (booking_id, service_code, service_label, quantity, unit_price, line_subtotal, price_mode, details, status, scheduled_at)
+      VALUES ($1,$2,$3,1,$4,$5,'quote',$6::jsonb,'pending',$7::timestamptz)
+    `, [
+      bookingId,
+      input.service === "junk" ? "junk_removal" : input.service,
+      input.service === "moving" ? "Moving" : input.service === "labor" ? "Labor" : "Junk Removal",
+      quote.minEstimate.toFixed(2),
+      quote.minEstimate.toFixed(2),
+      JSON.stringify(details),
+      capacity.startAt.toISOString(),
+    ]);
+    const leadResult = await tx.query(`
+      INSERT INTO leads
+        (first_name, last_name, email, phone, service_type, from_address, move_date, details, source, status,
+         truck_config, truck_provider, truck_size, crew_size, confirmed_hours, base_price, total_price,
+         booking_id, quote_snapshot, zone_snapshot, arrival_window, deposit_required, is_quote_only)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'instant_booking_hold','quote_requested',
+              $9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,true,$20)
+      RETURNING id, order_number
+    `, [
+      firstName,
+      lastName,
+      customerEmail,
+      normalizedPhone,
+      input.service === "moving" ? "Residential Move" : input.service === "labor" ? "Labor" : "Junk Removal",
+      input.serviceAddress,
+      input.requestedDate,
+      [
+        "[PENDING ONLINE HOLD - ADMIN REVIEW REQUIRED]",
+        `Requested start: ${input.requestedDate} ${timeLabel(input.startTime)} ${INSTANT_BOOKING_TIME_ZONE}`,
+        `Estimate: $${quote.minEstimate}–$${quote.maxEstimate} (subject to review)`,
+        `Crew required: ${quote.crewSize}`,
+        `Hours: ${quote.requestedHours}`,
+        input.notes ? `Customer notes: ${input.notes}` : "",
+      ].filter(Boolean).join("\n"),
+      input.truckSource === "jc_on_the_move" ? "company_truck" : input.truckSource === "customer" ? "customer_truck" : input.truckSource === "rental" ? "rental_truck" : "no_truck",
+      input.truckSource,
+      input.truckSize,
+      quote.crewSize,
+      Math.ceil(quote.requestedHours),
+      quote.minEstimate.toFixed(2),
+      quote.maxEstimate.toFixed(2),
+      bookingId,
+      JSON.stringify(quoteSnapshot),
+      JSON.stringify({ zoneCode: quote.zoneCode, zoneName: quote.zoneName, travelFallback: quote.travelFallback }),
+      `${timeLabel(input.startTime)}–${timeLabel(`${String(Math.min(23, Number(input.startTime.slice(0, 2)) + Math.ceil(quote.requestedHours))).padStart(2, "0")}:00`)}`,
+      quote.travelFallback,
+    ]);
+    const leadId = String(leadResult.rows[0]?.id || "");
+    if (!leadId) throw new Error("Lead insert returned no id");
+    const expiresAt = new Date(Date.now() + HOLD_LIFETIME_MS);
+    const holdResult = await tx.query(`
+      INSERT INTO booking_slot_holds
+        (booking_id, lead_id, service_date, start_at, duration_minutes, crew_size, status, expires_at, review_required, zone_code, quote_snapshot)
+      VALUES ($1,$2,$3::date,$4::timestamptz,$5,$6,'pending_review',$7::timestamptz,$8,$9,$10::jsonb)
+      RETURNING id
+    `, [
+      bookingId,
+      leadId,
+      input.requestedDate,
+      capacity.startAt.toISOString(),
+      quote.durationMinutes,
+      quote.crewSize,
+      expiresAt.toISOString(),
+      quote.reviewRequired,
+      quote.zoneCode,
+      JSON.stringify(quoteSnapshot),
+    ]);
+    await tx.query("COMMIT");
+    const holdId = String(holdResult.rows[0]?.id || "");
+
+    // This is a new lead and a private admin hold. Workers are intentionally
+    // not alerted until payment/confirmation, avoiding phantom crew work.
+    const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+    if (lead) {
+      void emitJobEvent("quote_requested", lead, {
+        source: "instant_booking_hold",
+        extra: { bookingId, holdId, pendingHold: true, expiresAt: expiresAt.toISOString() },
+      });
+    }
+    return res.status(201).json({
+      success: true,
+      bookingId,
+      leadId,
+      holdId,
+      status: "pending_review",
+      expiresAt: expiresAt.toISOString(),
+      quote,
+      message: quote.travelFallback
+        ? "We received your conditional hold and travel estimate. An admin will review it before any deposit is requested."
+        : "Your requested time is held for 24 hours pending our review. No payment has been taken yet.",
+    });
+  } catch (error) {
+    if (client) {
+      try { await client.query("ROLLBACK"); } catch { /* transaction already completed */ }
+    }
+    if (error instanceof ZodError) return res.status(400).json({ error: "Check the booking details", details: error.errors });
+    console.error("[instant-booking/hold] error:", error);
+    return res.status(500).json({ error: "We could not place that hold. Please try again or request a callback." });
+  } finally {
+    client?.release();
+  }
+});
 
 // ── POST /api/bookings/quote ───────────────────────────────────────────────
 router.post("/bookings/quote", async (req: Request, res: Response) => {
@@ -1816,6 +2279,135 @@ async function requireAdmin(req: any, res: Response): Promise<boolean> {
   }
   return true;
 }
+
+// Admin-only pending hold queue. These holds deliberately stay out of the
+// crew workflow until review and payment have confirmed the job.
+router.get("/admin/booking-holds", isAuthenticated, async (req: any, res: Response) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    await ensureInstantBookingTables();
+    const status = typeof req.query.status === "string" ? req.query.status : "pending_review";
+    const { rows } = await pool.query(
+      "SELECT h.*, b.customer_name, b.customer_email, b.customer_phone, b.service_address, " +
+      "l.first_name, l.last_name, l.service_type, l.total_price, l.square_payment_url " +
+      "FROM booking_slot_holds h JOIN bookings b ON b.id = h.booking_id JOIN leads l ON l.id = h.lead_id " +
+      "WHERE ($1 = 'all' OR h.status = $1) ORDER BY h.start_at ASC, h.created_at DESC",
+      [status],
+    );
+    return res.json({ holds: rows, timeZone: INSTANT_BOOKING_TIME_ZONE });
+  } catch (error) {
+    console.error("[admin/booking-holds] error:", error);
+    return res.status(500).json({ error: "Failed to load pending holds" });
+  }
+});
+
+const reviewInstantBookingHoldSchema = z.object({
+  decision: z.enum(["approve", "release"]),
+  total: z.coerce.number().positive().max(100000).optional(),
+  notes: z.string().trim().max(2000).optional().transform((value) => value || ""),
+  sendDepositLink: z.boolean().optional().default(true),
+});
+
+router.patch("/admin/booking-holds/:id", isAuthenticated, async (req: any, res: Response) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    await ensureInstantBookingTables();
+    const input = reviewInstantBookingHoldSchema.parse(req.body);
+    const { rows } = await pool.query(
+      "SELECT h.*, b.id AS parent_booking_id FROM booking_slot_holds h " +
+      "JOIN bookings b ON b.id = h.booking_id WHERE h.id = $1 LIMIT 1",
+      [req.params.id],
+    );
+    const hold = rows[0];
+    if (!hold) return res.status(404).json({ error: "Booking hold not found" });
+    if (!["pending_review", "awaiting_deposit"].includes(String(hold.status))) {
+      return res.status(409).json({ error: "This hold is already " + String(hold.status) + "." });
+    }
+    const actorId = req.user?.id || req.session?.userId || null;
+    if (input.decision === "release") {
+      await pool.query(
+        "UPDATE booking_slot_holds SET status='released', admin_notes=$2, reviewed_by_user_id=$3, reviewed_at=NOW(), updated_at=NOW() WHERE id=$1",
+        [hold.id, input.notes || null, actorId],
+      );
+      await pool.query("UPDATE bookings SET status='cancelled' WHERE id=$1", [hold.booking_id]);
+      return res.json({ success: true, status: "released", message: "The pending hold was released. The lead remains available for a manual follow-up." });
+    }
+
+    const snapshot = typeof hold.quote_snapshot === "string"
+      ? JSON.parse(hold.quote_snapshot)
+      : (hold.quote_snapshot || {});
+    const estimatedTotal = Number(snapshot?.quote?.maxEstimate || 0);
+    const total = Math.round((input.total || estimatedTotal) * 100) / 100;
+    if (!Number.isFinite(total) || total <= 0) return res.status(400).json({ error: "Enter an approved total before requesting the deposit." });
+    const depositAmount = Math.round(total * 0.3 * 100) / 100;
+    const [lead] = await db.select().from(leads).where(eq(leads.id, hold.lead_id)).limit(1);
+    if (!lead) return res.status(404).json({ error: "Lead for this hold was not found" });
+
+    await pool.query(
+      "UPDATE booking_slot_holds SET status='awaiting_deposit', admin_notes=$2, reviewed_by_user_id=$3, reviewed_at=NOW(), expires_at=NULL, updated_at=NOW() WHERE id=$1",
+      [hold.id, input.notes || null, actorId],
+    );
+    await pool.query(
+      "UPDATE bookings SET subtotal=$2, final_total=$2, status='awaiting_deposit' WHERE id=$1",
+      [hold.booking_id, total.toFixed(2)],
+    );
+    await db.update(leads).set({
+      basePrice: total.toFixed(2),
+      totalPrice: total.toFixed(2),
+      depositRequired: true,
+      depositAmount: depositAmount.toFixed(2),
+      isQuoteOnly: false,
+      quoteNotes: input.notes || lead.quoteNotes,
+      lastQuoteUpdatedAt: new Date(),
+    }).where(eq(leads.id, lead.id));
+
+    let paymentUrl: string | null = null;
+    let invoiceWarning: string | null = null;
+    if (input.sendDepositLink) {
+      try {
+        const { squareInvoiceService } = await import("../services/square-invoice");
+        if (!squareInvoiceService.isConfigured()) {
+          invoiceWarning = "Square is not configured, so the approved hold is awaiting a manual deposit request.";
+        } else {
+          const hasCustomerEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email)
+            && !/@(?:jconthemove\.local|example\.(?:com|org|net)|test)$/i.test(lead.email);
+          const invoice = await squareInvoiceService.createInvoiceForLead(
+            lead,
+            depositAmount,
+            "30% scheduling deposit for approved JC ON THE MOVE " + lead.serviceType + " job",
+            undefined,
+            hasCustomerEmail ? "email" : "none",
+          );
+          paymentUrl = invoice.invoiceUrl || null;
+          if (paymentUrl) {
+            await db.update(leads).set({ squarePaymentUrl: paymentUrl }).where(eq(leads.id, lead.id));
+          } else {
+            invoiceWarning = "Square created the invoice without returning a shareable link.";
+          }
+        }
+      } catch (error) {
+        console.error("[admin/booking-holds] deposit invoice error:", error);
+        invoiceWarning = "The hold was approved, but the deposit link could not be created. Use the lead payment action to retry.";
+      }
+    }
+
+    return res.json({
+      success: true,
+      status: "awaiting_deposit",
+      total,
+      depositAmount,
+      paymentUrl,
+      invoiceWarning,
+      message: paymentUrl
+        ? "Hold approved and deposit link created. Once Square confirms payment, the hold becomes confirmed."
+        : "Hold approved and awaiting deposit. No crew notification has been sent yet.",
+    });
+  } catch (error) {
+    if (error instanceof ZodError) return res.status(400).json({ error: "Check the review details", details: error.errors });
+    console.error("[admin/booking-holds/:id] error:", error);
+    return res.status(500).json({ error: "Failed to review the booking hold" });
+  }
+});
 
 // ── GET /api/admin/bookings ───────────────────────────────────────────────
 // List parent bookings with their children for the admin pipeline. Supports

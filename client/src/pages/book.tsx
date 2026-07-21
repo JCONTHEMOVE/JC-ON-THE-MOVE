@@ -879,7 +879,7 @@ function QuickRequestForm({
   const canSubmit =
     form.firstName.trim().length > 0 &&
     form.lastName.trim().length > 0 &&
-    form.phone.replace(/\D/g, "").length >= 7 &&
+    /^(?:1)?[2-9]\d{2}[2-9]\d{6}$/.test(form.phone.replace(/\D/g, "")) &&
     form.serviceCode.trim().length > 0;
   const attributionSummary = formatAttributionSummary(attribution);
   const adHint = formatAdHint(attribution.marketingTracking);
@@ -1043,9 +1043,13 @@ function QuickRequestForm({
               value={form.phone}
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
               placeholder="(906) 285-9312"
+              type="tel"
               inputMode="tel"
+              autoComplete="tel"
+              maxLength={18}
               data-testid="quick-phone"
             />
+            <p className="mt-1 text-[11px] text-muted-foreground">Enter all 10 digits so we can call or text you back.</p>
           </div>
           <div>
             <Label className="text-xs">Service</Label>

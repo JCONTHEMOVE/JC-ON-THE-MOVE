@@ -928,12 +928,44 @@ export const insertJewelryItemSchema = createInsertSchema(jewelryItems).omit({
 export type InsertJewelryItem = z.infer<typeof insertJewelryItemSchema>;
 export type JewelryItem = typeof jewelryItems.$inferSelect;
 
+/**
+ * Return a call-ready North American phone number, or null when the input is
+ * incomplete. Leads are handled by a US phone team, so saving a partial
+ * number is worse than rejecting the submission: it creates a lead we cannot
+ * call back.
+ */
+export function normalizeLeadPhoneNumber(value: unknown): string | null {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  const nationalNumber = digits.length === 11 && digits.startsWith("1")
+    ? digits.slice(1)
+    : digits;
+
+  // North American area codes and exchange codes cannot begin with 0 or 1.
+  if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(nationalNumber)) {
+    return null;
+  }
+
+  return `(${nationalNumber.slice(0, 3)}) ${nationalNumber.slice(3, 6)}-${nationalNumber.slice(6)}`;
+}
+
+export const leadPhoneNumberSchema = z.string().trim()
+  .refine(
+    (value) => normalizeLeadPhoneNumber(value) !== null,
+    "Enter a complete 10-digit phone number so we can call you back.",
+  )
+  .transform((value) => normalizeLeadPhoneNumber(value)!);
+
 export const insertLeadSchema = createInsertSchema(leads).omit({
   id: true,
   orderNumber: true,
   status: true,
   assignedToUserId: true, // Assigned internally when employee accepts job
   createdAt: true,
+}).extend({
+  // Apply the same validation and display format to public, marketplace, and
+  // staff-created leads. This is the last line of defense before a lead is
+  // written to the database.
+  phone: leadPhoneNumberSchema,
 });
 
 export function formatOrderNumber(n: number): string {

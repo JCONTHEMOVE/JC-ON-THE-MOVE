@@ -4,7 +4,7 @@ import { createRequire } from "module";
 import crypto from "crypto";
 import { getEasternDateStr, getEasternDayStart, getEasternDayEnd } from "./utils/dateUtils";
 import { storage } from "./storage";
-import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema, insertReviewSchema, formatOrderNumber } from "@shared/schema";
+import { insertLeadSchema, insertContactSchema, insertCashoutRequestSchema, insertShopItemSchema, insertReviewSchema, formatOrderNumber, leadPhoneNumberSchema } from "@shared/schema";
 import { sendEmail, generateLeadNotificationEmail, generateContactNotificationEmail, notifyAdminNewQuote, notifyAdminNewLead, notifyAdminJobCompleted, notifyEmployeeJobAvailable, sendNotificationEmail, sendBundleFollowupEmail } from "./services/email";
 import { setupAuth, isAuthenticated, isAuthenticatedAllowPending, signJwt, signRefreshToken, verifyRefreshToken } from "./auth";
 import { ipRateLimit, getClientIp } from "./lib/persistentRateLimit";
@@ -64,7 +64,8 @@ import { grantLotteryTicketsForActivity } from "./services/disburse-job-tokens";
 import { getDepositInfo, extractZip } from "@shared/depositRules";
 import { MIN_REDEMPTION_TOKENS, REDEMPTION_INCREMENT, roundToIncrement, validateRedemption, tokensToDollars } from "@shared/tokenRedemptionRules";
 import { buildLeadJobPayoutPreview } from "./services/jobPayoutEngine";
-import { emitJobEvent, eventTypeForStatus } from "./services/jobEventBus";
+import { emitJobEvent, eventTypeForStatus, deliverCrewAnnouncementToWebhooks } from "./services/jobEventBus";
+import { notificationService } from "./services/notification";
 import { buildJobFlowRecords, jobBelongsToCrew, toCrewBoardFlow } from "./services/jobFlow";
 import { calculateLaborBooking, normalizeLaborWorkScope } from "@shared/laborBooking";
 import { calculateProfitSharingPayout, defaultBonusWeightsForCrew, defaultHourlyRateForRole, normalizeProfitShareSettings } from "./services/profitSharingPayoutEngine";
@@ -5023,7 +5024,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
   const quickRequestSchema = z.object({
     firstName: z.string().trim().min(1).max(80),
     lastName: z.string().trim().min(1).max(80),
-    phone: z.string().trim().min(7).max(40),
+    phone: leadPhoneNumberSchema,
     serviceCode: z.string().trim().min(1).max(80),
     notes: z.string().trim().max(2500).optional().default(""),
     mediaLink: z.string().trim().max(1000).optional().default(""),
@@ -5133,10 +5134,48 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           photoNames.length ? `Photo files mentioned: ${photoNames.join(", ")}` : "",
         ].filter(Boolean).join("\n");
 
+        // A callback is a lead, not a temporary record. Keep an accidental
+        // double-tap / retry from creating two copies of the same callback
+        // while still allowing a customer to contact us again later.
+        const recentQuickRequest = await db.select()
+          .from(leads)
+          .where(and(
+            eq(leads.source, "quick_request"),
+            sql`regexp_replace(${leads.phone}, '\\D', '', 'g') = ${phoneDigits}`,
+            eq(leads.serviceType, service.serviceType),
+            eq(leads.details, details),
+            gte(leads.createdAt, new Date(Date.now() - 5 * 60_000)),
+          ))
+          .orderBy(desc(leads.createdAt))
+          .limit(1);
+
+        if (recentQuickRequest[0]) {
+          const existingLead = recentQuickRequest[0];
+          return res.status(200).json({
+            success: true,
+            duplicate: true,
+            lead: {
+              id: existingLead.id,
+              orderNumber: existingLead.orderNumber,
+              displayOrderNumber: formatOrderNumber(existingLead.orderNumber),
+              status: existingLead.status,
+              serviceLabel: service.label,
+              photoCount: parsed.photos.length,
+              promoCode: normalizedPromoCode || null,
+              referralSlug: referralSlug || null,
+              marketingCampaignId: marketingCampaignId || null,
+            },
+          });
+        }
+
         const leadData = insertLeadSchema.parse({
           firstName: parsed.firstName,
           lastName: parsed.lastName,
-          email: `quick-request+${phoneDigits || Date.now()}@jconthemove.local`,
+          // A callback does not collect an email. The old phone-only address
+          // was deterministic, so retrying the same number could collide with
+          // a production uniqueness constraint. This stays synthetic but is
+          // unique for every lead.
+          email: `quick-request+${phoneDigits || "callback"}-${crypto.randomUUID()}@jconthemove.local`,
           phone: parsed.phone,
           serviceType: service.serviceType,
           fromAddress: "Callback requested",
@@ -5166,14 +5205,13 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
             : {},
         });
 
-        let lead = await storage.createLead(leadData);
-        if (lead.status !== "quote_requested") {
-          const [quoteRequestedLead] = await db.update(leads)
-            .set({ status: "quote_requested" as any })
-            .where(eq(leads.id, lead.id))
-            .returning();
-          if (quoteRequestedLead) lead = quoteRequestedLead;
-        }
+        // Insert the lead in its real initial state. Previously this required
+        // a follow-up update after the insert, which could report a 500 even
+        // though the callback was already saved.
+        const [lead] = await db.insert(leads)
+          .values({ ...leadData, status: "quote_requested" })
+          .returning();
+        if (!lead) throw new Error("Quick request lead insert returned no record");
         if (normalizedPromoCode || referralSlug || marketingCampaignId) {
           try {
             let repUserId: string | null = null;
@@ -5783,6 +5821,60 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       res.status(500).json({ message: "Access control error" });
     }
   };
+
+  const crewAnnouncementSchema = z.object({
+    title: z.string().trim().min(1).max(140),
+    message: z.string().trim().min(1).max(2000),
+  });
+
+  // Owner-only: a durable in-app/push announcement plus one generic post to
+  // the existing job-alert webhook(s). No customer or job details are sent to
+  // Discord, and the result is retained for an operational audit.
+  app.post("/api/admin/crew-announcements", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
+    try {
+      const input = crewAnnouncementSchema.parse(req.body);
+      await pool.query(
+        "CREATE TABLE IF NOT EXISTS crew_announcements (" +
+        "id VARCHAR PRIMARY KEY, title TEXT NOT NULL, message TEXT NOT NULL, sent_by_user_id VARCHAR REFERENCES users(id), " +
+        "eligible_crew_count INTEGER NOT NULL DEFAULT 0, delivery_summary JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+      );
+      const recipients = await storage.getEmployees();
+      const announcementId = crypto.randomUUID();
+      const sentBy = req.currentUser?.id || req.user?.id || req.session?.userId || null;
+      const notifications = await Promise.allSettled(recipients.map((employee) =>
+        notificationService.sendNotification({
+          userId: employee.id,
+          type: "system_alert",
+          title: input.title,
+          message: input.message,
+          data: { type: "crew_announcement", announcementId, url: "/crew" },
+        }),
+      ));
+      const inAppDelivered = notifications.filter((result) => result.status === "fulfilled").length;
+      const discord = await deliverCrewAnnouncementToWebhooks({
+        title: input.title,
+        message: input.message,
+        source: "crew_announcement",
+      });
+      const deliverySummary = {
+        inAppAttempted: recipients.length,
+        inAppDelivered,
+        inAppFailed: recipients.length - inAppDelivered,
+        discordConfigured: discord.configured,
+        discordDelivered: discord.delivered,
+      };
+      await pool.query(
+        "INSERT INTO crew_announcements (id, title, message, sent_by_user_id, eligible_crew_count, delivery_summary) " +
+        "VALUES ($1,$2,$3,$4,$5,$6::jsonb)",
+        [announcementId, input.title, input.message, sentBy, recipients.length, JSON.stringify(deliverySummary)],
+      );
+      return res.status(201).json({ success: true, announcementId, recipients: recipients.length, deliverySummary });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: "Enter a title and message for the crew." });
+      console.error("[crew-announcements] failed:", error);
+      return res.status(500).json({ error: "Could not send the crew announcement." });
+    }
+  });
 
   const requireEmployee = async (req: any, res: any, next: any) => {
     try {
@@ -21084,6 +21176,24 @@ Thank you for your business!
                   note: "Square invoice paid. Job is ready for dispatch/payment paperwork.",
                   extra: { squareInvoiceId, paymentReceived: true },
                 });
+
+                // Exact-time online holds become confirmed only when the
+                // approved deposit is paid. Older invoices do not have a
+                // matching hold row, so this remains safely best-effort.
+                try {
+                  await pool.query(
+                    "UPDATE booking_slot_holds SET status='confirmed', updated_at=NOW() " +
+                    "WHERE lead_id=$1 AND status='awaiting_deposit'",
+                    [localInvoice.leadId],
+                  );
+                  await pool.query(
+                    "UPDATE bookings SET status='booked' WHERE id IN " +
+                    "(SELECT booking_id FROM booking_slot_holds WHERE lead_id=$1 AND status='confirmed')",
+                    [localInvoice.leadId],
+                  );
+                } catch (holdErr) {
+                  console.warn("[Square webhook] booking hold confirmation skipped:", holdErr instanceof Error ? holdErr.message : holdErr);
+                }
 
                 // Record revenue split on payment confirmation.
                 // Square total_money.amount is always in cents (smallest currency unit).

@@ -31,7 +31,7 @@ const CustomerHomePage = lazy(() => import("@/pages/customer-home"));
 const MyJobsPage = lazy(() => import("@/pages/my-jobs"));
 // Task #169 — PostJobPage retired (route redirects to /book?worker=1)
 const CustomerBookPage = lazy(() => import("@/pages/customer/book"));
-const MultiServiceBookPage = lazy(() => import("@/pages/book"));
+const InstantBookingPage = lazy(() => import("@/pages/instant-booking"));
 const CustomerWalletPage = lazy(() => import("@/pages/customer/wallet"));
 const WalletAddCreditPage = lazy(() => import("@/pages/wallet-add-credit"));
 const CustomerEarnPage = lazy(() => import("@/pages/customer/earn"));
@@ -105,6 +105,7 @@ const StakingPage = lazy(() => import("@/pages/staking"));
 const AdminQuoteReviewPage = lazy(() => import("@/pages/admin-quote-review"));
 const CrewTodayPage = lazy(() => import("@/pages/crew/today"));
 const CrewJobsNewPage = lazy(() => import("@/pages/crew/jobs"));
+const CrewAddJobPage = lazy(() => import("@/pages/crew/add-job"));
 const CrewSchedulePage = lazy(() => import("@/pages/crew/schedule"));
 const CrewEarningsPage = lazy(() => import("@/pages/crew/earnings"));
 const CrewReviewsPage = lazy(() => import("@/pages/crew/reviews"));
@@ -367,7 +368,7 @@ function CustomerApp() {
             <MyJobsPage />
           </Route>
           <Route path="/book">
-            <MultiServiceBookPage />
+            <InstantBookingPage />
           </Route>
           <Route path="/book/chat">
             <CustomerBookPage />
@@ -491,13 +492,14 @@ function AuthenticatedApp() {
           <NotificationPrompt />
           <CrewLayout>
             <Switch>
-              <Route path="/crew"><CrewTodayPage /></Route>
+              <Route path="/crew/add-job"><CrewAddJobPage /></Route>
               <Route path="/crew/jobs"><CrewJobsNewPage /></Route>
               <Route path="/crew/schedule"><CrewSchedulePage /></Route>
               <Route path="/crew/reviews"><CrewReviewsPage /></Route>
               <Route path="/crew/marketing"><CrewEarningsPage marketingOnly /></Route>
               <Route path="/crew/earnings"><CrewEarningsPage /></Route>
               <Route path="/crew/tutorials"><TutorialsPage /></Route>
+              <Route path="/crew"><CrewTodayPage /></Route>
               <Route><Redirect to="/crew" /></Route>
             </Switch>
           </CrewLayout>
@@ -517,7 +519,7 @@ function AuthenticatedApp() {
           <NotificationPrompt />
           <AdminLayout>
             <Switch>
-              <Route path="/admin"><Redirect to="/admin/ops-board" /></Route>
+              <Route path="/admin"><Redirect to="/admin/schedule" /></Route>
               <Route path="/admin/overview"><AdminOverviewPage /></Route>
               <Route path="/admin/ops-board"><AdminOpsBoardPage /></Route>
               <Route path="/admin/dispatch"><AdminDispatchPage /></Route>
@@ -546,7 +548,7 @@ function AuthenticatedApp() {
               <Route path="/admin/users"><Redirect to="/admin/people" /></Route>
               <Route path="/admin/employees"><Redirect to="/admin/people" /></Route>
               <Route path="/admin/rewards"><Redirect to="/admin/marketplace" /></Route>
-              <Route><Redirect to="/admin/dispatch" /></Route>
+              <Route><Redirect to="/admin/schedule" /></Route>
             </Switch>
           </AdminLayout>
         </RouteGuard>
@@ -566,9 +568,9 @@ function AuthenticatedApp() {
           <Route path="/dashboard">
             <Redirect to="/admin" />
           </Route>
-          {/* Employee add-job route uses the same staff intake form as every calendar entry. */}
+          {/* Legacy staff URL now opens the shared crew calendar intake. */}
           <Route path="/employee/add-job">
-            <Redirect to="/leads?tab=add" />
+            <Redirect to="/crew/add-job" />
           </Route>
           <Route path="/employee/dashboard">
             <RouteGuard allowedRoles={['admin', 'employee', 'business_owner']}>
@@ -576,7 +578,7 @@ function AuthenticatedApp() {
             </RouteGuard>
           </Route>
           <Route path="/leads">
-            <Redirect to="/admin/jobs" />
+            <Redirect to={user?.role === "admin" ? "/admin/schedule?add=1" : "/crew/add-job"} />
           </Route>
           <Route path="/lead/:id">
             <PageWrapper component={LeadDetailPage} />
@@ -856,7 +858,7 @@ function Router() {
       <Route path="/quote" component={QuotePage} />
       
       {/* Book page - accessible to all users, authenticated or not */}
-      <Route path="/book" component={MultiServiceBookPage} />
+      <Route path="/book" component={InstantBookingPage} />
       <Route path="/book/chat" component={CustomerBookPage} />
 
       {/* Trash Valet pages - accessible to all */}

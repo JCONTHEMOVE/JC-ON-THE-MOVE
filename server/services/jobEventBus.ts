@@ -266,6 +266,18 @@ function formatWebhookBody(url: string, payload: Record<string, unknown>) {
 
   if (url.includes("discord.com/api/webhooks") || url.includes("discordapp.com/api/webhooks")) {
     const adminUrl = typeof payload.adminUrl === "string" ? payload.adminUrl : "";
+    if (payload.type === "crew_announcement") {
+      return JSON.stringify({
+        username: "JC ON THE MOVE",
+        content: `**${title}**\n${message}`,
+        embeds: [{
+          title,
+          description: message,
+          color: 0x3b82f6,
+          timestamp: String(payload.createdAt || new Date().toISOString()),
+        }],
+      });
+    }
     return JSON.stringify({
       username: "JC Job Events",
       content: `**${title}**\n${message}${adminUrl ? `\n${adminUrl}` : ""}`,
@@ -327,6 +339,64 @@ async function deliverWebhooks(payload: Record<string, unknown>) {
       clearTimeout(timeout);
     }
   }));
+}
+
+/**
+ * Send a company-wide announcement through the already-configured job alert
+ * webhooks.  This intentionally carries no customer or job data: the job
+ * alert channel doubles as the crew announcement channel without creating a
+ * second Discord webhook or exposing operational details.
+ */
+export async function deliverCrewAnnouncementToWebhooks(input: {
+  title: string;
+  message: string;
+  source?: string;
+}): Promise<{ configured: number; delivered: number }> {
+  if (webhookUrls.length === 0) return { configured: 0, delivered: 0 };
+
+  let delivered = 0;
+  await Promise.allSettled(webhookUrls.map(async (url) => {
+    const payload = {
+      id: crypto.randomUUID(),
+      type: "crew_announcement",
+      scope: "crew",
+      title: input.title,
+      message: input.message,
+      source: input.source || "crew_announcement",
+      createdAt: new Date().toISOString(),
+      lead: {},
+    };
+    const body = formatWebhookBody(url, payload);
+    const signature = webhookSecret
+      ? crypto.createHmac("sha256", webhookSecret).update(body).digest("hex")
+      : "";
+    const isDiscord = url.includes("discord.com/api/webhooks") || url.includes("discordapp.com/api/webhooks");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(isDiscord ? {} : { "x-jc-event": "crew_announcement" }),
+          ...(!isDiscord && signature ? { "x-jc-signature": `sha256=${signature}` } : {}),
+        },
+        body,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        console.warn(`[jobEventBus] crew announcement webhook returned ${response.status}`);
+        return;
+      }
+      delivered += 1;
+    } catch (error) {
+      console.error("[jobEventBus] crew announcement webhook failed:", error instanceof Error ? error.message : error);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }));
+
+  return { configured: webhookUrls.length, delivered };
 }
 
 export function eventTypeForStatus(status: string | null | undefined): JobEventType | null {

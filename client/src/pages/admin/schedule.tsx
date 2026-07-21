@@ -1,15 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { StaffJobForm } from "@/components/StaffJobForm";
 import {
   ChevronLeft, ChevronRight, Calendar, Mail, CheckCircle2,
   Users, Clock, MapPin, ArrowLeft, Truck, Trash2, Wrench,
-  Snowflake, Wind, Scissors, Package, AlertCircle
+  Snowflake, Wind, Scissors, Package, AlertCircle, Plus, MessageCircle
 } from "lucide-react";
 
 interface ScheduledJob {
@@ -28,6 +30,21 @@ interface ScheduledJob {
   dispatchSentAt: string | null;
   dispatchNotes: string | null;
   quoteNotes: string | null;
+}
+
+interface PendingBookingHold {
+  id: string;
+  lead_id: string;
+  service_date: string;
+  start_at: string;
+  crew_size: number;
+  status: "pending_review" | "awaiting_deposit" | "confirmed" | "released";
+  review_required: boolean;
+  quote_snapshot: { quote?: { minEstimate?: number; maxEstimate?: number; travelFallback?: boolean } } | null;
+  customer_name: string;
+  service_type: string;
+  customer_phone: string;
+  total_price: string | null;
 }
 
 const SERVICE_ICONS: Record<string, any> = {
@@ -62,7 +79,7 @@ function getWeekDays(anchorDate: Date): Date[] {
 }
 
 function dateKey(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function formatDay(d: Date): string {
@@ -89,15 +106,91 @@ function extractCity(address: string | null): string {
 
 export default function AdminSchedulePage() {
   const { toast } = useToast();
+  const [location, setLocation] = useLocation();
   const [anchor, setAnchor] = useState(() => new Date());
   const [dispatchingId, setDispatchingId] = useState<number | null>(null);
+  const [reviewingHoldId, setReviewingHoldId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addDate, setAddDate] = useState(() => dateKey(new Date()));
 
   const days = getWeekDays(anchor);
   const today = dateKey(new Date());
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.split("?")[1] || "");
+    if (params.get("add") !== "1") return;
+    const requestedDate = params.get("date");
+    setAddDate(requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : dateKey(new Date()));
+    setAddOpen(true);
+  }, [location]);
+
+  function openAddJob(forDate: string) {
+    setAddDate(forDate);
+    setAddOpen(true);
+  }
+
+  function closeAddJob() {
+    setAddOpen(false);
+    const params = new URLSearchParams(location.split("?")[1] || "");
+    if (params.get("add") === "1") setLocation("/admin/schedule");
+  }
+
   const { data: jobs = [], isLoading } = useQuery<ScheduledJob[]>({
     queryKey: ["/api/admin/schedule"],
     refetchInterval: 60000,
+  });
+
+  const { data: pendingHolds = [] } = useQuery<PendingBookingHold[]>({
+    queryKey: ["/api/admin/booking-holds"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/booking-holds");
+      const data = await res.json();
+      return data.holds || [];
+    },
+    refetchInterval: 30000,
+  });
+
+  const reviewHoldMutation = useMutation({
+    mutationFn: async ({ id, decision }: { id: string; decision: "approve" | "release" }) => {
+      setReviewingHoldId(id);
+      const res = await apiRequest("PATCH", "/api/admin/booking-holds/" + id, {
+        decision,
+        sendDepositLink: decision === "approve",
+      });
+      return res.json() as Promise<{ message?: string; invoiceWarning?: string | null }>;
+    },
+    onSuccess: (data, variables) => {
+      setReviewingHoldId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/booking-holds"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/schedule"] });
+      toast({
+        title: variables.decision === "approve" ? "Hold approved" : "Hold released",
+        description: data.invoiceWarning || data.message,
+      });
+    },
+    onError: (error: Error) => {
+      setReviewingHoldId(null);
+      toast({ title: "Could not review hold", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const crewThankYouMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/crew-announcements", {
+        title: "Thank you, JC ON THE MOVE Crew",
+        message: "Thank you guys for all the hard work this week and helping JC ON THE MOVE LLC get closer to the goal for all of us as huge family 🙏",
+      });
+      return res.json() as Promise<{ eligibleCrewCount?: number; notifications?: { delivered?: number }; webhooks?: { delivered?: number } }>;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Crew thank-you sent",
+        description: `${data.notifications?.delivered ?? 0} crew notification${(data.notifications?.delivered ?? 0) === 1 ? "" : "s"} and ${data.webhooks?.delivered ?? 0} crew-channel post${(data.webhooks?.delivered ?? 0) === 1 ? "" : "s"} delivered.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not send crew thank-you", description: error.message, variant: "destructive" });
+    },
   });
 
   const dispatchMutation = useMutation({
@@ -158,11 +251,69 @@ export default function AdminSchedulePage() {
             <Calendar className="h-5 w-5 text-primary" />
             <h1 className="text-xl font-bold">Job Schedule</h1>
           </div>
-          <Badge variant="outline" className="ml-auto">{totalThisWeek} job{totalThisWeek !== 1 ? "s" : ""} this week</Badge>
+          <div className="ml-auto flex items-center gap-2">
+            <Badge variant="outline" className="hidden sm:inline-flex">{totalThisWeek} job{totalThisWeek !== 1 ? "s" : ""} this week</Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => crewThankYouMutation.mutate()}
+              disabled={crewThankYouMutation.isPending}
+              data-testid="button-send-crew-thanks"
+            >
+              <MessageCircle className="mr-1.5 h-4 w-4" /> {crewThankYouMutation.isPending ? "Sending…" : "Thank crew"}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => openAddJob(today)}
+              className="bg-blue-600 text-white hover:bg-blue-500"
+              data-testid="button-add-job-today"
+            >
+              <Plus className="mr-1.5 h-4 w-4" /> Add job today
+            </Button>
+          </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {pendingHolds.length > 0 && (
+          <Card className="border-orange-400/40 bg-orange-500/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Clock className="h-4 w-4 text-orange-400" />
+                Pending online holds — admin review only
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {pendingHolds.map((hold) => {
+                const quote = hold.quote_snapshot?.quote;
+                const estimate = quote?.minEstimate != null && quote?.maxEstimate != null
+                  ? "$" + quote.minEstimate + "–$" + quote.maxEstimate
+                  : "Estimate pending";
+                const reviewing = reviewingHoldId === hold.id;
+                return (
+                  <div key={hold.id} className="flex flex-col gap-3 rounded-lg border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="font-semibold">{hold.customer_name} <span className="text-muted-foreground">· {serviceLabel(hold.service_type)}</span></p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {new Date(hold.start_at).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · {hold.crew_size} crew · {estimate}
+                      </p>
+                      <p className="mt-1 text-xs text-orange-600 dark:text-orange-300">
+                        {quote?.travelFallback ? "Conditional travel hold" : "24-hour hold"}{hold.review_required ? " · difficulty review required" : ""}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <Button size="sm" variant="outline" disabled={reviewing} onClick={() => reviewHoldMutation.mutate({ id: hold.id, decision: "release" })}>Release</Button>
+                      <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-500" disabled={reviewing} onClick={() => reviewHoldMutation.mutate({ id: hold.id, decision: "approve" })}>
+                        {reviewing ? "Saving…" : "Approve & request 30% deposit"}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Week navigation */}
         <div className="flex items-center gap-3">
           <Button variant="outline" size="icon" onClick={prevWeek}><ChevronLeft className="h-4 w-4" /></Button>
@@ -194,7 +345,19 @@ export default function AdminSchedulePage() {
                   {/* Job cards */}
                   <div className="p-2 space-y-2">
                     {dayJobs.length === 0 ? (
-                      <div className="py-4 text-center text-xs text-muted-foreground">No jobs</div>
+                      <button
+                        type="button"
+                        onClick={() => openAddJob(key)}
+                        className={`flex w-full flex-col items-center gap-1 rounded-lg py-4 text-xs transition-colors ${
+                          isToday
+                            ? "text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-500/10"
+                            : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                        }`}
+                        data-testid={`button-add-job-${key}`}
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span>{isToday ? "Add a job today" : "Add job"}</span>
+                      </button>
                     ) : dayJobs.map(job => {
                       const Icon = SERVICE_ICONS[job.serviceType] || Truck;
                       const isDispatched = !!job.dispatchSentAt;
@@ -270,6 +433,18 @@ export default function AdminSchedulePage() {
                         </div>
                       );
                     })}
+                    {dayJobs.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openAddJob(key)}
+                        className="h-7 w-full gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        data-testid={`button-add-another-job-${key}`}
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add another
+                      </Button>
+                    )}
                   </div>
                 </div>
               );
@@ -319,6 +494,18 @@ export default function AdminSchedulePage() {
           );
         })()}
       </div>
+
+      <Sheet open={addOpen} onOpenChange={(open) => open ? setAddOpen(true) : closeAddJob()}>
+        <SheetContent side="bottom" className="h-[94vh] overflow-y-auto rounded-t-2xl border-slate-700 bg-slate-950 text-white sm:left-auto sm:right-0 sm:top-0 sm:h-screen sm:w-[42rem] sm:max-w-[95vw] sm:rounded-none">
+          <SheetHeader className="mb-5 text-left">
+            <SheetTitle className="flex items-center gap-2 text-white">
+              <Plus className="h-5 w-5 text-blue-300" />
+              Add job for {new Date(`${addDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+            </SheetTitle>
+          </SheetHeader>
+          <StaffJobForm prefilledDate={addDate} onSaved={closeAddJob} />
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

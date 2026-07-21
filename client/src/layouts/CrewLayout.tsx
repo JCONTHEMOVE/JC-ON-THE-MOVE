@@ -20,7 +20,7 @@ const optionLinks = [
   { label: "Marketing", description: "Create tracked local ads", icon: Megaphone, path: "/crew/marketing" },
   { label: "Earnings", description: "Payouts, JCMOVES, history", icon: Coins, path: "/crew/earnings" },
   { label: "Tutorials", description: "Step-by-step app walkthroughs", icon: GraduationCap, path: "/crew/tutorials" },
-  { label: "Add Job", description: "Create a customer request", icon: PlusCircle, path: "/leads?tab=add" },
+  { label: "Add Job", description: "Create a job on the shared calendar", icon: PlusCircle, path: "/crew/add-job" },
 ];
 
 export default function CrewLayout({ children }: { children: ReactNode }) {
@@ -40,7 +40,7 @@ export default function CrewLayout({ children }: { children: ReactNode }) {
   );
   useCrewGpsBeacon({ enabled: isOnDuty });
   const tasksActive = location === "/crew" || location === "/crew/" || location.startsWith("/crew/jobs");
-  const optionsActive = location.startsWith("/crew/schedule") || location.startsWith("/crew/reviews") || location.startsWith("/crew/earnings") || location.startsWith("/crew/marketing") || location.startsWith("/crew/tutorials");
+  const optionsActive = location.startsWith("/crew/schedule") || location.startsWith("/crew/reviews") || location.startsWith("/crew/earnings") || location.startsWith("/crew/marketing") || location.startsWith("/crew/tutorials") || location.startsWith("/crew/add-job");
 
   function go(path: string) {
     setOptionsOpen(false);
