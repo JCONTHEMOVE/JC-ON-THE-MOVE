@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/sheet";
 
 const optionLinks = [
-  { label: "Job Board", description: "Open jobs and assignment details", icon: Briefcase, path: "/crew/jobs" },
+  { label: "Job Planner", description: "Calendar, open work, and job details", icon: Briefcase, path: "/crew" },
   { label: "Schedule", description: "Availability and blocked days", icon: Calendar, path: "/crew/schedule" },
   { label: "Reviews", description: "Customer feedback and rating", icon: Star, path: "/crew/reviews" },
   { label: "Marketing", description: "Create tracked local ads", icon: Megaphone, path: "/crew/marketing" },

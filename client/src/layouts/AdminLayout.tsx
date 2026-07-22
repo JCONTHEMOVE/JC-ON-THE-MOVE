@@ -56,10 +56,10 @@ function LeadFunnelOutageBanner() {
 //   "Options" = settings, reports, marketplace, money, and launch tools.
 // Keep this list in sync with the routes wired in client/src/App.tsx.
 const TASKS = [
-  { label: "Schedule", icon: CalendarDays, path: "/admin/schedule" },
+  { label: "Job Planner", icon: CalendarDays, path: "/admin/schedule" },
   { label: "Ops Board", icon: ClipboardList, path: "/admin/ops-board" },
   { label: "Dispatch", icon: Radio, path: "/admin/dispatch" },
-  { label: "Jobs", icon: Briefcase, path: "/admin/jobs" },
+  { label: "Jobs", icon: Briefcase, path: "/admin/schedule" },
 ];
 
 const OPTIONS = [

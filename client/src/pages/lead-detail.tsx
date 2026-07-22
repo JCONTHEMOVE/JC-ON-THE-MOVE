@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { JobOrderBuilder } from "@/components/JobOrderBuilder";
+import { JobOrderTicket } from "@/components/job-order-ticket";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
 import MarketplaceSourceFlowStrip from "@/components/MarketplaceSourceFlowStrip";
@@ -406,7 +407,7 @@ function DisbursementSummaryCard({ lead }: { lead: Lead }) {
 
 export default function LeadDetailPage() {
   const [, params] = useRoute("/lead/:id");
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const [tokenAllocation, setTokenAllocation] = useState("");
@@ -429,6 +430,10 @@ export default function LeadDetailPage() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const { hasAdminAccess, isEmployee } = useAuth();
+  const requestedReturnTo = new URLSearchParams(location.includes("?") ? location.slice(location.indexOf("?") + 1) : "").get("returnTo");
+  const returnTarget = requestedReturnTo && (requestedReturnTo.startsWith("/crew") || requestedReturnTo.startsWith("/admin"))
+    ? requestedReturnTo
+    : hasAdminAccess ? "/admin/schedule" : "/crew";
 
   // Quote & Send tab state
   const [activeTab, setActiveTab] = useState("details");
@@ -568,6 +573,8 @@ export default function LeadDetailPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
       toast({
         title: "Success",
         description: "Lead updated successfully",
@@ -583,6 +590,19 @@ export default function LeadDetailPage() {
     },
   });
 
+  const claimJobMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/jobs/${params?.id}/claim`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow"] });
+      toast({ title: "Job claimed", description: "Admin will confirm the crew and dispatch the job." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not claim job", description: error.message || "Please try again.", variant: "destructive" });
+    },
+  });
+
   const archiveLeadMutation = useMutation({
     mutationFn: async (intent: "archive" | "delete" = "archive") => {
       void intent;
@@ -591,13 +611,14 @@ export default function LeadDetailPage() {
     onSuccess: (_response, intent) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads/archived"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
       toast({
         title: intent === "delete" ? "Lead removed" : "Lead archived",
         description: "It was removed from active jobs and can be restored from Archived.",
       });
       setShowArchiveDialog(false);
       setRemoveIntent(null);
-      setLocation("/leads");
+      setLocation(returnTarget);
     },
     onError: (error: Error) => {
       toast({ title: "Archive failed", description: error.message || "Could not archive this lead.", variant: "destructive" });
@@ -634,6 +655,7 @@ export default function LeadDetailPage() {
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
       toast({ title: "Package quote ready", description: "Review it, then send the quote and invoice when ready." });
     },
     onError: (error: Error) => {
@@ -661,6 +683,7 @@ export default function LeadDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
       setPlanApplied(true);
       setTimeout(() => setPlanApplied(false), 3000);
       toast({ title: "Plan saved!", description: "Crew & service plan updated." });
@@ -685,6 +708,7 @@ export default function LeadDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
       const invoiceNote = data.squareInvoiceCreated ? " + invoice" : "";
       toast({
         title: `Quote${invoiceNote} sent!`,
@@ -858,6 +882,7 @@ export default function LeadDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
       toast({ title: "Status updated", description: "Lead pipeline stage advanced." });
     },
     onError: (error: Error) => {
@@ -881,6 +906,7 @@ export default function LeadDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
       toast({ title: "Dispatched!", description: "Job marked as paid and crew SMS sent." });
     },
     onError: (error: Error) => {
@@ -988,7 +1014,7 @@ export default function LeadDetailPage() {
             <div className="flex flex-col gap-2">
               <Button 
                 className="w-full" 
-                onClick={() => setLocation("/leads")}
+                onClick={() => setLocation(returnTarget)}
                 data-testid="button-back-to-leads"
               >
                 <ArrowLeft className="h-4 w-4 mr-2" />
@@ -1277,6 +1303,30 @@ export default function LeadDetailPage() {
   };
 
   const NextIcon = nextStep.icon;
+  const canClaimJob = Boolean(isEmployee && !hasAdminAccess && lead.flow?.canClaim);
+  const ticketAction = canClaimJob ? (
+    <Button
+      size="sm"
+      onClick={() => claimJobMutation.mutate()}
+      disabled={claimJobMutation.isPending}
+      className="bg-cyan-500 font-bold text-slate-950 hover:bg-cyan-400"
+      data-testid="button-claim-job-ticket"
+    >
+      {claimJobMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Users className="mr-1.5 h-4 w-4" />}
+      Claim job
+    </Button>
+  ) : hasAdminAccess ? (
+    <Button
+      size="sm"
+      onClick={handleNextStep}
+      disabled={actionPending || nextStep.key === "done" || (nextStep.key === "send_quote" && !leadHasQuote)}
+      className="bg-cyan-500 font-bold text-slate-950 hover:bg-cyan-400"
+      data-testid="button-job-ticket-next-step"
+    >
+      {actionPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <NextIcon className="mr-1.5 h-4 w-4" />}
+      {nextStep.button}
+    </Button>
+  ) : null;
   const savedZonePreview = lead.zoneSnapshot?.preview;
   const savedZoneEstimate = savedZonePreview?.quote;
   const hasSavedZoneEstimate = Number.isFinite(Number(savedZoneEstimate?.minEstimate)) && Number.isFinite(Number(savedZoneEstimate?.maxEstimate));
@@ -1321,7 +1371,7 @@ export default function LeadDetailPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setLocation("/leads")}
+              onClick={() => setLocation(returnTarget)}
               className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
               data-testid="button-back-to-leads"
             >
@@ -1417,6 +1467,13 @@ export default function LeadDetailPage() {
             </div>
           )}
         </div>
+
+        <JobOrderTicket
+          order={lead}
+          viewer={hasAdminAccess ? "admin" : "crew"}
+          action={ticketAction}
+          className="mb-4"
+        />
 
         <Card className="mb-4 border-blue-500/30 bg-blue-950/10">
           <CardContent className="pt-4">

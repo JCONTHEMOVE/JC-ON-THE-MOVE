@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
+import { JobOrderTicket } from "@/components/job-order-ticket";
 import { calculateLaborBooking, type LaborWorkScope } from "@shared/laborBooking";
 
 interface Pricing {
@@ -511,6 +512,17 @@ function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
         <CardDescription>Choose the crew, set the hours, and save the live total.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        <JobOrderTicket
+          compact
+          viewer="admin"
+          order={{
+            ...lead,
+            crewSize: effectiveCrew,
+            confirmedHours: zoneQuote.data?.quote.booking?.billableHours ?? summary.fallbackBooking.billableHours,
+            totalPrice: summary.grandTotal,
+            orderLineItems: summary.lineItems,
+          }}
+        />
         <section className="grid gap-2 text-sm sm:grid-cols-2">
           <div className="flex min-w-0 items-center gap-2 text-slate-300"><Users className="h-4 w-4 text-blue-400" /><span className="truncate">{lead.fromAddress || "Pickup address not set"}</span></div>
           <div className="flex min-w-0 items-center gap-2 text-slate-300"><CalendarDays className="h-4 w-4 text-blue-400" /><span className="truncate">{moveDate || "Move date not set"}</span></div>
@@ -1117,6 +1129,19 @@ function LegacyJobOrderBuilder({ lead, leadId, disabled, onApply }: JobOrderBuil
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {summary ? (
+          <JobOrderTicket
+            compact
+            viewer="admin"
+            order={{
+              ...lead,
+              crewSize: summary.crewSize,
+              confirmedHours: summary.confirmedHours,
+              totalPrice: summary.grandTotal,
+              orderLineItems: summary.lineItems,
+            }}
+          />
+        ) : null}
 
         {/* ── Step 1: Package Selection ── */}
         <div>

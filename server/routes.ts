@@ -101,6 +101,50 @@ const CHATBOT_JUNK_TRAVEL_CHARGE_PER_TIER = 50;
 
 type CustomerQuoteDeliveryMethod = "email" | "sms" | "both";
 
+type PublicQuoteTokenPayload = {
+  leadId: string;
+  quoteSentAt: number;
+  exp: number;
+};
+
+const PUBLIC_QUOTE_LINK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function quoteLinkSignature(encodedPayload: string): string {
+  const secret = process.env.SESSION_SECRET || "jc-on-the-move-development-quote-link";
+  return crypto.createHmac("sha256", secret).update(encodedPayload).digest("base64url");
+}
+
+function createPublicQuoteToken(leadId: string, quoteSentAt: Date): string {
+  const payload: PublicQuoteTokenPayload = {
+    leadId,
+    quoteSentAt: quoteSentAt.getTime(),
+    exp: Date.now() + PUBLIC_QUOTE_LINK_TTL_MS,
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${encoded}.${quoteLinkSignature(encoded)}`;
+}
+
+function readPublicQuoteToken(token: string | undefined | null): PublicQuoteTokenPayload | null {
+  if (!token) return null;
+  const [encoded, providedSignature] = token.split(".");
+  if (!encoded || !providedSignature) return null;
+
+  const expectedSignature = quoteLinkSignature(encoded);
+  const expected = Buffer.from(expectedSignature);
+  const provided = Buffer.from(providedSignature);
+  if (expected.length !== provided.length || !crypto.timingSafeEqual(expected, provided)) return null;
+
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as PublicQuoteTokenPayload;
+    if (!payload.leadId || !Number.isFinite(payload.quoteSentAt) || !Number.isFinite(payload.exp) || payload.exp < Date.now()) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 function isSyntheticOrInvalidCustomerEmail(email: string | null | undefined): boolean {
   const value = String(email || "").trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return true;
@@ -6500,8 +6544,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
 
   const opsTaskActionUrl = (user: any, leadId: string): string => (
     canUseAdminPanel(user)
-      ? `/admin/jobs?lead=${encodeURIComponent(leadId)}`
-      : `/crew/jobs?lead=${encodeURIComponent(leadId)}`
+      ? `/lead/${encodeURIComponent(leadId)}?returnTo=${encodeURIComponent("/admin/schedule")}`
+      : `/lead/${encodeURIComponent(leadId)}?returnTo=${encodeURIComponent("/crew")}`
   );
 
   const buildAuthorityOptions = (user: any, authority: { rank: number; authorityTier: WorkerTier }) => {
@@ -12548,6 +12592,23 @@ Thank you for your business!
       && record.flow.crew.openSlots > 0;
   };
 
+  const isPlannerActive = (record: Awaited<ReturnType<typeof buildJobFlowRecords>>[number]) => {
+    const status = String(record.status || "").toLowerCase();
+    return !record.archivedAt && !["completed", "paid", "cancelled", "closed"].includes(status);
+  };
+
+  const canViewJobTask = async (user: any, record: Awaited<ReturnType<typeof buildJobFlowRecords>>[number]) => {
+    if (isBusinessOwnerUser(user) || jobBelongsToCrew(record, user.id) || isCrewBoardEligible(record)) return true;
+
+    const authority = await getWorkerAuthority(user);
+    const status = String(record.status || "").toLowerCase();
+    const quoteTaskStatus = ["new", "contacted", "quote_requested", "chatbot_pending", "pending_quote_approval", "quoted"].includes(status);
+    const approvalTaskStatus = ["quote_requested", "chatbot_pending", "pending_quote_approval", "quoted"].includes(status);
+
+    return (authority.rank >= tierRank.silver && quoteTaskStatus)
+      || (authority.rank >= tierRank.gold && approvalTaskStatus);
+  };
+
   const decorateCrewBoardRecords = async (records: Awaited<ReturnType<typeof buildJobFlowRecords>>, userId: string) => {
     const { calcCrewBonus } = await import("@shared/crewIncentives");
     const FLAT_TOKEN_BASE = 500;
@@ -12601,6 +12662,32 @@ Thank you for your business!
     }
   });
 
+  // Calendar-first operational feed. Every visible record carries the same flow
+  // projection used by job details so the planner and job workspace cannot drift.
+  app.get("/api/jobs/planner", isAuthenticated, requireEmployee, async (req: any, res) => {
+    try {
+      const user = req.currentUser;
+      const records = (await buildJobFlowRecords(await storage.getLeads())).filter(isPlannerActive);
+      const isAdmin = isBusinessOwnerUser(user);
+      const visible = isAdmin
+        ? records
+        : (await Promise.all(records.map(async (record) => (
+          await canViewJobTask(user, record) ? record : null
+        )))).filter(Boolean);
+
+      res.json({
+        items: visible,
+        viewer: {
+          isAdmin,
+          canAddJob: isAdmin,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching job planner:", error);
+      res.status(500).json({ error: "Failed to fetch job planner" });
+    }
+  });
+
   app.get("/api/jobs/:id/flow", isAuthenticated, requireEmployee, async (req: any, res) => {
     try {
       const user = req.currentUser;
@@ -12609,6 +12696,7 @@ Thank you for your business!
       const [record] = await buildJobFlowRecords([lead]);
       if (isBusinessOwnerUser(user) || jobBelongsToCrew(record, user.id)) return res.json(record);
       if (isCrewBoardEligible(record)) return res.json((await decorateCrewBoardRecords([record], user.id))[0]);
+      if (await canViewJobTask(user, record)) return res.json(record);
       return res.status(403).json({ error: "Access denied" });
     } catch (error) {
       console.error("Error fetching universal job detail:", error);
@@ -13237,6 +13325,65 @@ Thank you for your business!
     }
   });
 
+  // Customer-safe, signed view of a sent order. This intentionally excludes
+  // internal notes, staff details, payouts, and customer contact information.
+  app.get("/api/quote-orders/:id", async (req, res) => {
+    try {
+      const token = readPublicQuoteToken(typeof req.query.token === "string" ? req.query.token : null);
+      if (!token || token.leadId !== req.params.id) {
+        return res.status(404).json({ error: "Quote order not found" });
+      }
+
+      const lead = await storage.getLead(req.params.id);
+      if (!lead || lead.archivedAt || ["cancelled", "closed"].includes(String(lead.status || "").toLowerCase())) {
+        return res.status(404).json({ error: "Quote order not found" });
+      }
+
+      const quoteSentAt = lead.quoteSentAt ? new Date(lead.quoteSentAt).getTime() : 0;
+      if (!quoteSentAt || quoteSentAt !== token.quoteSentAt) {
+        return res.status(404).json({ error: "Quote order not found" });
+      }
+
+      const lineItems = Array.isArray(lead.orderLineItems)
+        ? lead.orderLineItems
+            .map((item: any) => ({
+              name: String(item?.name || item?.label || "Service"),
+              quantity: Number(item?.quantity ?? item?.qty ?? 1) || 1,
+              total: Number(item?.total ?? item?.amount ?? item?.unitPrice ?? 0) || 0,
+            }))
+            .filter((item) => item.name)
+        : [];
+      const serviceType = lead.serviceType || "Moving service";
+      const totalPrice = Number(lead.totalPrice || lead.basePrice || 0) || 0;
+
+      return res.json({
+        order: {
+          id: lead.id,
+          orderNumber: lead.orderNumber,
+          customerName: [lead.firstName, lead.lastName].filter(Boolean).join(" "),
+          serviceType,
+          status: lead.status,
+          confirmedDate: lead.confirmedDate,
+          moveDate: lead.moveDate,
+          arrivalWindow: lead.arrivalWindow,
+          crewSize: lead.crewSize,
+          confirmedHours: lead.confirmedHours,
+          fromAddress: lead.confirmedFromAddress || lead.fromAddress,
+          toAddress: lead.confirmedToAddress || lead.toAddress,
+          totalPrice,
+          lineItems: lineItems.length > 0
+            ? lineItems
+            : [{ name: serviceType, quantity: 1, total: totalPrice }],
+          paymentUrl: lead.squarePaymentUrl || null,
+          quoteSentAt: lead.quoteSentAt,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching public quote order:", error);
+      return res.status(500).json({ error: "Unable to load quote order" });
+    }
+  });
+
   // Send quote to customer via email + SMS
   app.post("/api/leads/:id/send-quote", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
@@ -13280,6 +13427,9 @@ Thank you for your business!
       const dateLine = lead.confirmedDate || lead.moveDate || null;
       const windowLine = lead.arrivalWindow || null;
       const orderLabel = lead.orderNumber != null ? `JC-${lead.orderNumber}` : null;
+      const now = new Date();
+      const quoteAccessToken = createPublicQuoteToken(id, now);
+      const quoteAccessUrl = `${getAppUrl()}/quote-order/${encodeURIComponent(id)}?token=${encodeURIComponent(quoteAccessToken)}`;
 
       // ── Optional: create a Square invoice silently (no Square delivery email) ──
       const { squareInvoiceService } = await import('./services/square-invoice');
@@ -13382,12 +13532,19 @@ Thank you for your business!
              <p style="margin:8px 0 0;font-size:12px;color:#aaa">Secure payment · Card, bank, or CashApp</p>
            </div>`
         : "";
+      const orderButtonSection = `
+        <div style="text-align:center;margin:20px 0 14px">
+          <a href="${quoteAccessUrl}" target="_blank" style="display:inline-block;background:#111827;color:#fff;font-weight:700;font-size:15px;padding:14px 28px;border-radius:8px;text-decoration:none">
+            Review Your Job Order →
+          </a>
+          <p style="margin:8px 0 0;font-size:12px;color:#6b7280">Your schedule, service details, and payment options in one place.</p>
+        </div>`;
 
       const emailHtml = `
         <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#222">
-          <div style="background:#f97316;padding:20px 24px;border-radius:8px 8px 0 0">
+          <div style="background:#111827;padding:20px 24px;border-radius:8px 8px 0 0">
             <h2 style="margin:0;color:#fff;font-size:22px">JC on the Move</h2>
-            <p style="margin:4px 0 0;color:#fff9;font-size:14px">Your Quote is Ready</p>
+            <p style="margin:4px 0 0;color:#9ca3af;font-size:14px">JOB ORDER · ${orderLabel || "QUOTE READY"}</p>
           </div>
           <div style="background:#fff;padding:24px;border:1px solid #eee;border-top:none;border-radius:0 0 8px 8px">
             <p style="margin:0 0 16px">Hi <strong>${lead.firstName}</strong>,</p>
@@ -13402,6 +13559,7 @@ Thank you for your business!
               </div>
             ` : ""}
             ${noteSection}
+            ${orderButtonSection}
             ${payButtonSection}
             <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:16px;text-align:center;margin-top:16px">
               <p style="margin:0 0 8px;font-weight:600;color:#c2410c">${squarePaymentUrl ? "Or call / text us:" : "To confirm your booking:"}</p>
@@ -13421,7 +13579,7 @@ Thank you for your business!
           from: "jconthemove@gmail.com",
           subject: `Your JC on the Move Quote${orderLabel ? ` — Order ${orderLabel}` : ""} — ${serviceLabel}`,
           html: emailHtml,
-          text: `Hi ${lead.firstName}, your JC on the Move quote is ready${orderLabel ? ` (Order ${orderLabel})` : ""}: ${totalFormatted} total for ${serviceLabel}${crewLine ? `, ${crewLine}` : ""}${dateLine ? `, on ${dateLine}` : ""}${windowLine ? `, arriving ${windowLine}` : ""}.${squarePaymentUrl ? ` Pay online: ${squarePaymentUrl}` : ""} Or call / text (906) 285-9312 to confirm. — JC on the Move`,
+          text: `Hi ${lead.firstName}, your JC on the Move quote is ready${orderLabel ? ` (Order ${orderLabel})` : ""}: ${totalFormatted} total for ${serviceLabel}${crewLine ? `, ${crewLine}` : ""}${dateLine ? `, on ${dateLine}` : ""}${windowLine ? `, arriving ${windowLine}` : ""}. Review your job order: ${quoteAccessUrl}${squarePaymentUrl ? ` Pay online: ${squarePaymentUrl}` : ""} Or call / text (906) 285-9312 to confirm. — JC on the Move`,
         });
       } catch (err) {
         console.error("Quote email send error:", err);
@@ -13435,7 +13593,7 @@ Thank you for your business!
         }
         const sms = await smsService.sendSMS(
           lead.phone,
-          `Hi ${lead.firstName}, your JC ON THE MOVE quote is ${totalFormatted} for ${serviceLabel}. Review and pay securely: ${squarePaymentUrl}${message ? `\n\n${message}` : ""}`,
+          `Hi ${lead.firstName}, your JC ON THE MOVE quote is ${totalFormatted} for ${serviceLabel}. View your job order: ${quoteAccessUrl}\nPay securely: ${squarePaymentUrl}${message ? `\n\n${message}` : ""}`,
         );
         if (!sms.success) {
           return res.status(502).json({ error: `The Square invoice was created, but the text message was not sent: ${sms.error || "unknown SMS error"}` });
@@ -13443,7 +13601,6 @@ Thank you for your business!
         smsSent = true;
       }
 
-      const now = new Date();
       await pool.query(`UPDATE leads SET quote_sent_at = $1 WHERE id = $2`, [now, id]);
       const transitionableStatuses = ["new", "quote_requested", "chatbot_pending"];
       if (transitionableStatuses.includes(lead.status)) {
@@ -13473,7 +13630,7 @@ Thank you for your business!
           },
         });
       }
-      res.json({ success: true, quoteSentAt: now.toISOString(), emailSent, smsSent, deliveryMethod: requestedDelivery, squareInvoiceCreated, paymentUrl: squarePaymentUrl, lead: updatedLead });
+      res.json({ success: true, quoteSentAt: now.toISOString(), emailSent, smsSent, deliveryMethod: requestedDelivery, squareInvoiceCreated, paymentUrl: squarePaymentUrl, quoteAccessUrl, lead: updatedLead });
     } catch (error) {
       console.error("Error sending quote:", error);
       res.status(500).json({ error: "Failed to send quote" });

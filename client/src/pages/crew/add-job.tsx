@@ -32,7 +32,7 @@ export default function CrewAddJobPage() {
 
       <StaffJobForm
         prefilledDate={requestedDate}
-        onSaved={(leadId) => setLocation(`/crew/jobs?lead=${encodeURIComponent(leadId)}`)}
+        onSaved={(leadId) => setLocation(`/lead/${encodeURIComponent(leadId)}?returnTo=${encodeURIComponent("/crew")}`)}
       />
     </div>
   );

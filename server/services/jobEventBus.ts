@@ -64,11 +64,11 @@ function formatLeadPrice(lead: Pick<Lead, "totalPrice" | "basePrice">) {
 }
 
 function adminLeadUrl(leadId: string) {
-  return `/admin/jobs?lead=${encodeURIComponent(leadId)}`;
+  return `/lead/${encodeURIComponent(leadId)}?returnTo=${encodeURIComponent("/admin/schedule")}`;
 }
 
 function crewLeadUrl(leadId: string) {
-  return `/crew/jobs?lead=${encodeURIComponent(leadId)}`;
+  return `/lead/${encodeURIComponent(leadId)}?returnTo=${encodeURIComponent("/crew")}`;
 }
 
 function appBaseUrl() {

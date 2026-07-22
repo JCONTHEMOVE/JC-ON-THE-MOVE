@@ -75,6 +75,7 @@ const LoginPage = lazy(() => import("@/pages/login"));
 const ForgotAccessPage = lazy(() => import("@/pages/forgot-access"));
 const LeaveReviewPage = lazy(() => import("@/pages/leave-review"));
 const QuotePage = lazy(() => import("@/pages/quote"));
+const PublicQuoteOrderPage = lazy(() => import("@/pages/public-quote-order"));
 const SponsorsPage = lazy(() => import("@/pages/sponsors"));
 const ServicesPage = lazy(() => import("@/pages/services"));
 const RouteDaysPage = lazy(() => import("@/pages/route-days"));
@@ -103,15 +104,12 @@ const BitcoinPaymentPage = lazy(() => import("@/pages/bitcoin-payment"));
 const AdminBtcPaymentsPage = lazy(() => import("@/pages/admin-btc-payments"));
 const StakingPage = lazy(() => import("@/pages/staking"));
 const AdminQuoteReviewPage = lazy(() => import("@/pages/admin-quote-review"));
-const CrewTodayPage = lazy(() => import("@/pages/crew/today"));
-const CrewJobsNewPage = lazy(() => import("@/pages/crew/jobs"));
 const CrewAddJobPage = lazy(() => import("@/pages/crew/add-job"));
 const CrewSchedulePage = lazy(() => import("@/pages/crew/schedule"));
 const CrewEarningsPage = lazy(() => import("@/pages/crew/earnings"));
 const CrewReviewsPage = lazy(() => import("@/pages/crew/reviews"));
 const AdminOverviewPage = lazy(() => import("@/pages/admin/overview"));
 const AdminOpsBoardPage = lazy(() => import("@/pages/admin/ops-board"));
-const AdminJobsPage = lazy(() => import("@/pages/admin/jobs"));
 const AdminPeoplePage = lazy(() => import("@/pages/admin/people"));
 const AdminFinancePage = lazy(() => import("@/pages/admin/finance"));
 const AdminMarketplacePage = lazy(() => import("@/pages/admin/marketplace"));
@@ -128,7 +126,7 @@ const AdminPaymentsPage = lazy(() => import("@/pages/admin/AdminPaymentsPage"));
 const AdminWalletLedgerPage = lazy(() => import("@/pages/admin/AdminWalletLedgerPage"));
 const AdminCashoutsPage = lazy(() => import("@/pages/admin/AdminCashoutsPage"));
 const AdminLaunchChecklistPage = lazy(() => import("@/pages/admin/AdminLaunchChecklistPage"));
-const AdminSchedulePage = lazy(() => import("@/pages/admin/schedule"));
+const JobPlannerPage = lazy(() => import("@/pages/job-planner"));
 const BookLawnCarePage = lazy(() => import("@/pages/book-lawn-care"));
 const AdminLawnCarePage = lazy(() => import("@/pages/admin-lawn-care"));
 const LawnCarePage = lazy(() => import("@/pages/lawn-care"));
@@ -351,6 +349,16 @@ function PageWrapper({ component: Component }: { component: any }) {
   );
 }
 
+function PlannerLegacyRedirect({ plannerPath }: { plannerPath: string }) {
+  const [location] = useLocation();
+  const query = location.includes("?") ? location.slice(location.indexOf("?") + 1) : "";
+  const leadId = new URLSearchParams(query).get("lead");
+  if (leadId) {
+    return <Redirect to={`/lead/${encodeURIComponent(leadId)}?returnTo=${encodeURIComponent(plannerPath)}`} />;
+  }
+  return <Redirect to={plannerPath} />;
+}
+
 // Customer app with bottom tab navigation
 function CustomerApp() {
   return (
@@ -493,13 +501,13 @@ function AuthenticatedApp() {
           <CrewLayout>
             <Switch>
               <Route path="/crew/add-job"><CrewAddJobPage /></Route>
-              <Route path="/crew/jobs"><CrewJobsNewPage /></Route>
+              <Route path="/crew/jobs"><PlannerLegacyRedirect plannerPath="/crew" /></Route>
               <Route path="/crew/schedule"><CrewSchedulePage /></Route>
               <Route path="/crew/reviews"><CrewReviewsPage /></Route>
               <Route path="/crew/marketing"><CrewEarningsPage marketingOnly /></Route>
               <Route path="/crew/earnings"><CrewEarningsPage /></Route>
               <Route path="/crew/tutorials"><TutorialsPage /></Route>
-              <Route path="/crew"><CrewTodayPage /></Route>
+              <Route path="/crew"><JobPlannerPage audience="crew" /></Route>
               <Route><Redirect to="/crew" /></Route>
             </Switch>
           </CrewLayout>
@@ -523,7 +531,7 @@ function AuthenticatedApp() {
               <Route path="/admin/overview"><AdminOverviewPage /></Route>
               <Route path="/admin/ops-board"><AdminOpsBoardPage /></Route>
               <Route path="/admin/dispatch"><AdminDispatchPage /></Route>
-              <Route path="/admin/jobs"><AdminJobsPage /></Route>
+              <Route path="/admin/jobs"><PlannerLegacyRedirect plannerPath="/admin/schedule" /></Route>
               <Route path="/admin/people"><AdminPeoplePage /></Route>
               <Route path="/admin/finance"><AdminFinancePage /></Route>
               <Route path="/admin/pricing"><AdminPricingPage /></Route>
@@ -539,7 +547,7 @@ function AuthenticatedApp() {
               <Route path="/admin/wallet-ledger"><AdminWalletLedgerPage /></Route>
               <Route path="/admin/cashouts"><AdminCashoutsPage /></Route>
               <Route path="/admin/launch-checklist"><AdminLaunchChecklistPage /></Route>
-              <Route path="/admin/schedule"><AdminSchedulePage /></Route>
+              <Route path="/admin/schedule"><JobPlannerPage audience="admin" /></Route>
               <Route path="/admin/tutorials"><TutorialsPage /></Route>
               {/* Legacy admin URL redirects */}
               <Route path="/admin/calibrate"><Redirect to="/admin/pricing" /></Route>
@@ -787,6 +795,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/terms",
   "/privacy",
   "/quote",
+  "/quote-order",
   "/book",
   "/trash-valet",
   "/window-cleaning",
@@ -856,6 +865,7 @@ function Router() {
       
       {/* Quote page - accessible to all */}
       <Route path="/quote" component={QuotePage} />
+      <Route path="/quote-order/:id" component={PublicQuoteOrderPage} />
       
       {/* Book page - accessible to all users, authenticated or not */}
       <Route path="/book" component={InstantBookingPage} />
