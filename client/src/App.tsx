@@ -218,18 +218,21 @@ class RootErrorBoundary extends ReactComponent<
   }
   render() {
     if (this.state.hasError) {
+      const showDiagnostics = import.meta.env.DEV;
       return (
         <div style={{ minHeight: "100vh", background: "#111", color: "#eee", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem", fontFamily: "sans-serif" }}>
           <div style={{ maxWidth: 600, width: "100%", textAlign: "center" }}>
             <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>⚠️</div>
             <h2 style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "0.5rem" }}>Something went wrong</h2>
-            <p style={{ color: "#aaa", fontSize: "0.875rem", marginBottom: "1rem", wordBreak: "break-word" }}>{this.state.error}</p>
-            {this.state.componentStack && (
+            <p style={{ color: "#aaa", fontSize: "0.875rem", marginBottom: "1rem", wordBreak: "break-word" }}>
+              {showDiagnostics ? this.state.error : "The page could not be opened. Please try again."}
+            </p>
+            {showDiagnostics && this.state.componentStack && (
               <pre style={{ background: "#1e1e1e", color: "#8f8", fontSize: "0.65rem", padding: "0.75rem", borderRadius: "0.5rem", textAlign: "left", overflowX: "auto", maxHeight: 220, marginBottom: "0.5rem" }}>
                 {this.state.componentStack.slice(0, 1200)}
               </pre>
             )}
-            {this.state.stack && (
+            {showDiagnostics && this.state.stack && (
               <pre style={{ background: "#1e1e1e", color: "#f88", fontSize: "0.65rem", padding: "0.75rem", borderRadius: "0.5rem", textAlign: "left", overflowX: "auto", maxHeight: 160, marginBottom: "1rem" }}>
                 {this.state.stack.slice(0, 600)}
               </pre>
@@ -289,23 +292,34 @@ class PageErrorBoundary extends ReactComponent<
   }
   render() {
     if (this.state.hasError) {
+      const showDiagnostics = import.meta.env.DEV;
       return (
         <div style={{ minHeight: "100vh", background: "#111", color: "#eee", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem", fontFamily: "sans-serif" }}>
           <div style={{ maxWidth: 600, width: "100%", textAlign: "center" }}>
             <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>⚠️</div>
             <h2 style={{ fontSize: "1.25rem", fontWeight: "bold", marginBottom: "0.5rem" }}>Something went wrong</h2>
-            <p style={{ color: "#aaa", fontSize: "0.875rem", marginBottom: "1rem", wordBreak: "break-word" }}>{this.state.error}</p>
-            {this.state.componentStack && (
+            <p style={{ color: "#aaa", fontSize: "0.875rem", marginBottom: "1rem", wordBreak: "break-word" }}>
+              {showDiagnostics ? this.state.error : "The page could not be opened. Please try again."}
+            </p>
+            {showDiagnostics && this.state.componentStack && (
               <pre style={{ background: "#1e1e1e", color: "#8f8", fontSize: "0.65rem", padding: "0.75rem", borderRadius: "0.5rem", textAlign: "left", overflowX: "auto", maxHeight: 220, marginBottom: "1rem" }}>
                 {this.state.componentStack.slice(0, 1200)}
               </pre>
             )}
-            <button
-              style={{ padding: "0.5rem 1.5rem", background: "#f97316", color: "#fff", border: "none", borderRadius: "0.5rem", cursor: "pointer", fontWeight: "bold" }}
-              onClick={() => { this.setState({ hasError: false, error: "", componentStack: "" }); window.location.href = "/"; }}
-            >
-              Go Home
-            </button>
+            <div style={{ display: "flex", justifyContent: "center", gap: "0.75rem" }}>
+              <button
+                style={{ padding: "0.5rem 1.5rem", background: "#334155", color: "#fff", border: "none", borderRadius: "0.5rem", cursor: "pointer", fontWeight: "bold" }}
+                onClick={() => window.location.reload()}
+              >
+                Try Again
+              </button>
+              <button
+                style={{ padding: "0.5rem 1.5rem", background: "#f97316", color: "#fff", border: "none", borderRadius: "0.5rem", cursor: "pointer", fontWeight: "bold" }}
+                onClick={() => { this.setState({ hasError: false, error: "", componentStack: "" }); window.location.href = "/"; }}
+              >
+                Go Home
+              </button>
+            </div>
           </div>
         </div>
       );
