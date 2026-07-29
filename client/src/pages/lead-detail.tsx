@@ -1167,7 +1167,7 @@ export default function LeadDetailPage() {
     .map(emp => `${emp!.firstName || ""} ${emp!.lastName || ""}`.trim() || emp!.email);
   // Keep the default view intentionally small. The detailed workflow below remains
   // the source of truth for editing, quoting, payment, media, and payout controls.
-  const jobBrief = useMemo(() => {
+  const jobBrief = (() => {
     const address = String(lead.confirmedFromAddress || lead.fromAddress || "").trim();
     const date = String(lead.confirmedDate || lead.moveDate || "").trim();
     const arrivalWindow = String(lead.arrivalWindow || "").trim();
@@ -1194,7 +1194,7 @@ export default function LeadDetailPage() {
       notesPreview: String(lead.details || "").trim() || null,
       photos: lead.photos || [],
     };
-  }, [lead, packageDraft]);
+  })();
   const actionPending = updateStatus.isPending
     || markAsPaidMutation.isPending
     || sendQuoteMutation.isPending
