@@ -11033,7 +11033,10 @@ Thank you for your business!
       }
 
       // Privileged-action guard: modifying payout-driving fields requires admin or business_owner.
-      const PAYOUT_FIELDS = ["totalPrice", "basePrice", "tokenAllocation", "crewMembers", "crewBonusFlags", "confirmedHours"];
+      const PAYOUT_FIELDS = [
+        "totalPrice", "basePrice", "tokenAllocation", "crewMembers", "crewBonusFlags", "confirmedHours",
+        "crewSize", "confirmedDate", "arrivalWindow", "truckConfig", "orderLineItems", "quoteNotes",
+      ];
       const hasSensitiveChange = PAYOUT_FIELDS.some(f => f in updateData);
       const isCompletingJob = false; // status changes now blocked above
 
@@ -11063,6 +11066,149 @@ Thank you for your business!
     } catch (error) {
       console.error("Error updating lead:", error);
       res.status(500).json({ error: "Failed to update lead" });
+    }
+  });
+
+  // One-save job setup workflow. Contact and job-request details can be updated by
+  // approved staff; dispatch, pricing, and quote controls remain admin-only.
+  const jobSetupLineItemSchema = z.object({
+    id: z.string().trim().min(1).max(120),
+    name: z.string().trim().min(1).max(240),
+    qty: z.number().finite().positive().max(100),
+    unitPrice: z.number().finite().min(0).max(100000),
+    total: z.number().finite().min(0).max(100000),
+    category: z.string().trim().min(1).max(80),
+  });
+
+  const jobSetupQuoteSchema = z.object({
+    basePrice: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
+    totalPrice: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
+    crewSize: z.number().int().min(1).max(12),
+    confirmedHours: z.number().finite().min(1).max(24),
+    quoteNotes: z.string().max(12000),
+    hasHotTub: z.boolean(),
+    hotTubFee: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
+    hasHeavySafe: z.boolean(),
+    heavySafeFee: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
+    hasPoolTable: z.boolean(),
+    poolTableFee: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
+    hasPiano: z.boolean(),
+    pianoFee: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
+    totalSpecialItemsFee: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
+    lineItems: z.array(jobSetupLineItemSchema).max(48),
+    zoneSnapshot: z.record(z.unknown()).optional(),
+  });
+
+  const jobSetupSchema = z.object({
+    firstName: z.string().trim().min(1, "First name is required").max(100),
+    lastName: z.string().trim().min(1, "Last name is required").max(100),
+    email: z.string().trim().max(254),
+    phone: z.string().trim().max(60),
+    fromAddress: z.string().trim().min(1, "Pickup or service address is required").max(500),
+    toAddress: z.string().trim().max(500),
+    moveDate: z.string().trim().max(50),
+    details: z.string().trim().max(12000),
+    confirmedDate: z.string().trim().max(50).optional(),
+    arrivalWindow: z.string().trim().max(100).optional(),
+    truckConfig: z.string().trim().max(80).optional(),
+    crewSize: z.number().int().min(1).max(12).optional(),
+    confirmedHours: z.number().finite().min(1).max(24).optional(),
+    crewMembers: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+    quote: jobSetupQuoteSchema.optional().nullable(),
+  });
+
+  app.patch("/api/leads/:id/setup", isAuthenticated, async (req: any, res) => {
+    try {
+      const input = jobSetupSchema.parse(req.body);
+      let actor = req.currentUser || req.user || null;
+      if (!actor && (req.session as any)?.userId) actor = await storage.getUser((req.session as any).userId);
+      const approvedEmployee = actor?.role === "employee" && (actor.isApproved || actor.status === "approved" || actor.status === "active");
+      if (!actor || !(["admin", "business_owner"].includes(actor.role) || approvedEmployee)) {
+        return res.status(403).json({ error: "Approved staff access required" });
+      }
+
+      const currentLead = await storage.getLead(req.params.id);
+      if (!currentLead) return res.status(404).json({ error: "Lead not found" });
+
+      const canManageSetup = actor.role === "admin" || actor.role === "business_owner";
+      const hasPrivilegedData = input.confirmedDate !== undefined
+        || input.arrivalWindow !== undefined
+        || input.truckConfig !== undefined
+        || input.crewSize !== undefined
+        || input.confirmedHours !== undefined
+        || input.crewMembers !== undefined
+        || input.quote !== undefined;
+      if (hasPrivilegedData && !canManageSetup) {
+        return res.status(403).json({ error: "Administrator access required to change job setup, crew, or pricing" });
+      }
+
+      const patch: Record<string, unknown> = {
+        firstName: input.firstName,
+        lastName: input.lastName,
+        email: input.email,
+        phone: input.phone,
+        fromAddress: input.fromAddress,
+        toAddress: input.toAddress || null,
+        moveDate: input.moveDate || null,
+        details: input.details || null,
+      };
+
+      if (canManageSetup) {
+        if (input.confirmedDate !== undefined) patch.confirmedDate = input.confirmedDate || null;
+        if (input.arrivalWindow !== undefined) patch.arrivalWindow = input.arrivalWindow || null;
+        if (input.truckConfig !== undefined) patch.truckConfig = input.truckConfig;
+        if (input.crewSize !== undefined) patch.crewSize = input.crewSize;
+        if (input.confirmedHours !== undefined) patch.confirmedHours = input.confirmedHours;
+        if (input.crewMembers !== undefined) patch.crewMembers = input.crewMembers;
+
+        if (input.quote) {
+          const quote = input.quote;
+          const specialFees = [
+            quote.hasHotTub ? Number(quote.hotTubFee) : 0,
+            quote.hasHeavySafe ? Number(quote.heavySafeFee) : 0,
+            quote.hasPoolTable ? Number(quote.poolTableFee) : 0,
+            quote.hasPiano ? Number(quote.pianoFee) : 0,
+          ];
+          const totalSpecialItemsFee = specialFees.reduce((total, fee) => total + fee, 0);
+          const basePrice = Number(quote.basePrice);
+
+          patch.basePrice = basePrice.toFixed(2);
+          patch.totalPrice = (basePrice + totalSpecialItemsFee).toFixed(2);
+          patch.crewSize = quote.crewSize;
+          patch.confirmedHours = quote.confirmedHours;
+          patch.quoteNotes = quote.quoteNotes;
+          patch.hasHotTub = quote.hasHotTub;
+          patch.hotTubFee = quote.hasHotTub ? Number(quote.hotTubFee).toFixed(2) : "0.00";
+          patch.hasHeavySafe = quote.hasHeavySafe;
+          patch.heavySafeFee = quote.hasHeavySafe ? Number(quote.heavySafeFee).toFixed(2) : "0.00";
+          patch.hasPoolTable = quote.hasPoolTable;
+          patch.poolTableFee = quote.hasPoolTable ? Number(quote.poolTableFee).toFixed(2) : "0.00";
+          patch.hasPiano = quote.hasPiano;
+          patch.pianoFee = quote.hasPiano ? Number(quote.pianoFee).toFixed(2) : "0.00";
+          patch.totalSpecialItemsFee = totalSpecialItemsFee.toFixed(2);
+          patch.orderLineItems = quote.lineItems;
+          if (quote.zoneSnapshot) patch.zoneSnapshot = quote.zoneSnapshot;
+          patch.lastQuoteUpdatedAt = new Date();
+        }
+      }
+
+      const updatedLead = await storage.updateLeadQuote(req.params.id, patch);
+      if (!updatedLead) return res.status(404).json({ error: "Lead not found" });
+
+      await emitJobEvent("job_updated", updatedLead, {
+        actorId: actor.id || null,
+        source: "lead_setup_save",
+        previousStatus: currentLead.status,
+        status: updatedLead.status,
+        note: "Saved unified job setup",
+        extra: { changedKeys: Object.keys(patch) },
+      });
+
+      return res.json(updatedLead);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || "Invalid job setup" });
+      console.error("Error saving job setup:", error);
+      return res.status(500).json({ error: "Failed to save job setup" });
     }
   });
 

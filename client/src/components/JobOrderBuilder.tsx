@@ -111,13 +111,34 @@ interface AddonOption {
   openPrice?: boolean;
 }
 
-interface LineItem {
+export interface JobQuoteLineItem {
   id: string;
   name: string;
   qty: number;
   unitPrice: number;
   total: number;
   category: string;
+}
+
+interface LineItem extends JobQuoteLineItem {}
+
+export interface JobQuoteDraft {
+  basePrice: string;
+  totalPrice: string;
+  crewSize: number;
+  quoteNotes: string;
+  confirmedHours: number;
+  hasHotTub: boolean;
+  hotTubFee: string;
+  hasHeavySafe: boolean;
+  heavySafeFee: string;
+  hasPoolTable: boolean;
+  poolTableFee: string;
+  hasPiano: boolean;
+  pianoFee: string;
+  totalSpecialItemsFee: string;
+  lineItems: JobQuoteLineItem[];
+  zoneSnapshot?: Record<string, unknown>;
 }
 
 interface OrderSummary {
@@ -147,24 +168,9 @@ interface JobOrderBuilderProps {
   lead: Lead;
   leadId?: string;
   disabled?: boolean;
-  onApply: (summary: {
-    basePrice: string;
-    totalPrice: string;
-    crewSize: number;
-    quoteNotes: string;
-    confirmedHours: number;
-    hasHotTub: boolean;
-    hotTubFee: string;
-    hasHeavySafe: boolean;
-    heavySafeFee: string;
-    hasPoolTable: boolean;
-    poolTableFee: string;
-    hasPiano: boolean;
-    pianoFee: string;
-    totalSpecialItemsFee: string;
-    lineItems: LineItem[];
-    zoneSnapshot?: Record<string, unknown>;
-  }) => void;
+  /** Omit leadId when building a draft so no Square order is created yet. */
+  applyLabel?: string;
+  onApply: (summary: JobQuoteDraft) => void;
 }
 
 const MOVING_PACKAGES: OrderPackage[] = [
@@ -390,7 +396,7 @@ function zipFromAddress(address: string | undefined): string | null {
   return address?.match(/\b\d{5}(?:-\d{4})?\b/)?.[0] ?? null;
 }
 
-function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
+function MovingQuoteBuilder({ lead, disabled, onApply, applyLabel }: JobOrderBuilderProps) {
   const { data: pricing, isLoading: pricingLoading } = useQuery<Pricing>({ queryKey: ["/api/pricing"] });
   const [selectedCrew, setSelectedCrew] = useState(() => Math.min(4, Math.max(2, lead.crewSize || 2)));
   const [hours, setHours] = useState(() => Math.max(1, lead.confirmedHours || 1));
@@ -642,7 +648,7 @@ function MovingQuoteBuilder({ lead, disabled, onApply }: JobOrderBuilderProps) {
             },
           })}
         >
-          <CheckCircle2 className="mr-2 h-4 w-4" />Apply quote
+          <CheckCircle2 className="mr-2 h-4 w-4" />{applyLabel || "Apply quote"}
         </Button>
       </CardContent>
     </Card>
@@ -654,7 +660,7 @@ export function JobOrderBuilder(props: JobOrderBuilderProps) {
   return isMoving ? <MovingQuoteBuilder {...props} /> : <LegacyJobOrderBuilder {...props} />;
 }
 
-function LegacyJobOrderBuilder({ lead, leadId, disabled, onApply }: JobOrderBuilderProps) {
+function LegacyJobOrderBuilder({ lead, leadId, disabled, onApply, applyLabel }: JobOrderBuilderProps) {
   const isMoving = !["junk", "junk_removal"].includes(lead.serviceType?.toLowerCase() ?? "");
   const isJunk = !isMoving;
 
@@ -1623,7 +1629,7 @@ function LegacyJobOrderBuilder({ lead, leadId, disabled, onApply }: JobOrderBuil
           size="lg"
         >
           <CheckCircle2 className="h-4 w-4 mr-2" />
-          Apply Order to Job
+          {applyLabel || "Apply Order to Job"}
         </Button>
       </CardContent>
     </Card>

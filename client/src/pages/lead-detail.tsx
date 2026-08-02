@@ -19,10 +19,9 @@ import { formatOrderNumber } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { CrewSuggestionsDialog } from "@/components/crew-suggestions-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { JobOrderBuilder } from "@/components/JobOrderBuilder";
 import { JobOrderTicket } from "@/components/job-order-ticket";
+import { JobSetupWorkspace } from "@/components/job-setup-workspace";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
 import MarketplaceSourceFlowStrip from "@/components/MarketplaceSourceFlowStrip";
@@ -409,7 +408,8 @@ export default function LeadDetailPage() {
   const [, params] = useRoute("/lead/:id");
   const [location, setLocation] = useLocation();
   const { toast } = useToast();
-  const [isEditing, setIsEditing] = useState(false);
+  // Editing now happens in the inline Job Setup workspace instead of a hidden mode.
+  const isEditing = false;
   const [tokenAllocation, setTokenAllocation] = useState("");
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [showCrewSuggestions, setShowCrewSuggestions] = useState(false);
@@ -443,7 +443,8 @@ export default function LeadDetailPage() {
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
   const [squarePaymentUrl, setSquarePaymentUrl] = useState<string | null>(null);
   const [copiedPaymentLink, setCopiedPaymentLink] = useState(false);
-  const [showJobOrderBuilderSheet, setShowJobOrderBuilderSheet] = useState(false);
+  const [showJobSetup, setShowJobSetup] = useState(false);
+  const jobSetupRef = useRef<HTMLDivElement>(null);
   // Crew & Service Plan inline state
   const [planCrewSize, setPlanCrewSize] = useState(2);
   const [planHours, setPlanHours] = useState(2);
@@ -452,6 +453,11 @@ export default function LeadDetailPage() {
   const [planApplied, setPlanApplied] = useState(false);
   const [planHasTruck, setPlanHasTruck] = useState(false);
   const [planHasTrailer, setPlanHasTrailer] = useState(false);
+
+  const openJobSetup = () => {
+    setShowJobSetup(true);
+    window.setTimeout(() => jobSetupRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
 
   const { data: lead, isLoading, isError, error } = useQuery<Lead>({
     queryKey: ["/api/leads", params?.id],
@@ -579,7 +585,6 @@ export default function LeadDetailPage() {
         title: "Success",
         description: "Lead updated successfully",
       });
-      setIsEditing(false);
     },
     onError: () => {
       toast({
@@ -931,13 +936,10 @@ export default function LeadDetailPage() {
 
   const computeEffectiveCrewSize = () => selectedCrewMembers.length + (bonusMover ? 1 : 0);
 
-  const handleSave = () => {
-    const formData = form.getValues();
-    updateLead.mutate({
-      ...formData,
-      crewMembers: selectedCrewMembers,
-      crewSize: computeEffectiveCrewSize(),
-    });
+  const handleJobSetupSaved = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
+    queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
   };
 
   const handleOrderApply = (orderData: {
@@ -1278,9 +1280,7 @@ export default function LeadDetailPage() {
         applyPackageDraftMutation.mutate();
         break;
       case "build_quote":
-        setShowJobOrderBuilderSheet(true);
-        setShowAdvanced(true);
-        setActiveTab("quote");
+        openJobSetup();
         break;
       case "send_quote":
         sendQuoteMutation.mutate(quoteDeliveryMethod);
@@ -1379,19 +1379,17 @@ export default function LeadDetailPage() {
               Back
             </Button>
             <div className="flex gap-2">
-              {!isEditing && (
-                <Button 
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowCrewSuggestions(true)} 
-                  data-testid="button-crew-suggestions"
-                  className="flex items-center gap-2"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Crew Suggestions
-                </Button>
-              )}
-              {hasAdminAccess && !isEditing && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCrewSuggestions(true)}
+                data-testid="button-crew-suggestions"
+                className="flex items-center gap-2"
+              >
+                <Sparkles className="h-4 w-4" />
+                Crew Suggestions
+              </Button>
+              {hasAdminAccess && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1407,26 +1405,9 @@ export default function LeadDetailPage() {
                   <span className="sr-only">Remove job request</span>
                 </Button>
               )}
-              {!isEditing ? (
-                <Button size="sm" onClick={() => setIsEditing(true)} data-testid="button-edit">
-                  Edit
-                </Button>
-              ) : (
-                <>
-                  <Button size="sm" variant="outline" onClick={() => {
-                    setIsEditing(false);
-                    const members = lead?.crewMembers || [];
-                    setSelectedCrewMembers(members);
-                    const inferredBonus = members.length > 0 && (lead?.crewSize ?? 0) > members.length;
-                    setBonusMover(inferredBonus);
-                  }} data-testid="button-cancel">
-                    Cancel
-                  </Button>
-                  <Button size="sm" onClick={handleSave} disabled={updateLead.isPending} data-testid="button-save">
-                    {updateLead.isPending ? "Saving..." : "Save"}
-                  </Button>
-                </>
-              )}
+              <Button size="sm" onClick={openJobSetup} data-testid="button-edit">
+                Set up job
+              </Button>
             </div>
           </div>
           
@@ -1508,11 +1489,7 @@ export default function LeadDetailPage() {
                 variant="outline"
                 size="sm"
                 className="mt-3 w-full sm:w-auto"
-                onClick={() => {
-                  setShowJobOrderBuilderSheet(true);
-                  setShowAdvanced(true);
-                  setActiveTab("quote");
-                }}
+                onClick={openJobSetup}
               >
                 <DollarSign className="h-4 w-4 mr-2" />
                 Adjust Manually Instead
@@ -1520,6 +1497,17 @@ export default function LeadDetailPage() {
             )}
           </CardContent>
         </Card>
+
+        {showJobSetup && (
+          <div ref={jobSetupRef}>
+            <JobSetupWorkspace
+              lead={lead}
+              employees={employees}
+              canManageSetup={hasAdminAccess}
+              onSaved={handleJobSetupSaved}
+            />
+          </div>
+        )}
 
         <Card className="mb-4" data-testid="job-brief">
           <CardHeader className="pb-3">
@@ -1729,7 +1717,7 @@ export default function LeadDetailPage() {
           >
             <span className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Advanced job details
+              More job activity
             </span>
             {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </Button>
@@ -2476,37 +2464,16 @@ export default function LeadDetailPage() {
                   <p className="text-sm text-slate-500 italic text-center py-3">No quote set yet. Use "Adjust Quote" to build the quote.</p>
                 )}
 
-                {/* Adjust Quote button → opens JobOrderBuilder Sheet */}
+                {/* Quote changes use the unified inline Job Setup workspace. */}
                 {hasAdminAccess && (
                   <div className="pt-1">
-                    <Button variant="outline" className="w-full" onClick={() => setShowJobOrderBuilderSheet(true)}>
-                      <DollarSign className="h-4 w-4 mr-2" /> Adjust Quote
+                    <Button variant="outline" className="w-full" onClick={openJobSetup}>
+                      <DollarSign className="h-4 w-4 mr-2" /> Open Job Setup
                     </Button>
                   </div>
                 )}
               </CardContent>
             </Card>
-
-            {/* JobOrderBuilder Sheet */}
-            <Sheet open={showJobOrderBuilderSheet} onOpenChange={setShowJobOrderBuilderSheet}>
-              <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto">
-                <SheetHeader className="mb-4">
-                  <SheetTitle>Adjust Quote</SheetTitle>
-                  <SheetDescription>Build or update the itemized quote for this job.</SheetDescription>
-                </SheetHeader>
-                {hasAdminAccess && (
-                  <JobOrderBuilder
-                    lead={lead}
-                    leadId={lead.id}
-                    disabled={updateLead.isPending}
-                    onApply={(orderData) => {
-                      handleOrderApply(orderData);
-                      setShowJobOrderBuilderSheet(false);
-                    }}
-                  />
-                )}
-              </SheetContent>
-            </Sheet>
 
             {/* Section C — Unified Send: Quote Email + Square Invoice */}
             {hasAdminAccess && (
