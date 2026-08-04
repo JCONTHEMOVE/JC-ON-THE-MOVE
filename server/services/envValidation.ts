@@ -103,8 +103,13 @@ export function assertRequiredEnvOrExit(): void {
     console.warn(`[env-check] payment env incomplete; service will boot, but payment launch checks will fail until set: ${paymentMissing.join(", ")}`);
   }
 
-  if (!startupResult.ok) {
-    const list = startupResult.missingRequired.map((name) => `  - ${name}`).join("\n");
+  const productionBlockers = Array.from(new Set([
+    ...startupResult.missingRequired,
+    ...fullResult.missingRequired.filter((name) => name === "SESSION_SECRET"),
+  ]));
+
+  if (productionBlockers.length > 0) {
+    const list = productionBlockers.map((name) => `  - ${name}`).join("\n");
     console.error(`\n[env-check] production startup blocked; missing required env vars:\n${list}\n\nSet these in your production environment and restart.`);
     process.exit(1);
   }

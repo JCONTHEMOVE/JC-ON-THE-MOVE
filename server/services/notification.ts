@@ -20,10 +20,20 @@ export interface NotificationData {
   data?: any;
 }
 
+export type NotificationDeliveryResult = {
+  status: 'sent' | 'failed' | 'skipped';
+  error?: string;
+};
+
+export type NotificationSendResult = {
+  inApp: NotificationDeliveryResult;
+  push: NotificationDeliveryResult;
+};
+
 export class NotificationService {
   private vapidReady = !!(vapidPublicKey && vapidPrivateKey);
 
-  async createNotification(notificationData: NotificationData): Promise<void> {
+  async createNotification(notificationData: NotificationData): Promise<NotificationDeliveryResult> {
     try {
       const insertData: InsertNotification = {
         userId: notificationData.userId,
@@ -33,19 +43,25 @@ export class NotificationService {
         data: notificationData.data,
       };
       await storage.createNotification(insertData);
+      return { status: 'sent' };
     } catch (error) {
       console.error('Error creating notification:', error);
+      return { status: 'failed', error: error instanceof Error ? error.message : String(error) };
     }
   }
 
   async sendPushNotification(
     userId: string,
     notification: { title: string; body: string; tag?: string; requireInteraction?: boolean; data?: any }
-  ): Promise<void> {
-    if (!this.vapidReady) return;
+  ): Promise<NotificationDeliveryResult> {
+    if (!this.vapidReady) {
+      return { status: 'skipped', error: 'Push notifications are not configured (VAPID keys missing).' };
+    }
     try {
       const user = await storage.getUser(userId);
-      if (!user?.pushSubscription) return;
+      if (!user?.pushSubscription) {
+        return { status: 'skipped', error: 'Recipient has not enabled browser push notifications.' };
+      }
 
       const payload = JSON.stringify({
         title: notification.title,
@@ -59,24 +75,28 @@ export class NotificationService {
 
       await webpush.sendNotification(user.pushSubscription as webpush.PushSubscription, payload);
       console.log(`[PushNotification] Sent to user ${userId}: ${notification.title}`);
+      return { status: 'sent' };
     } catch (error: any) {
       if (error?.statusCode === 410) {
         // Subscription expired — clear it
         await storage.updateUserPushSubscription(userId, null as any);
         console.log(`[PushNotification] Cleared expired subscription for ${userId}`);
+        return { status: 'failed', error: 'Recipient browser push subscription expired and was removed.' };
       } else {
         console.error('[PushNotification] Error sending push:', error?.message || error);
+        return { status: 'failed', error: error?.message || String(error) };
       }
     }
   }
 
-  async sendNotification(notificationData: NotificationData): Promise<void> {
-    await this.createNotification(notificationData);
-    await this.sendPushNotification(notificationData.userId, {
+  async sendNotification(notificationData: NotificationData): Promise<NotificationSendResult> {
+    const inApp = await this.createNotification(notificationData);
+    const push = await this.sendPushNotification(notificationData.userId, {
       title: notificationData.title,
       body: notificationData.message,
       data: notificationData.data,
     });
+    return { inApp, push };
   }
 
   // Mining / rewards push helpers

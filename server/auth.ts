@@ -7,7 +7,12 @@ import { randomBytes } from "node:crypto";
 const runtimeAuthSecret = randomBytes(48).toString("hex");
 
 function getJwtSecret(): string {
-  return process.env.JWT_SECRET || process.env.SESSION_SECRET || runtimeAuthSecret;
+  const secret = process.env.JWT_SECRET || process.env.SESSION_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("JWT_SECRET or SESSION_SECRET must be configured in production");
+  }
+  return runtimeAuthSecret;
 }
 
 function getSessionSecret(): string {
@@ -15,8 +20,7 @@ function getSessionSecret(): string {
     return process.env.SESSION_SECRET;
   }
   if (process.env.NODE_ENV === "production") {
-    console.warn("[session] SESSION_SECRET is not set in production; using a temporary runtime secret. Set SESSION_SECRET for stable logins and launch readiness.");
-    return runtimeAuthSecret;
+    throw new Error("SESSION_SECRET must be configured in production");
   }
   console.warn("[session] SESSION_SECRET is not set; using a development-only fallback secret.");
   return "jcmoves-dev-session-secret";

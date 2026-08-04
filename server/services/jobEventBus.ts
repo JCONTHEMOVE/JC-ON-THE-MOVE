@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { notificationService } from "./notification";
+import { hasJobAlertDelivery, recordJobAlertDelivery } from "./jobAlertDelivery";
 import { leads, users, type Lead } from "@shared/schema";
 
 export type JobEventType =
@@ -9,6 +10,7 @@ export type JobEventType =
   | "quote_sent"
   | "job_available"
   | "crew_claimed"
+  | "crew_plan_saved"
   | "crew_assigned"
   | "job_updated"
   | "job_completed";
@@ -16,6 +18,8 @@ export type JobEventType =
 type RecipientScope = "owners" | "eligible_crew" | "assigned_crew" | "owners_and_assigned_crew";
 
 interface EmitJobEventOptions {
+  /** Stable caller-provided key makes a retried mutation idempotent. */
+  eventId?: string;
   actorId?: string | null;
   source?: string;
   note?: string;
@@ -120,6 +124,13 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
         title: "Crew Claim Needs Review",
         message: `A crew member claimed a slot on ${name}'s ${service} job. Confirm the crew and dispatch when it is ready.`,
       };
+    case "crew_plan_saved":
+      return {
+        scope: "assigned_crew",
+        notificationType: "job_assigned",
+        title: "Crew Plan Saved",
+        message: `You are tentatively planned for ${name}'s ${service} job on ${date}. This is not a dispatch confirmation yet.`,
+      };
     case "crew_assigned":
       return {
         scope: "assigned_crew",
@@ -137,7 +148,7 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
     case "job_updated":
     default:
       return {
-        scope: "owners_and_assigned_crew",
+        scope: "owners",
         notificationType: "job_status_change",
         title: "Job Updated",
         message: `${name}'s ${service} job was updated${options.note ? `: ${options.note}` : "."}`,
@@ -419,7 +430,10 @@ export async function emitJobEvent(
       : leadOrId;
     if (!lead) return;
 
-    const eventId = crypto.randomUUID();
+    const eventId = options.eventId || crypto.randomUUID();
+    // A browser retry after a successful plan save must not alert the crew a
+    // second time. Stable event ids are supplied for crew-plan saves.
+    if (options.eventId && await hasJobAlertDelivery(eventId)) return;
     const message = messageFor(type, lead, options);
     const recipients = uniqueRecipients(await recipientsFor(message.scope, lead));
     const baseData = {
@@ -436,13 +450,36 @@ export async function emitJobEvent(
       ...(options.extra || {}),
     };
 
-    await Promise.allSettled(recipients.map((recipient) => notificationService.sendNotification({
-      userId: recipient.id,
-      type: message.notificationType as any,
-      title: message.title,
-      message: message.message,
-      data: baseData,
-    })));
+    await Promise.allSettled(recipients.map(async (recipient) => {
+      const result = await notificationService.sendNotification({
+        userId: recipient.id,
+        type: message.notificationType as any,
+        title: message.title,
+        message: message.message,
+        data: baseData,
+      });
+
+      await Promise.all([
+        recordJobAlertDelivery({
+          eventId,
+          leadId: lead.id,
+          recipientUserId: recipient.id,
+          channel: "in_app",
+          status: result.inApp.status,
+          errorMessage: result.inApp.error,
+          metadata: { type, source: options.source || "job_event_bus" },
+        }),
+        recordJobAlertDelivery({
+          eventId,
+          leadId: lead.id,
+          recipientUserId: recipient.id,
+          channel: "push",
+          status: result.push.status,
+          errorMessage: result.push.error,
+          metadata: { type, source: options.source || "job_event_bus" },
+        }),
+      ]);
+    }));
 
     await deliverWebhooks({
       id: eventId,

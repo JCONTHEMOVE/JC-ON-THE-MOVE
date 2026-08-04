@@ -11195,12 +11195,31 @@ Thank you for your business!
       const updatedLead = await storage.updateLeadQuote(req.params.id, patch);
       if (!updatedLead) return res.status(404).json({ error: "Lead not found" });
 
-      await emitJobEvent("job_updated", updatedLead, {
+      const plannedCrew = Array.isArray(updatedLead.crewMembers)
+        ? updatedLead.crewMembers.filter(Boolean)
+        : [];
+      const hasCompleteTentativePlan = plannedCrew.length > 0
+        && Boolean(updatedLead.confirmedDate || updatedLead.moveDate)
+        && Boolean(updatedLead.arrivalWindow);
+      const planFingerprint = crypto.createHash("sha256")
+        .update(JSON.stringify({
+          leadId: updatedLead.id,
+          date: updatedLead.confirmedDate || updatedLead.moveDate || null,
+          arrivalWindow: updatedLead.arrivalWindow || null,
+          crewMembers: [...plannedCrew].sort(),
+          crewSize: updatedLead.crewSize || null,
+          confirmedHours: updatedLead.confirmedHours || null,
+          truckConfig: updatedLead.truckConfig || null,
+        }))
+        .digest("hex");
+
+      await emitJobEvent(hasCompleteTentativePlan ? "crew_plan_saved" : "job_updated", updatedLead, {
         actorId: actor.id || null,
         source: "lead_setup_save",
+        eventId: hasCompleteTentativePlan ? `crew-plan:${planFingerprint}` : undefined,
         previousStatus: currentLead.status,
         status: updatedLead.status,
-        note: "Saved unified job setup",
+        note: hasCompleteTentativePlan ? "Tentative crew plan saved" : "Saved unified job setup",
         extra: { changedKeys: Object.keys(patch) },
       });
 
@@ -13948,6 +13967,32 @@ Thank you for your business!
     } catch (error) {
       console.error("Error marking all notifications as read:", error);
       res.status(500).json({ error: "Failed to mark all notifications as read" });
+    }
+  });
+
+  // Owners and admins can verify exactly which operational alerts were sent,
+  // skipped, or failed for a job. This avoids a missing push subscription
+  // looking like a delivered crew notification.
+  app.get("/api/leads/:id/alert-deliveries", isAuthenticated, async (req: any, res) => {
+    try {
+      const actor = req.currentUser || req.user || await storage.getUser((req.session as any)?.userId);
+      if (!actor || !["admin", "business_owner"].includes(actor.role || "")) {
+        return res.status(403).json({ error: "Administrator access required" });
+      }
+      const { rows } = await pool.query(
+        `SELECT d.event_id, d.recipient_user_id, d.channel, d.status, d.error_message,
+                d.attempts, d.metadata, d.created_at, d.updated_at, u.first_name, u.last_name, u.email
+           FROM job_alert_deliveries d
+           LEFT JOIN users u ON u.id = d.recipient_user_id
+          WHERE d.lead_id = $1
+          ORDER BY d.created_at DESC, d.id DESC
+          LIMIT 200`,
+        [req.params.id],
+      );
+      res.json({ deliveries: rows });
+    } catch (error) {
+      console.error("Error fetching job alert deliveries:", error);
+      res.status(500).json({ error: "Failed to fetch job alert deliveries" });
     }
   });
 

@@ -191,6 +191,21 @@ assertRequiredEnvOrExit();
 const app = express();
 
 app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+// Baseline browser protections which are safe for the current Square and OAuth
+// integrations. A stricter CSP can be introduced once those external surfaces
+// have been exercised under report-only monitoring.
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(self), geolocation=(self), microphone=()");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
 
 app.use((req, res, next) => {
   if (process.env.NODE_ENV === "production" && req.hostname === "jconthemove.com") {
@@ -228,13 +243,22 @@ app.get("/version", (_req, res) => {
 app.get("/api/health", sendEarlyReadiness);
 
 // CORS configuration for web and mobile clients.
+function normalizeOrigin(origin: string | undefined | null) {
+  if (!origin) return null;
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return null;
+  }
+}
+
 const configuredOrigins = [
   process.env.APP_URL,
   process.env.PUBLIC_APP_URL,
   process.env.VITE_API_BASE_URL,
-].filter(Boolean) as string[];
+].map(normalizeOrigin).filter((origin): origin is string => Boolean(origin));
 
-const allowedOrigins = [
+const allowedOrigins = new Set([
   'https://jconthemove.com',
   'https://www.jconthemove.com',
   'capacitor://localhost',
@@ -242,13 +266,13 @@ const allowedOrigins = [
   'http://localhost:5000',
   'http://localhost:8100',
   ...configuredOrigins,
-];
+]);
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.some((allowed) => origin.startsWith(allowed))) {
+    if (allowedOrigins.has(normalizeOrigin(origin) || "")) {
       return callback(null, true);
     }
     if (process.env.NODE_ENV !== "production") {
@@ -268,47 +292,19 @@ app.use('/api/advertising/webhook', express.raw({ type: 'application/json' }));
 app.use('/api/webhooks/square', express.raw({ type: 'application/json' }));
 app.use('/api/webhooks/crypto/bitpay', express.raw({ type: '*/*' }));
 
-// Increase body size limit to support video uploads (4GB limit to accommodate large videos and base64 overhead)
-app.use(express.json({ limit: '4096mb' }));
-app.use(express.urlencoded({ extended: true, limit: '4096mb' }));
+// Public JSON is metadata and form input, not video storage. Media uploads use
+// dedicated validated endpoints instead of allowing a 4 GB request body on
+// every route.
+app.use(express.json({ limit: '16mb' }));
+app.use(express.urlencoded({ extended: true, limit: '16mb' }));
 
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  if (path.startsWith("/api/auth") || path === "/api/snow/logs" || path === "/api/users" || path === "/api/jewelry") {
-    const rawCookie = req.headers.cookie || '(none)';
-    const hasJcSid = rawCookie.includes('jc.sid');
-    const hasConnectSid = rawCookie.includes('connect.sid');
-    console.log(`[COOKIE-IN] ${req.method} ${path} | proto=${req.protocol} secure=${req.secure} | jc.sid=${hasJcSid} connect.sid=${hasConnectSid} | raw="${rawCookie.slice(0, 120)}"`);
-  }
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
-      
-      const setCookie = res.getHeader('Set-Cookie');
-      if (setCookie) {
-        const cookieArr = Array.isArray(setCookie) ? setCookie : [String(setCookie)];
-        console.log(`[COOKIE-OUT] ${req.method} ${path} | Set-Cookie:`, cookieArr.map(c => String(c).slice(0, 100)));
-      }
+      log(`${req.method} ${path} ${res.statusCode} in ${duration}ms`);
     }
   });
 
@@ -477,6 +473,31 @@ server.listen(port, '0.0.0.0', () => {
 
     // Initialize server with comprehensive error handling
     console.log('Initializing application server...');
+    // Operational notifications need a delivery audit separate from the
+    // in-app notification row. This exposes missing push setup, retries, and
+    // provider failures instead of silently treating every alert as sent.
+    {
+      const { pool: dbPool } = await import('./db');
+      await dbPool.query(`
+        CREATE TABLE IF NOT EXISTS job_alert_deliveries (
+          id BIGSERIAL PRIMARY KEY,
+          event_id TEXT NOT NULL,
+          lead_id VARCHAR NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+          recipient_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL,
+          channel TEXT NOT NULL CHECK (channel IN ('in_app', 'push', 'email', 'sms', 'webhook')),
+          status TEXT NOT NULL CHECK (status IN ('sent', 'failed', 'skipped')),
+          error_message TEXT,
+          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          attempts INTEGER NOT NULL DEFAULT 1,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (event_id, recipient_user_id, channel)
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_alert_deliveries_lead_created
+          ON job_alert_deliveries(lead_id, created_at DESC);
+      `);
+      console.log('Job alert delivery audit table ready');
+    }
     const { registerRoutes } = await import('./routes');
     await registerRoutes(app, server);
     console.log('Application routes registered successfully');
