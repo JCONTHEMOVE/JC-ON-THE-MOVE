@@ -56,6 +56,19 @@ interface LeadHistoryEntry {
   last_name: string | null;
 }
 
+interface JobAlertDelivery {
+  event_id: string;
+  recipient_user_id: string | null;
+  channel: "in_app" | "push" | "email" | "sms" | "webhook";
+  status: "sent" | "failed" | "skipped";
+  error_message: string | null;
+  attempts: number;
+  created_at: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+}
+
 interface OrderLineItem {
   id?: string;
   name: string;
@@ -435,8 +448,13 @@ export default function LeadDetailPage() {
     ? requestedReturnTo
     : hasAdminAccess ? "/admin/schedule" : "/crew";
 
-  // Quote & Send tab state
-  const [activeTab, setActiveTab] = useState("details");
+  // Only secondary notes, media, timeline, and rewards live below the job
+  // essentials. Quote delivery is a focused dialog from the primary action.
+  const [activeTab, setActiveTab] = useState("notes");
+  const [showQuoteDeliveryDialog, setShowQuoteDeliveryDialog] = useState(false);
+  const [showInlineScheduler, setShowInlineScheduler] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleArrivalWindow, setScheduleArrivalWindow] = useState("");
   const [quoteNote, setQuoteNote] = useState("");
   const [quoteDeliveryMethod, setQuoteDeliveryMethod] = useState<"email" | "sms" | "both">("email");
   const [recordSmsConsent, setRecordSmsConsent] = useState(false);
@@ -510,6 +528,18 @@ export default function LeadDetailPage() {
     enabled: !!params?.id,
   });
 
+  const { data: alertDeliveries = [] } = useQuery<JobAlertDelivery[]>({
+    queryKey: ["/api/leads", params?.id, "alert-deliveries"],
+    queryFn: async () => {
+      const res = await fetch(`/api/leads/${params?.id}/alert-deliveries`, { credentials: "include" });
+      if (!res.ok) return [];
+      const body = await res.json();
+      return Array.isArray(body.deliveries) ? body.deliveries : [];
+    },
+    enabled: !!params?.id && hasAdminAccess,
+    refetchInterval: 60_000,
+  });
+
   const form = useForm({
     defaultValues: {
       firstName: "",
@@ -560,6 +590,8 @@ export default function LeadDetailPage() {
       setPlanHours(Math.max(2, lead.confirmedHours || packageDraft?.hours || 2));
       setPlanArrivalWindow(lead.arrivalWindow || "");
       setPlanConfirmedDate(lead.confirmedDate || lead.moveDate || "");
+      setScheduleDate(lead.confirmedDate || lead.moveDate || "");
+      setScheduleArrivalWindow(lead.arrivalWindow || "");
       setQuoteSentAt(lead.quoteSentAt || null);
       setSquarePaymentUrl(lead.squarePaymentUrl || null);
       setQuoteDeliveryMethod(isSyntheticOrInvalidEmail(lead.email) && !!lead.phone ? "sms" : "email");
@@ -698,6 +730,30 @@ export default function LeadDetailPage() {
     },
   });
 
+  const saveInlineScheduleMutation = useMutation({
+    mutationFn: async () => apiRequest("PATCH", `/api/leads/${params?.id}/schedule`, {
+      confirmedDate: scheduleDate,
+      arrivalWindow: scheduleArrivalWindow,
+    }),
+    onSuccess: () => {
+      setShowInlineScheduler(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "alert-deliveries"] });
+      toast({ title: "Schedule saved", description: "Date and arrival window were updated together." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not save schedule", description: error.message || "Enter both a date and arrival window.", variant: "destructive" });
+    },
+  });
+
+  const openInlineScheduler = () => {
+    setScheduleDate(lead?.confirmedDate || lead?.moveDate || "");
+    setScheduleArrivalWindow(lead?.arrivalWindow || "");
+    setShowInlineScheduler(true);
+  };
+
   const sendQuoteMutation = useMutation({
     mutationFn: async (deliveryMethod: "email" | "sms" | "both") => {
       return await apiRequest("POST", `/api/leads/${params?.id}/send-quote`, {
@@ -710,6 +766,7 @@ export default function LeadDetailPage() {
       const data = await res.json();
       setQuoteSentAt(data.quoteSentAt);
       if (data.paymentUrl) setSquarePaymentUrl(data.paymentUrl);
+      setShowQuoteDeliveryDialog(false);
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "history"] });
@@ -940,6 +997,7 @@ export default function LeadDetailPage() {
     queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
     queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
     queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "alert-deliveries"] });
   };
 
   const handleOrderApply = (orderData: {
@@ -1283,7 +1341,7 @@ export default function LeadDetailPage() {
         openJobSetup();
         break;
       case "send_quote":
-        sendQuoteMutation.mutate(quoteDeliveryMethod);
+        setShowQuoteDeliveryDialog(true);
         break;
       case "dispatch":
         markAsPaidMutation.mutate();
@@ -1452,7 +1510,8 @@ export default function LeadDetailPage() {
         <JobOrderTicket
           order={lead}
           viewer={hasAdminAccess ? "admin" : "crew"}
-          action={ticketAction}
+          action={canClaimJob ? ticketAction : undefined}
+          onScheduleEdit={hasAdminAccess ? openInlineScheduler : undefined}
           className="mb-4"
         />
 
@@ -1632,8 +1691,8 @@ export default function LeadDetailPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Finance</p>
                   <p className="capitalize text-sm font-medium">{paymentState}</p>
                   {hasAdminAccess && (
-                    <button type="button" onClick={() => { setShowAdvanced(true); setActiveTab("quote"); }} className="mt-1 text-xs font-medium text-blue-400 hover:underline">
-                      Open finance details
+                    <button type="button" onClick={() => leadHasQuote ? setShowQuoteDeliveryDialog(true) : openJobSetup()} className="mt-1 text-xs font-medium text-blue-400 hover:underline">
+                      {leadHasQuote ? "Send quote & invoice" : "Open job setup"}
                     </button>
                   )}
                 </div>
@@ -1750,9 +1809,39 @@ export default function LeadDetailPage() {
               className="mt-3"
             />
 
+            {hasAdminAccess && (
+              <Card className="mt-3">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Alert delivery</CardTitle>
+                  <CardDescription>Actual crew and owner delivery results for this job.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {alertDeliveries.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No job alerts have been sent yet.</p>
+                  ) : alertDeliveries.slice(0, 8).map((delivery, index) => {
+                    const recipient = [delivery.first_name, delivery.last_name].filter(Boolean).join(" ") || delivery.email || "Recipient";
+                    const statusClass = delivery.status === "sent"
+                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                      : delivery.status === "failed"
+                        ? "bg-red-500/15 text-red-300 border-red-500/30"
+                        : "bg-amber-500/15 text-amber-300 border-amber-500/30";
+                    return (
+                      <div key={`${delivery.event_id}-${delivery.recipient_user_id}-${delivery.channel}-${index}`} className="flex items-center justify-between gap-3 rounded-md border border-muted p-2 text-xs">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{recipient} · {delivery.channel.replace(/_/g, " ")}</p>
+                          {delivery.error_message && <p className="mt-0.5 truncate text-muted-foreground">{delivery.error_message}</p>}
+                        </div>
+                        <Badge variant="outline" className={`shrink-0 capitalize ${statusClass}`}>{delivery.status}</Badge>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
+
         {/* === Sticky Customer Summary Bar === */}
         {hasAdminAccess && (
-          <div className="sticky top-0 z-20 mb-4 p-3 rounded-xl border border-slate-700/50 bg-slate-900/95 backdrop-blur-sm flex flex-wrap items-center gap-3 text-sm shadow-md">
+          <div className="hidden sticky top-0 z-20 mb-4 p-3 rounded-xl border border-slate-700/50 bg-slate-900/95 backdrop-blur-sm flex flex-wrap items-center gap-3 text-sm shadow-md">
             <div className="flex items-center gap-1.5 font-semibold text-foreground">
               <Users className="h-4 w-4 text-slate-400" />
               {lead.firstName} {lead.lastName}
@@ -1805,7 +1894,7 @@ export default function LeadDetailPage() {
               <Button
                 size="sm"
                 className="bg-orange-600 hover:bg-orange-700 text-white"
-                onClick={() => setActiveTab("quote")}
+                onClick={() => setShowQuoteDeliveryDialog(true)}
               >
                 <Send className="h-3.5 w-3.5 mr-1.5" /> Send Quote
               </Button>
@@ -1815,15 +1904,13 @@ export default function LeadDetailPage() {
 
         {/* === 4-Tab Interface === */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-6">
-            <TabsTrigger value="details">Job Request</TabsTrigger>
-            <TabsTrigger value="quote">Quote & Send</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2 mb-6">
             <TabsTrigger value="notes">Notes & Media</TabsTrigger>
-            <TabsTrigger value="history">Timeline</TabsTrigger>
+            <TabsTrigger value="history">Timeline & Rewards</TabsTrigger>
           </TabsList>
 
           {/* ─────────── TAB: DETAILS (Job Request) ─────────── */}
-          <TabsContent value="details" className="space-y-4">
+          <TabsContent value="details" className="hidden space-y-4">
             {/* Quick Contact pills */}
             {hasAdminAccess && (
               <div className="flex gap-2 flex-wrap">
@@ -2240,7 +2327,7 @@ export default function LeadDetailPage() {
           </TabsContent>
 
           {/* ─────────── TAB: QUOTE & SEND ─────────── */}
-          <TabsContent value="quote" className="space-y-4">
+          <TabsContent value="quote" className="hidden space-y-4">
 
             {/* Section A — Crew & Service Plan */}
             {hasAdminAccess && (
@@ -3057,6 +3144,90 @@ export default function LeadDetailPage() {
               </Button>
             </DialogFooter>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showInlineScheduler} onOpenChange={setShowInlineScheduler}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Calendar className="h-5 w-5 text-cyan-400" />Edit schedule</DialogTitle>
+            <DialogDescription>Date and arrival window save together and update the job card immediately.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Confirmed date</Label>
+              <div className="mt-1"><DatePicker value={scheduleDate || undefined} onChange={(value) => setScheduleDate(value || "")} placeholder="Pick a date" /></div>
+            </div>
+            <div>
+              <Label>Arrival window</Label>
+              <Select value={scheduleArrivalWindow || undefined} onValueChange={setScheduleArrivalWindow}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select arrival window" /></SelectTrigger>
+                <SelectContent>
+                  {["7:00 AM - 9:00 AM", "8:00 AM - 10:00 AM", "9:00 AM - 11:00 AM", "10:00 AM - 12:00 PM", "11:00 AM - 1:00 PM", "12:00 PM - 2:00 PM", "1:00 PM - 3:00 PM", "2:00 PM - 4:00 PM", "3:00 PM - 5:00 PM", "Flexible / TBD"].map((window) => <SelectItem key={window} value={window}>{window}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowInlineScheduler(false)}>Cancel</Button>
+            <Button onClick={() => saveInlineScheduleMutation.mutate()} disabled={saveInlineScheduleMutation.isPending || !scheduleDate || !scheduleArrivalWindow} className="bg-cyan-600 text-white hover:bg-cyan-700">
+              {saveInlineScheduleMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}Save schedule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Single, consent-aware quote delivery control. The old standalone
+          quote tab is intentionally retired to keep this job card focused. */}
+      <Dialog open={showQuoteDeliveryDialog} onOpenChange={setShowQuoteDeliveryDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5 text-cyan-400" />
+              Send Quote &amp; Invoice
+            </DialogTitle>
+            <DialogDescription>
+              The saved quote is sent with its Square payment link. Text delivery requires recorded customer consent.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border border-muted bg-muted/30 p-3 text-sm">
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">Customer</span><span className="text-right font-medium">{lead.firstName} {lead.lastName}</span></div>
+              <div className="mt-1 flex justify-between gap-3"><span className="text-muted-foreground">Saved total</span><span className="font-bold text-emerald-400">{leadHasQuote ? `$${parseFloat(lead.totalPrice || lead.basePrice || "0").toFixed(2)}` : "Not set"}</span></div>
+            </div>
+            <div>
+              <Label>Send by</Label>
+              <Select value={quoteDeliveryMethod} onValueChange={(value) => setQuoteDeliveryMethod(value as "email" | "sms" | "both")}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="email" disabled={isSyntheticOrInvalidEmail(lead.email) && !!lead.phone}>Email only</SelectItem>
+                  <SelectItem value="sms" disabled={!lead.phone}>Text message only</SelectItem>
+                  <SelectItem value="both" disabled={!lead.phone || isSyntheticOrInvalidEmail(lead.email)}>Email and text message</SelectItem>
+                </SelectContent>
+              </Select>
+              {(quoteDeliveryMethod === "sms" || quoteDeliveryMethod === "both") && !lead.smsConsent && (
+                <label className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+                  <Checkbox checked={recordSmsConsent} onCheckedChange={(value) => setRecordSmsConsent(value === true)} />
+                  <span>I verified the customer gave verbal consent to receive this quote by text message.</span>
+                </label>
+              )}
+            </div>
+            <div>
+              <Label>Personal note (optional)</Label>
+              <Textarea className="mt-1 resize-none" rows={3} value={quoteNote} onChange={(event) => setQuoteNote(event.target.value)} placeholder="Thanks for reaching out — we're ready to help." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowQuoteDeliveryDialog(false)}>Cancel</Button>
+            <Button
+              onClick={() => sendQuoteMutation.mutate(quoteDeliveryMethod)}
+              disabled={sendQuoteMutation.isPending || !leadHasQuote || ((quoteDeliveryMethod === "sms" || quoteDeliveryMethod === "both") && !lead.smsConsent && !recordSmsConsent)}
+              className="bg-cyan-600 text-white hover:bg-cyan-700"
+            >
+              {sendQuoteMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+              Send quote &amp; invoice
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

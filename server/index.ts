@@ -371,6 +371,34 @@ server.listen(port, '0.0.0.0', () => {
       } catch (e) { console.error('marketplace lead bridge init error:', e); }
     })();
 
+    // Job-card pricing and reward fields are additive so live leads retain
+    // their existing history while new plans can distinguish truck, trailer,
+    // and a designated crew lead.
+    {
+      const { pool: dbPool } = await import('./db');
+      await dbPool.query(`
+        ALTER TABLE leads
+          ADD COLUMN IF NOT EXISTS trailer_requested BOOLEAN NOT NULL DEFAULT FALSE,
+          ADD COLUMN IF NOT EXISTS crew_lead_user_id VARCHAR REFERENCES users(id);
+        CREATE TABLE IF NOT EXISTS job_jcmoves_ledger (
+          id BIGSERIAL PRIMARY KEY,
+          lead_id VARCHAR NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+          recipient_type TEXT NOT NULL CHECK (recipient_type IN ('customer', 'crew')),
+          recipient_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL,
+          recipient_label TEXT,
+          reward_kind TEXT NOT NULL,
+          token_amount INTEGER NOT NULL CHECK (token_amount >= 0),
+          quote_total NUMERIC(10,2) NOT NULL,
+          rate_per_dollar NUMERIC(10,4) NOT NULL,
+          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (lead_id, recipient_type, recipient_user_id, reward_kind)
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_jcmoves_ledger_lead ON job_jcmoves_ledger(lead_id, created_at);
+      `);
+      console.log('Job rate-card and JCMOVES ledger fields ready');
+    }
+
     // Crew acceptance routes use text[] operators (ANY(), array appends, and
     // Drizzle text().array()). Normalize older live DBs that still have the
     // prototype jsonb column before worker job routes can fail.

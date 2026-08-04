@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { CalendarDays, CheckCircle2, ClipboardPenLine, DollarSign, Loader2, PencilLine, Users } from "lucide-react";
 import { JobOrderBuilder, type JobQuoteDraft } from "@/components/JobOrderBuilder";
 import { Badge } from "@/components/ui/badge";
@@ -28,9 +28,11 @@ export interface JobSetupLead {
   confirmedDate?: string;
   arrivalWindow?: string;
   truckConfig?: string;
+  trailerRequested?: boolean;
   crewSize?: number;
   confirmedHours?: number;
   crewMembers?: string[];
+  crewLeadUserId?: string | null;
   basePrice?: string;
   totalPrice?: string;
   quoteNotes?: string;
@@ -64,9 +66,11 @@ type SetupDraft = {
   confirmedDate: string;
   arrivalWindow: string;
   truckConfig: string;
+  trailerRequested: boolean;
   crewSize: number;
   confirmedHours: number;
   crewMembers: string[];
+  crewLeadUserId: string;
 };
 
 const ARRIVAL_WINDOWS = [
@@ -88,9 +92,11 @@ function setupDraftFromLead(lead: JobSetupLead): SetupDraft {
     confirmedDate: lead.confirmedDate || "",
     arrivalWindow: lead.arrivalWindow || "",
     truckConfig: lead.truckConfig || "no_truck",
+    trailerRequested: !!lead.trailerRequested,
     crewSize: lead.crewSize || 2,
     confirmedHours: lead.confirmedHours || 2,
     crewMembers: lead.crewMembers || [],
+    crewLeadUserId: lead.crewLeadUserId || "",
   };
 }
 
@@ -132,12 +138,14 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
   const [draft, setDraft] = useState<SetupDraft>(() => setupDraftFromLead(lead));
   const [quoteDraft, setQuoteDraft] = useState<JobQuoteDraft | null>(() => savedQuote(lead));
   const [quoteDirty, setQuoteDirty] = useState(false);
+  const [quotePricingSource, setQuotePricingSource] = useState<"rate_card_auto" | "manual_override">("manual_override");
   const [showQuoteBuilder, setShowQuoteBuilder] = useState(() => !savedQuote(lead));
 
   useEffect(() => {
     setDraft(setupDraftFromLead(lead));
     setQuoteDraft(savedQuote(lead));
     setQuoteDirty(false);
+    setQuotePricingSource("manual_override");
     setShowQuoteBuilder(!savedQuote(lead));
   }, [lead]);
 
@@ -182,10 +190,12 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
           confirmedDate: draft.confirmedDate,
           arrivalWindow: draft.arrivalWindow,
           truckConfig: draft.truckConfig,
+          trailerRequested: draft.trailerRequested,
           crewSize: draft.crewSize,
           confirmedHours: draft.confirmedHours,
           crewMembers: draft.crewMembers,
-          quote: quoteDirty ? quoteDraft : undefined,
+          crewLeadUserId: draft.crewLeadUserId || null,
+          quote: quoteDirty && quoteDraft ? { ...quoteDraft, pricingSource: quotePricingSource } : undefined,
         } : {}),
       });
     },
@@ -200,6 +210,26 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
 
   const approvedEmployees = employees.filter((employee) => employee.isApproved || employee.status === "approved" || employee.status === "active");
   const quoteTotal = quoteDraft ? Number(quoteDraft.totalPrice || 0) : 0;
+  const { data: autoQuotePreview } = useQuery<{
+    labor: number;
+    truck: number;
+    trailer: number;
+    total: number;
+    projectedCustomerJcMoves: number;
+    projectedCrewPoolJcMoves: number;
+  }>({
+    queryKey: ["/api/leads", lead.id, "quote-preview", draft.crewSize, draft.confirmedHours, draft.truckConfig, draft.trailerRequested],
+    queryFn: async () => {
+      const response = await apiRequest("POST", `/api/leads/${lead.id}/quote-preview`, {
+        crewSize: draft.crewSize,
+        confirmedHours: draft.confirmedHours,
+        truckConfig: draft.truckConfig,
+        trailerRequested: draft.trailerRequested,
+      });
+      return response.json();
+    },
+    enabled: canManageSetup,
+  });
 
   return (
     <Card id="job-setup" className="mb-4 scroll-mt-4 border-blue-500/35 bg-gradient-to-b from-blue-950/20 to-background" data-testid="job-setup-workspace">
@@ -237,22 +267,31 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
         </section>
 
         {canManageSetup ? <>
+          {autoQuotePreview && <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-semibold text-emerald-300">Automatic rate-card quote</p><p className="text-xs text-muted-foreground">Labor, truck, and trailer are calculated by the server.</p></div><p className="text-xl font-bold text-emerald-300">${autoQuotePreview.total.toFixed(2)}</p></div>
+            <p className="mt-2 text-xs text-muted-foreground">Labor ${autoQuotePreview.labor.toFixed(2)} · Truck ${autoQuotePreview.truck.toFixed(2)} · Trailer ${autoQuotePreview.trailer.toFixed(2)}</p>
+            <p className="mt-1 text-xs text-amber-300">Projected: {autoQuotePreview.projectedCustomerJcMoves.toLocaleString()} customer JCMOVES and {autoQuotePreview.projectedCrewPoolJcMoves.toLocaleString()} crew-pool JCMOVES after paid completion.</p>
+            <Button type="button" size="sm" className="mt-3" onClick={() => { setQuoteDraft({ basePrice: autoQuotePreview.total.toFixed(2), totalPrice: autoQuotePreview.total.toFixed(2), crewSize: draft.crewSize, confirmedHours: draft.confirmedHours, quoteNotes: "Automatic rate-card quote.", hasHotTub: false, hotTubFee: "0", hasHeavySafe: false, heavySafeFee: "0", hasPoolTable: false, poolTableFee: "0", hasPiano: false, pianoFee: "0", totalSpecialItemsFee: "0", lineItems: [] } as JobQuoteDraft); setQuotePricingSource("rate_card_auto"); setQuoteDirty(true); setShowQuoteBuilder(false); }}>Use automatic quote</Button>
+          </div>}
+
           <section className="space-y-4 border-t pt-5">
             <div className="flex items-center gap-2"><Users className="h-4 w-4 text-blue-400" /><h3 className="font-semibold">Crew & schedule</h3></div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div><Label>Confirmed Date</Label><DatePicker value={draft.confirmedDate || undefined} onChange={(value) => updateDraft("confirmedDate", value || "")} placeholder="Pick a confirmed date" /></div>
               <div><Label>Arrival Window</Label><Select value={draft.arrivalWindow || undefined} onValueChange={(value) => updateDraft("arrivalWindow", value)}><SelectTrigger><SelectValue placeholder="Select arrival window" /></SelectTrigger><SelectContent>{ARRIVAL_WINDOWS.map((window) => <SelectItem key={window} value={window}>{window}</SelectItem>)}</SelectContent></Select></div>
-              <div><Label>Truck / Trailer</Label><Select value={draft.truckConfig} onValueChange={(value) => updateDraft("truckConfig", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="no_truck">No truck needed</SelectItem><SelectItem value="company_truck">JC truck</SelectItem><SelectItem value="customer_truck">Customer truck</SelectItem><SelectItem value="trailer_only">Trailer only</SelectItem></SelectContent></Select></div>
+              <div><Label>Truck</Label><Select value={draft.truckConfig} onValueChange={(value) => updateDraft("truckConfig", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="no_truck">Labor only — no truck</SelectItem><SelectItem value="company_truck">JC truck (+rate-card truck fee)</SelectItem><SelectItem value="customer_truck">Customer truck</SelectItem></SelectContent></Select></div>
+              <label className="flex items-center gap-3 rounded-lg border p-3 text-sm"><Checkbox checked={draft.trailerRequested} onCheckedChange={(value) => updateDraft("trailerRequested", value === true)} />Trailer (+rate-card trailer fee)</label>
               <div><Label htmlFor="setup-hours">Hours Estimate</Label><Input id="setup-hours" type="number" min="1" max="24" value={draft.confirmedHours} onChange={(event) => updateDraft("confirmedHours", Math.max(1, Number(event.target.value) || 1))} /></div>
             </div>
             <div><Label className="mb-2 block">Crew Size</Label><div className="flex flex-wrap gap-2">{[1, 2, 3, 4].map((size) => <Button key={size} type="button" variant={draft.crewSize === size ? "default" : "outline"} className="min-w-12" onClick={() => updateDraft("crewSize", size)}>{size} {size === 1 ? "mover" : "movers"}</Button>)}</div></div>
             <div><Label className="mb-2 block">Named Crew</Label><div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">{approvedEmployees.length ? approvedEmployees.map((employee) => { const checked = draft.crewMembers.includes(employee.id); return <label key={employee.id} className="flex cursor-pointer items-center gap-2 text-sm"><Checkbox checked={checked} onCheckedChange={(value) => updateDraft("crewMembers", value ? [...draft.crewMembers, employee.id] : draft.crewMembers.filter((id) => id !== employee.id))} />{employee.firstName} {employee.lastName}</label>; }) : <p className="text-sm text-muted-foreground">No approved crew members found.</p>}</div></div>
+            <div><Label>Crew lead</Label><Select value={draft.crewLeadUserId || undefined} onValueChange={(value) => updateDraft("crewLeadUserId", value)}><SelectTrigger><SelectValue placeholder="Select the crew lead" /></SelectTrigger><SelectContent>{draft.crewMembers.length ? draft.crewMembers.map((id) => { const employee = approvedEmployees.find((entry) => entry.id === id); return <SelectItem key={id} value={id}>{employee ? `${employee.firstName} ${employee.lastName}` : "Selected crew member"}</SelectItem>; }) : <SelectItem value="__none" disabled>Select a crew member first</SelectItem>}</SelectContent></Select></div>
           </section>
 
           <section className="space-y-4 border-t pt-5">
             <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-emerald-400" /><h3 className="font-semibold">Quote</h3></div><Button type="button" variant="outline" onClick={() => setShowQuoteBuilder((show) => !show)}>{showQuoteBuilder ? "Hide quote builder" : quoteDraft ? "Adjust quote" : "Build quote"}</Button></div>
             {quoteDraft && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3"><div><p className="text-sm font-semibold text-emerald-300">{quoteDirty ? "New quote ready to save" : "Saved quote"}</p><p className="text-xs text-muted-foreground">{quoteDirty ? "It will be saved only when you press Save Job Setup." : "Adjust it here if the job needs a new price."}</p></div><p className="text-2xl font-bold text-emerald-300">${quoteTotal.toFixed(2)}</p></div>}
-            {showQuoteBuilder && <JobOrderBuilder lead={quoteLead} disabled={saveMutation.isPending} applyLabel="Add quote to job setup" onApply={(quote) => { setQuoteDraft(quote); setQuoteDirty(true); setShowQuoteBuilder(false); toast({ title: "Quote added to setup", description: "Review the details, then save the full job setup." }); }} />}
+            {showQuoteBuilder && <JobOrderBuilder lead={quoteLead} disabled={saveMutation.isPending} applyLabel="Add quote to job setup" onApply={(quote) => { setQuoteDraft(quote); setQuotePricingSource("manual_override"); setQuoteDirty(true); setShowQuoteBuilder(false); toast({ title: "Manual quote adjustment added", description: "The saved rate-card quote is retained in the audit history." }); }} />}
           </section>
         </> : <p className="rounded-lg border border-muted bg-muted/30 p-3 text-sm text-muted-foreground">An owner or admin can add crew, scheduling, and pricing. Your edits to customer and job details will still save here.</p>}
 

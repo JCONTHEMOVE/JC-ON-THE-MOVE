@@ -22,6 +22,7 @@ interface Pricing {
   // Truck flat rates
   truckSmallFlat: number;
   truckLargeFlat: number;
+  trailerFlat: number;
   // Service rates
   windowCleaningPerPane: number;
   trashValetBaseMonthly: number;
@@ -60,7 +61,7 @@ interface Pricing {
 }
 
 const DEFAULTS = {
-  rate_per_mover_hour: "85",
+  rate_per_mover_hour: "87.5",
   drive_rate: "40",
   short_job_full: "300",
   min_hours_1: "5",
@@ -70,6 +71,7 @@ const DEFAULTS = {
   min_hours_5: "2",
   truck_small_flat: "300",
   truck_large_flat: "600",
+  trailer_flat: "175",
   truck_add: "60",
   jc222_price: "272",
   jc272_price: "272",
@@ -170,7 +172,7 @@ export function AdminPricingEditor({ alwaysOpen = false }: { alwaysOpen?: boolea
   useEffect(() => {
     if (!pricing) return;
     setDraft({
-      rate_per_mover_hour: String(pricing.ratePerMoverHour ?? 85),
+      rate_per_mover_hour: String(pricing.ratePerMoverHour ?? 87.5),
       drive_rate:          String(pricing.driveRate          ?? 40),
       short_job_full:      String(pricing.shortJobFull       ?? 300),
       min_hours_1:         String(pricing.minHours?.[1]      ?? 5),
@@ -180,6 +182,7 @@ export function AdminPricingEditor({ alwaysOpen = false }: { alwaysOpen?: boolea
       min_hours_5:         String(pricing.minHours?.[5]      ?? 2),
       truck_small_flat:    String(pricing.truckSmallFlat     ?? 300),
       truck_large_flat:    String(pricing.truckLargeFlat     ?? 600),
+      trailer_flat:        String(pricing.trailerFlat        ?? 175),
       truck_add:           String(pricing.truckAdd           ?? 60),
       jc222_price:         String(pricing.jc222Price         ?? 272),
       jc272_price:         String(pricing.jc272Price         ?? 272),
@@ -316,7 +319,7 @@ export function AdminPricingEditor({ alwaysOpen = false }: { alwaysOpen?: boolea
           {/* ── Moving & Labor ── */}
           <Section icon={<Settings className="h-3.5 w-3.5" />} title="Moving & Labor" color="text-blue-300">
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Rate per mover/hr ($)" hint="$85 = standard">
+              <Field label="Rate per mover/hr ($)" hint="$87.50 = $175/hr for 2 movers">
                 <Input type="number" value={draft.rate_per_mover_hour}
                   onChange={e => set("rate_per_mover_hour", e.target.value)} className={inp} />
               </Field>
@@ -377,6 +380,10 @@ export function AdminPricingEditor({ alwaysOpen = false }: { alwaysOpen?: boolea
               <Field label="Large Truck flat rate ($)" hint="26 ft — default $600">
                 <Input type="number" value={draft.truck_large_flat}
                   onChange={e => set("truck_large_flat", e.target.value)} className={inp} />
+              </Field>
+              <Field label="Trailer flat rate ($)" hint="Default $175">
+                <Input type="number" value={draft.trailer_flat}
+                  onChange={e => set("trailer_flat", e.target.value)} className={inp} />
               </Field>
             </div>
             <p className="text-[10px] text-slate-600">Flat fees added when customer selects a truck — not hourly</p>

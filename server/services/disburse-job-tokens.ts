@@ -33,6 +33,7 @@ import { eq, and } from "drizzle-orm";
 import { storage } from "../storage";
 import type { Lead } from "@shared/schema";
 import { EARN_RATE_PER_DOLLAR } from "../../shared/rewards";
+import { getJobRateCard } from "./jobRateCard";
 
 const TOKEN_PRICE            = 0.00000508432;
 const HOURS_RATE             = 25;    // JCMOVES per confirmed hour per crew member
@@ -158,6 +159,122 @@ function leadIdToLockKey(leadId: string): number {
   return Math.abs(h);
 }
 
+/**
+ * Current job-card reward rule: one customer pool and one crew pool, each
+ * equal to quote dollars × the editable JCMOVES rate. The crew lead receives
+ * a 15% bonus; the remaining 85% is split evenly among every selected member
+ * (including the lead), with whole-token rounding remainder going to the lead.
+ */
+async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUserId?: string | null }) {
+  const { rows: paymentRows } = await pool.query<{ deposit_paid: boolean | null; payment_paid_at: Date | null }>(
+    "SELECT deposit_paid, payment_paid_at FROM leads WHERE id = $1 LIMIT 1",
+    [leadId],
+  );
+  if (!paymentRows[0]?.deposit_paid && !paymentRows[0]?.payment_paid_at) {
+    console.warn(`[JCMOVES] ${leadId} completed but has no paid signal; ledger issuance deferred.`);
+    return null;
+  }
+
+  const rateCard = await getJobRateCard();
+  const quoteTotal = Number(lead.totalPrice || lead.basePrice || 0);
+  if (!Number.isFinite(quoteTotal) || quoteTotal <= 0) {
+    console.warn(`[JCMOVES] ${leadId} has no finalized quote; ledger issuance deferred.`);
+    return null;
+  }
+  const poolTokens = Math.round(quoteTotal * rateCard.jcmovesPerDollar);
+  const crewIds = Array.from(new Set([
+    ...(Array.isArray(lead.crewMembers) ? lead.crewMembers : []),
+    ...(lead.assignedToUserId ? [lead.assignedToUserId] : []),
+  ].filter(Boolean)));
+  const crewLeadId = crewIds.includes(lead.crewLeadUserId || "") ? lead.crewLeadUserId! : crewIds[0] || null;
+  const leadBonus = crewLeadId ? Math.floor(poolTokens * 0.15) : 0;
+  const remainingPool = poolTokens - leadBonus;
+  const baseShare = crewIds.length ? Math.floor(remainingPool / crewIds.length) : 0;
+  const roundingRemainder = crewIds.length ? remainingPool - (baseShare * crewIds.length) : 0;
+  const now = new Date();
+
+  const customerLookup = lead.email
+    ? await pool.query<{ id: string; email: string }>("SELECT id, email FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1", [lead.email.trim()])
+    : { rows: [] as Array<{ id: string; email: string }> };
+  const customer = customerLookup.rows[0] || null;
+
+  async function writeLedger(input: {
+    recipientType: "customer" | "crew";
+    recipientUserId: string | null;
+    recipientLabel: string;
+    rewardKind: string;
+    amount: number;
+    metadata: Record<string, unknown>;
+  }) {
+    const result = await pool.query(
+      `INSERT INTO job_jcmoves_ledger
+        (lead_id, recipient_type, recipient_user_id, recipient_label, reward_kind, token_amount, quote_total, rate_per_dollar, metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+       ON CONFLICT (lead_id, recipient_type, recipient_user_id, reward_kind) DO NOTHING
+       RETURNING id`,
+      [leadId, input.recipientType, input.recipientUserId, input.recipientLabel, input.rewardKind, input.amount, quoteTotal, rateCard.jcmovesPerDollar, JSON.stringify(input.metadata)],
+    );
+    return result.rowCount === 1;
+  }
+
+  if (await writeLedger({
+    recipientType: "customer",
+    recipientUserId: customer?.id || null,
+    recipientLabel: customer?.email || lead.email || "Customer",
+    rewardKind: "customer_paid_completed_pool",
+    amount: poolTokens,
+    metadata: { source: "rate_card", paid: true, completed: true },
+  })) {
+    if (customer) {
+      await db.insert(rewards).values({
+        userId: customer.id,
+        rewardType: "customer_paid_completed_pool",
+        tokenAmount: poolTokens.toFixed(8),
+        cashValue: (poolTokens * TOKEN_PRICE).toFixed(6),
+        status: "confirmed",
+        referenceId: leadId,
+        metadata: { jobId: leadId, ratePerDollar: rateCard.jcmovesPerDollar, quoteTotal },
+      });
+      await storage.creditWalletTokens(customer.id, poolTokens, { skipRewardLedger: true });
+    }
+  }
+
+  for (const memberId of crewIds) {
+    const amount = baseShare + (memberId === crewLeadId ? leadBonus + roundingRemainder : 0);
+    const crewMember = await storage.getUser(memberId).catch(() => null);
+    if (!crewMember || amount <= 0) continue;
+    if (await writeLedger({
+      recipientType: "crew",
+      recipientUserId: memberId,
+      recipientLabel: crewMember.email || `${crewMember.firstName || ""} ${crewMember.lastName || ""}`.trim() || "Crew member",
+      rewardKind: "crew_paid_completed_pool",
+      amount,
+      metadata: { source: "rate_card", paid: true, completed: true, crewLead: memberId === crewLeadId, leadBonus, baseShare, roundingRemainder },
+    })) {
+      await db.insert(rewards).values({
+        userId: memberId,
+        rewardType: "crew_paid_completed_pool",
+        tokenAmount: amount.toFixed(8),
+        cashValue: (amount * TOKEN_PRICE).toFixed(6),
+        status: "confirmed",
+        referenceId: leadId,
+        metadata: { jobId: leadId, ratePerDollar: rateCard.jcmovesPerDollar, quoteTotal, crewLead: memberId === crewLeadId },
+      });
+      await storage.creditWalletTokens(memberId, amount, { skipRewardLedger: true });
+    }
+  }
+
+  await storage.updateLeadQuote(leadId, { completionRewardedAt: now, tokensDisbursedAt: now });
+  return {
+    customerTokens: poolTokens,
+    perCrewFlatTokens: 0,
+    perCrewHoursTokens: 0,
+    crewIds,
+    customerId: customer?.id,
+    disbursedAt: now,
+  } as DisbursementSummary;
+}
+
 export async function disburseJobTokens(leadId: string): Promise<DisbursementSummary | null> {
   const lead = await storage.getLead(leadId) as (Lead & {
     tokensDisbursedAt?: Date | string | null;
@@ -189,9 +306,13 @@ export async function disburseJobTokens(leadId: string): Promise<DisbursementSum
       return null;
     }
 
-    const crewIds: string[] = (lead.crewMembers && lead.crewMembers.length > 0)
-      ? lead.crewMembers
-      : (lead.assignedToUserId ? [lead.assignedToUserId] : []);
+    // New awards use the paid-and-completed rate-card ledger. The legacy
+    // implementation remains below only as historical reference.
+    return disburseRateCardJcMoves(leadId, (freshLead || lead) as Lead & { crewLeadUserId?: string | null });
+
+    const legacyCrewMembers = (lead.crewMembers || []) as Array<string | null>;
+    const crewIds: string[] = legacyCrewMembers.flatMap((memberId) => typeof memberId === "string" && memberId.length > 0 ? [memberId] : [])
+      || (lead.assignedToUserId ? [lead.assignedToUserId] : []);
 
     const bonusFlags: Record<string, boolean> = (lead.crewBonusFlags as Record<string, boolean>) ?? {};
 
@@ -222,7 +343,7 @@ export async function disburseJobTokens(leadId: string): Promise<DisbursementSum
     //   3. The advisory lock guarantees no concurrent caller interleaves here
     for (const memberId of crewIds) {
       try {
-        const member = await storage.getUser(memberId).catch(() => null);
+        const member = await storage.getUser(memberId).catch(() => null) as any;
         if (!member) {
           console.log(`⚠️ Crew member ${memberId} not found — skipping`);
           continue;
@@ -295,7 +416,7 @@ export async function disburseJobTokens(leadId: string): Promise<DisbursementSum
 
         if (customer) {
           const jobPrice   = parseFloat(lead.totalPrice || lead.basePrice || "0");
-          const explicitAlloc = lead.tokenAllocation ? parseFloat(lead.tokenAllocation) : 0;
+          const explicitAlloc = parseFloat(String(lead.tokenAllocation || "0"));
 
           // ── B1. Flat completion bonus (always awarded, configurable) ──────
           const completionExists = await rewardAlreadyExists(leadId, customer.id, "customer_quote_completed");

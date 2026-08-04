@@ -11097,6 +11097,7 @@ Thank you for your business!
     totalSpecialItemsFee: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
     lineItems: z.array(jobSetupLineItemSchema).max(48),
     zoneSnapshot: z.record(z.unknown()).optional(),
+    pricingSource: z.enum(["rate_card_auto", "manual_override"]).optional(),
   });
 
   const jobSetupSchema = z.object({
@@ -11111,9 +11112,11 @@ Thank you for your business!
     confirmedDate: z.string().trim().max(50).optional(),
     arrivalWindow: z.string().trim().max(100).optional(),
     truckConfig: z.string().trim().max(80).optional(),
+    trailerRequested: z.boolean().optional(),
     crewSize: z.number().int().min(1).max(12).optional(),
     confirmedHours: z.number().finite().min(1).max(24).optional(),
     crewMembers: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+    crewLeadUserId: z.string().trim().min(1).max(120).optional().nullable(),
     quote: jobSetupQuoteSchema.optional().nullable(),
   });
 
@@ -11130,13 +11133,20 @@ Thank you for your business!
       const currentLead = await storage.getLead(req.params.id);
       if (!currentLead) return res.status(404).json({ error: "Lead not found" });
 
+      const effectiveCrew = input.crewMembers ?? (Array.isArray(currentLead.crewMembers) ? currentLead.crewMembers : []);
+      if (input.crewLeadUserId && !effectiveCrew.includes(input.crewLeadUserId)) {
+        return res.status(400).json({ error: "Crew lead must be one of the selected crew members" });
+      }
+
       const canManageSetup = actor.role === "admin" || actor.role === "business_owner";
       const hasPrivilegedData = input.confirmedDate !== undefined
         || input.arrivalWindow !== undefined
         || input.truckConfig !== undefined
+        || input.trailerRequested !== undefined
         || input.crewSize !== undefined
         || input.confirmedHours !== undefined
         || input.crewMembers !== undefined
+        || input.crewLeadUserId !== undefined
         || input.quote !== undefined;
       if (hasPrivilegedData && !canManageSetup) {
         return res.status(403).json({ error: "Administrator access required to change job setup, crew, or pricing" });
@@ -11157,12 +11167,21 @@ Thank you for your business!
         if (input.confirmedDate !== undefined) patch.confirmedDate = input.confirmedDate || null;
         if (input.arrivalWindow !== undefined) patch.arrivalWindow = input.arrivalWindow || null;
         if (input.truckConfig !== undefined) patch.truckConfig = input.truckConfig;
+        if (input.trailerRequested !== undefined) patch.trailerRequested = input.trailerRequested;
         if (input.crewSize !== undefined) patch.crewSize = input.crewSize;
         if (input.confirmedHours !== undefined) patch.confirmedHours = input.confirmedHours;
         if (input.crewMembers !== undefined) patch.crewMembers = input.crewMembers;
+        if (input.crewLeadUserId !== undefined) patch.crewLeadUserId = input.crewLeadUserId || null;
 
         if (input.quote) {
           const quote = input.quote;
+          const { calculateJobQuotePreview } = await import("./services/jobRateCard");
+          const autoQuote = await calculateJobQuotePreview({
+            crewSize: quote.crewSize,
+            confirmedHours: quote.confirmedHours,
+            truckConfig: input.truckConfig ?? currentLead.truckConfig,
+            trailerRequested: input.trailerRequested ?? currentLead.trailerRequested,
+          });
           const specialFees = [
             quote.hasHotTub ? Number(quote.hotTubFee) : 0,
             quote.hasHeavySafe ? Number(quote.heavySafeFee) : 0,
@@ -11170,7 +11189,8 @@ Thank you for your business!
             quote.hasPiano ? Number(quote.pianoFee) : 0,
           ];
           const totalSpecialItemsFee = specialFees.reduce((total, fee) => total + fee, 0);
-          const basePrice = Number(quote.basePrice);
+          const submittedBasePrice = Number(quote.basePrice);
+          const basePrice = quote.pricingSource === "rate_card_auto" ? autoQuote.total : submittedBasePrice;
 
           patch.basePrice = basePrice.toFixed(2);
           patch.totalPrice = (basePrice + totalSpecialItemsFee).toFixed(2);
@@ -11188,6 +11208,15 @@ Thank you for your business!
           patch.totalSpecialItemsFee = totalSpecialItemsFee.toFixed(2);
           patch.orderLineItems = quote.lineItems;
           if (quote.zoneSnapshot) patch.zoneSnapshot = quote.zoneSnapshot;
+          patch.quoteSnapshot = {
+            ...((currentLead.quoteSnapshot && typeof currentLead.quoteSnapshot === "object" && !Array.isArray(currentLead.quoteSnapshot)) ? currentLead.quoteSnapshot : {}),
+            rateCardAutoQuote: autoQuote,
+            manualQuoteOverride: quote.pricingSource === "manual_override" ? {
+              submittedBasePrice,
+              automaticBasePrice: autoQuote.total,
+              savedAt: new Date().toISOString(),
+            } : null,
+          };
           patch.lastQuoteUpdatedAt = new Date();
         }
       }
@@ -11228,6 +11257,81 @@ Thank you for your business!
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || "Invalid job setup" });
       console.error("Error saving job setup:", error);
       return res.status(500).json({ error: "Failed to save job setup" });
+    }
+  });
+
+  // Date and arrival window are edited together so the job card can never
+  // persist a half-rescheduled visit. This is intentionally separate from
+  // quote editing and remains the server-side source of truth.
+  const jobScheduleSchema = z.object({
+    confirmedDate: z.string().trim().min(1, "Confirmed date is required").max(50),
+    arrivalWindow: z.string().trim().min(1, "Arrival window is required").max(100),
+  });
+
+  app.patch("/api/leads/:id/schedule", isAuthenticated, async (req: any, res) => {
+    try {
+      const input = jobScheduleSchema.parse(req.body);
+      const actor = req.currentUser || req.user || await storage.getUser((req.session as any)?.userId);
+      if (!actor || !["admin", "business_owner"].includes(actor.role || "")) {
+        return res.status(403).json({ error: "Administrator access required" });
+      }
+      const currentLead = await storage.getLead(req.params.id);
+      if (!currentLead) return res.status(404).json({ error: "Lead not found" });
+      const updatedLead = await storage.updateLeadQuote(req.params.id, {
+        confirmedDate: input.confirmedDate,
+        arrivalWindow: input.arrivalWindow,
+      });
+      if (!updatedLead) return res.status(404).json({ error: "Lead not found" });
+
+      const crewMembers = Array.isArray(updatedLead.crewMembers) ? updatedLead.crewMembers.filter(Boolean) : [];
+      const eventId = `crew-plan:${crypto.createHash("sha256").update(JSON.stringify({
+        leadId: updatedLead.id,
+        date: updatedLead.confirmedDate || updatedLead.moveDate || null,
+        arrivalWindow: updatedLead.arrivalWindow || null,
+        crewMembers: [...crewMembers].sort(),
+        crewSize: updatedLead.crewSize || null,
+        confirmedHours: updatedLead.confirmedHours || null,
+        truckConfig: updatedLead.truckConfig || null,
+      })).digest("hex")}`;
+      await emitJobEvent(crewMembers.length ? "crew_plan_saved" : "job_updated", updatedLead, {
+        actorId: actor.id || null,
+        source: "inline_schedule_save",
+        eventId: crewMembers.length ? eventId : undefined,
+        previousStatus: currentLead.status,
+        status: updatedLead.status,
+        note: crewMembers.length ? "Tentative crew schedule updated" : "Schedule updated",
+        extra: { changedKeys: ["confirmedDate", "arrivalWindow"] },
+      });
+      res.json(updatedLead);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || "Invalid schedule" });
+      console.error("Error saving job schedule:", error);
+      res.status(500).json({ error: "Failed to save job schedule" });
+    }
+  });
+
+  // A saved rate card is the pricing authority. The client only renders this
+  // preview and can request a clearly labelled manual override later.
+  const quotePreviewSchema = z.object({
+    crewSize: z.number().int().min(1).max(12),
+    confirmedHours: z.number().finite().min(1).max(24),
+    truckConfig: z.string().trim().max(80).optional(),
+    trailerRequested: z.boolean().optional(),
+  });
+  app.post("/api/leads/:id/quote-preview", isAuthenticated, async (req: any, res) => {
+    try {
+      const actor = req.currentUser || req.user || await storage.getUser((req.session as any)?.userId);
+      if (!actor || !["admin", "business_owner"].includes(actor.role || "")) {
+        return res.status(403).json({ error: "Administrator access required" });
+      }
+      if (!await storage.getLead(req.params.id)) return res.status(404).json({ error: "Lead not found" });
+      const input = quotePreviewSchema.parse(req.body);
+      const { calculateJobQuotePreview } = await import("./services/jobRateCard");
+      res.json(await calculateJobQuotePreview(input));
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || "Invalid quote inputs" });
+      console.error("Error calculating quote preview:", error);
+      res.status(500).json({ error: "Failed to calculate quote preview" });
     }
   });
 
@@ -26439,7 +26543,7 @@ Thank you for your business!
       try { junkAddons = JSON.parse(config['pricing_junk_addons'] || '[]'); } catch {}
       const n = (key: string, fallback: number) => parseFloat(config[key] ?? String(fallback));
       res.json({
-        ratePerMoverHour: n('pricing_rate_per_mover_hour', 85),
+        ratePerMoverHour: n('pricing_rate_per_mover_hour', 87.5),
         truckAdd:         n('pricing_truck_add',           60),
         minHours: {
           1: n('pricing_min_hours_1', 5),
@@ -26489,6 +26593,7 @@ Thank you for your business!
         // Truck flat rates (replaces hourly truck add-on for customer-facing pricing)
         truckSmallFlat: n('pricing_truck_small_flat', 300),
         truckLargeFlat: n('pricing_truck_large_flat', 600),
+        trailerFlat: n('pricing_trailer_flat', 175),
         // Service rates
         windowCleaningPerPane: n('pricing_window_cleaning_per_pane',   5),
         trashValetBaseMonthly: n('pricing_trash_valet_base_monthly',  30),

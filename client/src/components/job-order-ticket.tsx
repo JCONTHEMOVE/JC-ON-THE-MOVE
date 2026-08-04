@@ -45,6 +45,7 @@ type JobOrderTicketProps = {
   compact?: boolean;
   className?: string;
   onClick?: () => void;
+  onScheduleEdit?: () => void;
 };
 
 function money(value: number | string | null | undefined) {
@@ -72,7 +73,7 @@ function ticketStatus(order: JobOrderTicketData) {
   return status ? status.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Order draft";
 }
 
-export function JobOrderTicket({ order, viewer = "admin", action, compact = false, className, onClick }: JobOrderTicketProps) {
+export function JobOrderTicket({ order, viewer = "admin", action, compact = false, className, onClick, onScheduleEdit }: JobOrderTicketProps) {
   const total = Number(order.totalPrice ?? order.basePrice ?? 0) || 0;
   const credits = order.estimatedTokens ?? (total > 0 ? Math.round(total * 15) : null);
   const scheduledDate = order.confirmedDate || order.moveDate;
@@ -115,8 +116,8 @@ export function JobOrderTicket({ order, viewer = "admin", action, compact = fals
         </div>
 
         <div className={cn("grid gap-2", compact ? "grid-cols-2" : "sm:grid-cols-2")}>
-          <TicketDetail icon={CalendarDays} label="Schedule" value={formatDate(scheduledDate)} />
-          <TicketDetail icon={Clock3} label="Arrival" value={order.arrivalWindow || (order.confirmedHours ? `${order.confirmedHours} hr booked` : "Time to confirm")} />
+          <TicketDetail icon={CalendarDays} label="Schedule" value={formatDate(scheduledDate)} onClick={onScheduleEdit} />
+          <TicketDetail icon={Clock3} label="Arrival" value={order.arrivalWindow || (order.confirmedHours ? `${order.confirmedHours} hr booked` : "Time to confirm")} onClick={onScheduleEdit} />
           {!compact && <TicketDetail icon={Users} label="Crew" value={order.crewSize ? `${order.crewSize} needed` : "Crew to confirm"} />}
           {!compact && <TicketDetail icon={MapPin} label="Location" value={address || "Location to confirm"} />}
         </div>
@@ -149,14 +150,20 @@ export function JobOrderTicket({ order, viewer = "admin", action, compact = fals
   );
 }
 
-function TicketDetail({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+function TicketDetail({ icon: Icon, label, value, onClick }: { icon: LucideIcon; label: string; value: string; onClick?: () => void }) {
+  const detail = <>
+    <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
+    <div className="min-w-0 text-left">
+      <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="truncate text-xs font-medium text-slate-200">{value}</p>
+    </div>
+  </>;
+  if (onClick) {
+    return <button type="button" onClick={onClick} className="flex min-w-0 items-start gap-2 rounded-lg bg-white/[0.035] px-2.5 py-2 text-left transition hover:bg-cyan-400/10 focus:outline-none focus:ring-2 focus:ring-cyan-400/70" aria-label={`Edit ${label.toLowerCase()}`}>{detail}</button>;
+  }
   return (
     <div className="flex min-w-0 items-start gap-2 rounded-lg bg-white/[0.035] px-2.5 py-2">
-      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
-      <div className="min-w-0">
-        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-        <p className="truncate text-xs font-medium text-slate-200">{value}</p>
-      </div>
+      {detail}
     </div>
   );
 }

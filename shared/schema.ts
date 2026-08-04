@@ -36,6 +36,7 @@ export const leads = pgTable("leads", {
   assignedToUserId: varchar("assigned_to_user_id").references(() => users.id),
   createdByUserId: varchar("created_by_user_id").references(() => users.id), // Track employee who created the job for rewards
   truckConfig: text("truck_config"), // 'customer_truck', 'company_truck', 'no_truck'
+  trailerRequested: boolean("trailer_requested").notNull().default(false),
   // Staff intake keeps the human-readable truck choice alongside the legacy
   // configuration field so the calendar, lead detail, and quote snapshot agree.
   truckProvider: text("truck_provider"), // 'jc_on_the_move' | 'customer' | 'rental_uhaul' | 'none'
@@ -51,6 +52,7 @@ export const leads = pgTable("leads", {
   basePrice: decimal("base_price", { precision: 10, scale: 2 }), // Base moving quote
   tokenAllocation: decimal("token_allocation", { precision: 18, scale: 8 }), // JCMOVES tokens allocated for this job
   crewMembers: text("crew_members").array(), // Array of assigned employee IDs
+  crewLeadUserId: varchar("crew_lead_user_id").references(() => users.id),
   crewBonusFlags: jsonb("crew_bonus_flags").default("{}"), // Map of userId → boolean; true = bonus mover (+25% payout)
   squareOrderId: varchar("square_order_id"), // Square Order ID created when Build Order is applied
   
