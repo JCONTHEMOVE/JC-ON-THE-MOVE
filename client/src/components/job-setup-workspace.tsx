@@ -30,6 +30,7 @@ export interface JobSetupLead {
   arrivalWindow?: string;
   truckConfig?: string;
   trailerRequested?: boolean;
+  promoCode?: string | null;
   crewSize?: number;
   confirmedHours?: number;
   crewMembers?: string[];
@@ -79,6 +80,7 @@ type SetupDraft = {
   arrivalWindow: string;
   truckConfig: string;
   trailerRequested: boolean;
+  promoCode: string;
   crewSize: number;
   confirmedHours: number;
   crewMembers: string[];
@@ -111,6 +113,7 @@ function setupDraftFromLead(lead: JobSetupLead): SetupDraft {
     arrivalWindow: lead.arrivalWindow || "",
     truckConfig: lead.truckConfig || "no_truck",
     trailerRequested: !!lead.trailerRequested,
+    promoCode: lead.promoCode || "",
     crewSize: lead.crewSize || 2,
     confirmedHours: lead.confirmedHours || 2,
     crewMembers: lead.crewMembers || [],
@@ -223,6 +226,7 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
           arrivalWindow: draft.arrivalWindow,
           truckConfig: draft.truckConfig,
           trailerRequested: draft.trailerRequested,
+          promoCode: draft.promoCode.trim().toUpperCase(),
           crewSize: draft.crewSize,
           confirmedHours: draft.confirmedHours,
           crewMembers: draft.crewMembers,
@@ -259,8 +263,22 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
     total: number;
     projectedCustomerJcMoves: number;
     projectedCrewPoolJcMoves: number;
+    packagePrice?: number;
+    promotion?: {
+      code: string;
+      description: string;
+      fixedBasePrice: number;
+      requiredCrewSize: number;
+      requiredHours: number;
+      verifiedLocalMiles: number;
+      localMilesMax: number;
+      includesCompanyTruck: boolean;
+      includesTrailer: boolean;
+    };
+    promo?: { requestedCode: string; applied: boolean; reason?: string };
+    reservedEquipment?: { truckConfig: string; trailerRequested: boolean };
   }>({
-    queryKey: ["/api/leads", lead.id, "quote-preview", draft.crewSize, draft.confirmedHours, draft.truckConfig, draft.trailerRequested, draft.stairsFlights, draft.hasElevator],
+    queryKey: ["/api/leads", lead.id, "quote-preview", draft.crewSize, draft.confirmedHours, draft.truckConfig, draft.trailerRequested, draft.stairsFlights, draft.hasElevator, draft.promoCode, draft.fromAddress, draft.toAddress],
     queryFn: async () => {
       const response = await apiRequest("POST", `/api/leads/${lead.id}/quote-preview`, {
         crewSize: draft.crewSize,
@@ -269,11 +287,22 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
         trailerRequested: draft.trailerRequested,
         stairsFlights: draft.stairsFlights,
         hasElevator: draft.hasElevator,
+        promoCode: draft.promoCode.trim().toUpperCase(),
+        fromAddress: draft.fromAddress,
+        toAddress: draft.toAddress,
       });
       return response.json();
     },
     enabled: canManageSetup,
   });
+
+  useEffect(() => {
+    const reserved = autoQuotePreview?.reservedEquipment;
+    if (!reserved) return;
+    setDraft((current) => current.truckConfig === reserved.truckConfig && current.trailerRequested === reserved.trailerRequested
+      ? current
+      : { ...current, ...reserved });
+  }, [autoQuotePreview?.reservedEquipment]);
 
   useEffect(() => {
     if (!canManageSetup || !autoQuotePreview || quotePricingSource !== "rate_card_auto") return;
@@ -284,7 +313,9 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
         totalPrice: basePrice,
         crewSize: draft.crewSize,
         confirmedHours: draft.confirmedHours,
-        quoteNotes: "Automatic rate-card quote.",
+        quoteNotes: autoQuotePreview.promotion
+          ? `${autoQuotePreview.promotion.code} fixed moving package.`
+          : "Automatic rate-card quote.",
         hasHotTub: current?.hasHotTub || false,
         hotTubFee: current?.hotTubFee || "0",
         hasHeavySafe: current?.hasHeavySafe || false,
@@ -354,7 +385,10 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
             <div><Label htmlFor="setup-special-items-notes">Special item details</Label><Textarea id="setup-special-items-notes" rows={2} value={draft.specialItemsNotes} onChange={(event) => updateDraft("specialItemsNotes", event.target.value)} placeholder="Weights, fragile items, disassembly needs, or equipment notes" /></div>
             <div className="space-y-2"><div className="flex items-center justify-between gap-3"><Label>Additional stops</Label><Button type="button" size="sm" variant="outline" onClick={() => updateDraft("additionalStops", [...draft.additionalStops, { address: "", note: "" }])}>Add stop</Button></div>{draft.additionalStops.map((stop, index) => <div key={index} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto]"><Input value={stop.address} onChange={(event) => updateAdditionalStop(index, "address", event.target.value)} placeholder="Stop address" /><Input value={stop.note} onChange={(event) => updateAdditionalStop(index, "note", event.target.value)} placeholder="Stop note (optional)" /><Button type="button" variant="ghost" size="sm" onClick={() => updateDraft("additionalStops", draft.additionalStops.filter((_, stopIndex) => stopIndex !== index))}>Remove</Button></div>)}</div>
           </section>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"><div><Label htmlFor="setup-promo-code">Promo / package code</Label><Input id="setup-promo-code" value={draft.promoCode} onChange={(event) => updateDraft("promoCode", event.target.value.toUpperCase())} placeholder="e.g. LOCAL4X4" autoCapitalize="characters" /></div>{draft.promoCode && <Button type="button" variant="ghost" size="sm" onClick={() => updateDraft("promoCode", "")}>Clear code</Button>}</div>
+          {autoQuotePreview?.promo && !autoQuotePreview.promo.applied && <p className="text-xs text-amber-300">{autoQuotePreview.promo.reason}</p>}
           {autoQuotePreview && <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
+            {autoQuotePreview.promotion && <p className="mb-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: 4 movers x 4 hours local special. JC truck and trailer are reserved. Verified {autoQuotePreview.promotion.verifiedLocalMiles} of {autoQuotePreview.promotion.localMilesMax} local miles; package $${autoQuotePreview.packagePrice?.toFixed(2)}.</p>}
             <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="flex items-center gap-1 text-sm font-semibold text-emerald-300">Automatic rate-card quote<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain automatic quote"><CircleHelp className="h-3.5 w-3.5" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">The server applies the saved labor, equipment, stairs, and elevator rates. A manual adjustment never replaces this calculation in the audit history.</PopoverContent></Popover></p><p className="text-xs text-muted-foreground">Labor, equipment, and access fees are calculated by the server.</p><p className="mt-1 text-xs text-muted-foreground">Access: stairs ${autoQuotePreview.stairs.toFixed(2)} · elevator ${autoQuotePreview.elevator.toFixed(2)}</p><p className="mt-1 flex items-center gap-1 text-xs text-amber-300">JCMOVES projection<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain JCMOVES projection"><CircleHelp className="h-3 w-3" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">The customer and total crew pool each use this amount. The lead receives a 15% crew-pool bonus at paid completion; the rest splits evenly.</PopoverContent></Popover></p></div><p className="text-xl font-bold text-emerald-300">${autoQuotePreview.total.toFixed(2)}</p></div>
             <p className="mt-2 text-xs text-muted-foreground">Labor ${autoQuotePreview.labor.toFixed(2)} · Truck ${autoQuotePreview.truck.toFixed(2)} · Trailer ${autoQuotePreview.trailer.toFixed(2)}</p>
             <p className="mt-1 text-xs text-amber-300">Projected: {autoQuotePreview.projectedCustomerJcMoves.toLocaleString()} customer JCMOVES and {autoQuotePreview.projectedCrewPoolJcMoves.toLocaleString()} crew-pool JCMOVES after paid completion.</p>
@@ -368,7 +402,7 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
               <div><Label>Arrival Window</Label><Select value={draft.arrivalWindow || undefined} onValueChange={(value) => updateDraft("arrivalWindow", value)}><SelectTrigger><SelectValue placeholder="Select arrival window" /></SelectTrigger><SelectContent>{ARRIVAL_WINDOWS.map((window) => <SelectItem key={window} value={window}>{window}</SelectItem>)}</SelectContent></Select></div>
               <div><Label>Truck</Label><Select value={draft.truckConfig} onValueChange={(value) => updateDraft("truckConfig", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="no_truck">Labor only — no truck</SelectItem><SelectItem value="company_truck">JC truck (+rate-card truck fee)</SelectItem><SelectItem value="customer_truck">Customer truck</SelectItem></SelectContent></Select></div>
               <label className="flex items-center gap-3 rounded-lg border p-3 text-sm"><Checkbox checked={draft.trailerRequested} onCheckedChange={(value) => updateDraft("trailerRequested", value === true)} />Trailer (+rate-card trailer fee)</label>
-              <div><Label htmlFor="setup-hours">Hours Estimate</Label><Input id="setup-hours" type="number" min="1" max="24" value={draft.confirmedHours} onChange={(event) => updateDraft("confirmedHours", Math.max(1, Number(event.target.value) || 1))} /></div>
+              <div><Label htmlFor="setup-hours">Hours Estimate</Label><Select value={String(draft.confirmedHours)} onValueChange={(value) => updateDraft("confirmedHours", Number(value))}><SelectTrigger id="setup-hours"><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 24 }, (_, index) => index + 1).map((hour) => <SelectItem key={hour} value={String(hour)}>{hour} {hour === 1 ? "hour" : "hours"}</SelectItem>)}</SelectContent></Select></div>
             </div>
             <div><Label className="mb-2 block">Crew Size</Label><div className="flex flex-wrap gap-2">{[1, 2, 3, 4].map((size) => <Button key={size} type="button" variant={draft.crewSize === size ? "default" : "outline"} className="min-w-12" onClick={() => updateDraft("crewSize", size)}>{size} {size === 1 ? "mover" : "movers"}</Button>)}</div></div>
             <div><Label className="mb-2 block">Named Crew</Label><div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">{approvedEmployees.length ? approvedEmployees.map((employee) => { const checked = draft.crewMembers.includes(employee.id); return <label key={employee.id} className="flex cursor-pointer items-center gap-2 text-sm"><Checkbox checked={checked} onCheckedChange={(value) => updateDraft("crewMembers", value ? [...draft.crewMembers, employee.id] : draft.crewMembers.filter((id) => id !== employee.id))} />{employee.firstName} {employee.lastName}</label>; }) : <p className="text-sm text-muted-foreground">No approved crew members found.</p>}</div></div>

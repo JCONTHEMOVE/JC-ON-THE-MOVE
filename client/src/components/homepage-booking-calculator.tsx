@@ -45,6 +45,7 @@ type ValidatedPromo = {
   code: string;
   description: string;
   discountPercent: number;
+  jobOffer?: { kind?: string; fixedBasePrice?: number; requiredCrewSize?: number; requiredHours?: number } | null;
 };
 
 const BOOKING_SUCCESS_STORAGE_KEY = "jc-booking-success-invoice-id";
@@ -262,6 +263,7 @@ export function HomepageBookingCalculator({ preset }: Props) {
         code: data.code,
         description: data.description || "",
         discountPercent: Number(data.discountPercent || 0),
+        jobOffer: data.jobOffer || null,
       });
       setPromoCode(data.code);
     } catch (error: any) {
@@ -686,7 +688,7 @@ export function HomepageBookingCalculator({ preset }: Props) {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-white">Promo code</p>
-                  <p className="text-xs text-slate-400">Enter a valid service code like JCMOVES, TIM2026, BILLMOVES, or MOVER3.</p>
+                  <p className="text-xs text-slate-400">Enter a service or package code. LOCAL4X4 is 4 movers for 4 hours locally, with the JC truck and trailer included for $1,000.</p>
                 </div>
                 {appliedPromo ? (
                   <button

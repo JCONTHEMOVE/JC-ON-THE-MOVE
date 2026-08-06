@@ -26,6 +26,15 @@ interface PromoCode {
   rewardTokens: string;
   referralUserId: string | null;
   referralRewardTokens: string;
+  jobOffer?: {
+    kind?: string;
+    fixedBasePrice?: number;
+    requiredCrewSize?: number;
+    requiredHours?: number;
+    localMilesMax?: number;
+    requiresCompanyTruck?: boolean;
+    requiresTrailer?: boolean;
+  } | null;
   maxUses: number | null;
   usesCount: number;
   isActive: boolean;
@@ -263,6 +272,12 @@ export default function AdminPromoCodesPage() {
                         )}
                       </div>
                       <p className="text-slate-400 text-sm mb-2 truncate">{code.description}</p>
+
+                      {code.jobOffer?.kind === "fixed_moving_package" && (
+                        <p className="mb-2 text-xs font-medium text-emerald-300">
+                          Fixed package: {code.jobOffer.requiredCrewSize} movers x {code.jobOffer.requiredHours} hours · ${code.jobOffer.fixedBasePrice} · local within {code.jobOffer.localMilesMax ?? 10} miles · truck + trailer included
+                        </p>
+                      )}
 
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
                         {parseFloat(code.discountPercent) > 0 && (

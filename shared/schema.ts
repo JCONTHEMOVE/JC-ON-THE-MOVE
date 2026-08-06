@@ -2084,6 +2084,10 @@ export const promoCodes = pgTable("promo_codes", {
   referralUserId: varchar("referral_user_id").references(() => users.id),
   // referralRewardTokens: tokens credited to referralUserId per successful use
   referralRewardTokens: decimal("referral_reward_tokens", { precision: 18, scale: 2 }).notNull().default("0.00"),
+  // Optional server-enforced offer for a specific moving package. This is
+  // deliberately data rather than a frontend-only coupon so payment, quotes,
+  // and staff job setup all use the same rule.
+  jobOffer: jsonb("job_offer"),
   maxUses: integer("max_uses"),
   usesCount: integer("uses_count").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),

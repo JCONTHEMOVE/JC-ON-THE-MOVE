@@ -19,6 +19,18 @@ export type JobQuotePreview = {
   projectedCustomerJcMoves: number;
   projectedCrewPoolJcMoves: number;
   rateCard: JobRateCard;
+  packagePrice?: number;
+  promotion?: {
+    code: string;
+    description: string;
+    fixedBasePrice: number;
+    requiredCrewSize: number;
+    requiredHours: number;
+    verifiedLocalMiles: number;
+    localMilesMax: number;
+    includesCompanyTruck: boolean;
+    includesTrailer: boolean;
+  };
 };
 
 const FALLBACK_RATE_CARD: JobRateCard = {

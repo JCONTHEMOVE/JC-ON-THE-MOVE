@@ -21,6 +21,7 @@ import { insertFundingDepositSchema, insertFaucetConfigSchema, insertFaucetWalle
 import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
 import { decryptJobAccessDetails, encryptJobAccessDetails } from "./services/job-access";
+import type { JobQuotePreview } from "./services/jobRateCard";
 import { eq, desc, sql, and, gte, lte, or, ilike, inArray, isNull } from 'drizzle-orm';
 import { db, pool } from './db';
 import { rewards, walletAccounts, walletPayouts, cashoutRequests, fundingDeposits, reserveTransactions, treasuryAccounts, users, leads, swapRequests, treasurySwapRules, bitcoinPayments, stakes, stakingTiers, contacts, notifications, walletTransactions, jewelryItems, shopItems, giftCards, miningSessions, miningClaims, treasuryWithdrawals, tokenConversions, rewardSettings, recoveryTokens, promoCodes, reviews, reviewTipAllocations, rewardCategories, rewardItems, rewardRedemptions, buybackFund, laborQuotes, jobTradeRequests, workerProfiles, quoteApprovals, quoteConsensusVotes, quoteAttributions, marketingReps, marketingCallEvents, insertMarketingRepSchema, jobPayoutSettings, referralPartners, jobAssignments, jobPayoutCalculations, jobWorkerPayouts } from '@shared/schema';
@@ -455,6 +456,89 @@ async function estimateDriveMilesForChatbot(pickupAddr: string, dropoffAddr?: st
   };
 }
 
+type JobPromoQuoteInput = {
+  promoCode?: string | null;
+  serviceType?: string | null;
+  crewSize: number;
+  confirmedHours: number;
+  truckConfig?: string | null;
+  trailerRequested?: boolean | null;
+  stairsFlights?: number | null;
+  hasElevator?: boolean | null;
+  fromAddress?: string | null;
+  toAddress?: string | null;
+};
+
+type JobPromoQuoteResult = JobQuotePreview & {
+  promo?: { requestedCode: string; applied: boolean; reason?: string };
+  reservedEquipment?: { truckConfig: "company_truck"; trailerRequested: true };
+};
+
+/**
+ * The promo evaluator intentionally lives beside the HTTP routes because the
+ * route's address lookup is the authority for the local-service boundary. No
+ * request-provided mileage or total is ever trusted.
+ */
+async function calculateJobQuoteWithPromo(input: JobPromoQuoteInput): Promise<JobPromoQuoteResult> {
+  const { calculateJobQuotePreview } = await import("./services/jobRateCard");
+  const { applyFixedMovingPackageOffer } = await import("./services/jobPromo");
+  const automaticQuote = await calculateJobQuotePreview(input);
+  const requestedCode = String(input.promoCode || "").trim().toUpperCase();
+  if (!requestedCode) return automaticQuote;
+
+  const [promo] = await db.select().from(promoCodes)
+    .where(eq(promoCodes.code, requestedCode))
+    .limit(1);
+  if (!promo) {
+    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "Promo code not found." } };
+  }
+  if (!promo.isActive) {
+    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "This promo code is no longer active." } };
+  }
+  if (promo.expiresAt && new Date(promo.expiresAt) < new Date()) {
+    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "This promo code has expired." } };
+  }
+  if (promo.maxUses !== null && promo.usesCount >= promo.maxUses) {
+    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "This promo code has reached its usage limit." } };
+  }
+  if (!promo.jobOffer) {
+    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "This code is not a fixed moving package." } };
+  }
+  if (!/moving|residential|labor/i.test(String(input.serviceType || "moving"))) {
+    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "This package is only available for moving services." } };
+  }
+
+  const pickup = String(input.fromAddress || "").trim();
+  const destination = String(input.toAddress || "").trim();
+  const estimate = pickup.length >= 4 && destination.length >= 4
+    ? await estimateDriveMilesForChatbot(pickup, destination)
+    : null;
+  const localMiles = estimate && estimate.note === "base-to-pickup plus pickup-to-dropoff" && estimate.miles > 0
+    ? estimate.miles
+    : null;
+  const { rows } = await pool.query("SELECT setting_value FROM spin_config WHERE setting_key = 'pricing_local_miles_max' LIMIT 1");
+  const configuredLocalMilesMax = Number(rows[0]?.setting_value);
+  const evaluation = applyFixedMovingPackageOffer({
+    promo,
+    automaticQuote,
+    crewSize: input.crewSize,
+    confirmedHours: input.confirmedHours,
+    verifiedLocalMiles: localMiles,
+    configuredLocalMilesMax: Number.isFinite(configuredLocalMilesMax) && configuredLocalMilesMax > 0 ? configuredLocalMilesMax : 10,
+  });
+  return {
+    ...evaluation.quote,
+    promo: {
+      requestedCode,
+      applied: evaluation.applied,
+      reason: evaluation.reason,
+    },
+    reservedEquipment: evaluation.applied
+      ? { truckConfig: "company_truck", trailerRequested: true }
+      : undefined,
+  };
+}
+
 async function ensureRewardSettingsSeeded() {
   try {
     const existing = await db.select().from(rewardSettings);
@@ -633,6 +717,31 @@ async function seedDefaultPromoCodes() {
         await db.insert(promoCodes).values(promo);
         console.log(`✅ Seeded promo code: ${promo.code}`);
       }
+    }
+    // Do not use an upsert here: an owner disabling this reusable offer must
+    // stay disabled after a deployment or a server restart.
+    const [localSpecial] = await db.select({ id: promoCodes.id }).from(promoCodes)
+      .where(eq(promoCodes.code, "LOCAL4X4"))
+      .limit(1);
+    if (!localSpecial) {
+      await db.insert(promoCodes).values({
+        code: "LOCAL4X4",
+        description: "Local special: 4 movers for 4 hours with JC truck and trailer included — $1,000.",
+        discountPercent: "0.00",
+        discountPercentJewelry: "0.00",
+        rewardTokens: "0.00",
+        referralRewardTokens: "0.00",
+        isActive: true,
+        jobOffer: {
+          kind: "fixed_moving_package",
+          fixedBasePrice: 1000,
+          requiredCrewSize: 4,
+          requiredHours: 4,
+          requiresCompanyTruck: true,
+          requiresTrailer: true,
+        },
+      });
+      console.log("Seeded promo code: LOCAL4X4");
     }
   } catch (err) {
     console.error('Failed to seed default promo codes:', err);
@@ -1296,6 +1405,13 @@ async function findOrCreateGoogleUser(profile: {
 }
 
 export async function registerRoutes(app: Express, httpServer: Server = createServer(app)): Promise<Server> {
+  // Additive migration for existing deployments. The offer stays in the promo
+  // row, keeping the promo toggle as the single source of activation state.
+  try {
+    await pool.query("ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS job_offer JSONB");
+  } catch (migrationError) {
+    console.error("promo_codes job_offer migration error (non-fatal):", migrationError);
+  }
   // Schema migration: create lawn_care_quotes and lawn_care_plans tables
   try {
     await pool.query(`
@@ -11086,7 +11202,7 @@ Thank you for your business!
     basePrice: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
     totalPrice: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
     crewSize: z.number().int().min(1).max(12),
-    confirmedHours: z.number().finite().min(1).max(24),
+    confirmedHours: z.number().int().min(1).max(24),
     quoteNotes: z.string().max(12000),
     hasHotTub: z.boolean(),
     hotTubFee: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
@@ -11127,8 +11243,9 @@ Thank you for your business!
     arrivalWindow: z.string().trim().max(100).optional(),
     truckConfig: z.string().trim().max(80).optional(),
     trailerRequested: z.boolean().optional(),
+    promoCode: z.string().trim().max(50).optional(),
     crewSize: z.number().int().min(1).max(12).optional(),
-    confirmedHours: z.number().finite().min(1).max(24).optional(),
+    confirmedHours: z.number().int().min(1).max(24).optional(),
     crewMembers: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
     crewLeadUserId: z.string().trim().min(1).max(120).optional().nullable(),
     jobPlanDetails: jobPlanDetailsSchema.optional(),
@@ -11158,6 +11275,7 @@ Thank you for your business!
         || input.arrivalWindow !== undefined
         || input.truckConfig !== undefined
         || input.trailerRequested !== undefined
+        || input.promoCode !== undefined
         || input.crewSize !== undefined
         || input.confirmedHours !== undefined
         || input.crewMembers !== undefined
@@ -11184,6 +11302,7 @@ Thank you for your business!
         if (input.arrivalWindow !== undefined) patch.arrivalWindow = input.arrivalWindow || null;
         if (input.truckConfig !== undefined) patch.truckConfig = input.truckConfig;
         if (input.trailerRequested !== undefined) patch.trailerRequested = input.trailerRequested;
+        if (input.promoCode !== undefined) patch.promoCode = input.promoCode.trim().toUpperCase() || null;
         if (input.crewSize !== undefined) patch.crewSize = input.crewSize;
         if (input.confirmedHours !== undefined) patch.confirmedHours = input.confirmedHours;
         if (input.crewMembers !== undefined) patch.crewMembers = input.crewMembers;
@@ -11197,14 +11316,17 @@ Thank you for your business!
         if (input.quote) {
           const quote = input.quote;
           const moveDetails = input.jobPlanDetails ?? ((currentLead.jobPlanDetails && typeof currentLead.jobPlanDetails === "object") ? currentLead.jobPlanDetails as Record<string, unknown> : {});
-          const { calculateJobQuotePreview } = await import("./services/jobRateCard");
-          const autoQuote = await calculateJobQuotePreview({
+          const autoQuote = await calculateJobQuoteWithPromo({
+            promoCode: input.promoCode ?? currentLead.promoCode,
+            serviceType: currentLead.serviceType,
             crewSize: quote.crewSize,
             confirmedHours: quote.confirmedHours,
             truckConfig: input.truckConfig ?? currentLead.truckConfig,
             trailerRequested: input.trailerRequested ?? currentLead.trailerRequested,
             stairsFlights: Number(moveDetails.stairsFlights || 0),
             hasElevator: Boolean(moveDetails.hasElevator),
+            fromAddress: input.fromAddress,
+            toAddress: input.toAddress,
           });
           const specialFees = [
             quote.hasHotTub ? Number(quote.hotTubFee) : 0,
@@ -11215,6 +11337,14 @@ Thank you for your business!
           const totalSpecialItemsFee = specialFees.reduce((total, fee) => total + fee, 0);
           const submittedBasePrice = Number(quote.basePrice);
           const basePrice = quote.pricingSource === "rate_card_auto" ? autoQuote.total : submittedBasePrice;
+
+          if (autoQuote.promotion && quote.pricingSource === "rate_card_auto") {
+            // A successful package price reserves its included equipment. This
+            // keeps the saved job plan, Square amount, and crew view aligned.
+            patch.truckConfig = "company_truck";
+            patch.trailerRequested = true;
+            patch.promoCode = autoQuote.promotion.code;
+          }
 
           patch.basePrice = basePrice.toFixed(2);
           patch.totalPrice = (basePrice + totalSpecialItemsFee).toFixed(2);
@@ -11235,6 +11365,7 @@ Thank you for your business!
           patch.quoteSnapshot = {
             ...((currentLead.quoteSnapshot && typeof currentLead.quoteSnapshot === "object" && !Array.isArray(currentLead.quoteSnapshot)) ? currentLead.quoteSnapshot : {}),
             rateCardAutoQuote: autoQuote,
+            appliedJobPromotion: autoQuote.promotion || null,
             manualQuoteOverride: quote.pricingSource === "manual_override" ? {
               submittedBasePrice,
               automaticBasePrice: autoQuote.total,
@@ -11340,11 +11471,14 @@ Thank you for your business!
   // preview and can request a clearly labelled manual override later.
   const quotePreviewSchema = z.object({
     crewSize: z.number().int().min(1).max(12),
-    confirmedHours: z.number().finite().min(1).max(24),
+    confirmedHours: z.number().int().min(1).max(24),
     truckConfig: z.string().trim().max(80).optional(),
     trailerRequested: z.boolean().optional(),
     stairsFlights: z.number().int().min(0).max(50).optional(),
     hasElevator: z.boolean().optional(),
+    promoCode: z.string().trim().max(50).optional(),
+    fromAddress: z.string().trim().max(500).optional(),
+    toAddress: z.string().trim().max(500).optional(),
   });
   app.post("/api/leads/:id/quote-preview", isAuthenticated, async (req: any, res) => {
     try {
@@ -11352,10 +11486,16 @@ Thank you for your business!
       if (!actor || !["admin", "business_owner"].includes(actor.role || "")) {
         return res.status(403).json({ error: "Administrator access required" });
       }
-      if (!await storage.getLead(req.params.id)) return res.status(404).json({ error: "Lead not found" });
+      const lead = await storage.getLead(req.params.id);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
       const input = quotePreviewSchema.parse(req.body);
-      const { calculateJobQuotePreview } = await import("./services/jobRateCard");
-      res.json(await calculateJobQuotePreview(input));
+      res.json(await calculateJobQuoteWithPromo({
+        ...input,
+        serviceType: lead.serviceType,
+        promoCode: input.promoCode ?? lead.promoCode,
+        fromAddress: input.fromAddress ?? lead.fromAddress,
+        toAddress: input.toAddress ?? lead.toAddress,
+      }));
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || "Invalid quote inputs" });
       console.error("Error calculating quote preview:", error);
@@ -19948,6 +20088,7 @@ Thank you for your business!
         discountPercentService: parseFloat(promo.discountPercent || "0"),
         discountPercentJewelry: parseFloat(promo.discountPercentJewelry || "0"),
         rewardTokens: parseFloat(promo.rewardTokens || "0"),
+        jobOffer: promo.jobOffer || null,
       });
     } catch (error: any) {
       res.status(400).json({ valid: false, error: error.message });
@@ -23302,7 +23443,7 @@ Thank you for your business!
       };
       const safeTruckSize = (truckSize === "large" || truckSize === "sixteen") ? truckSize : "sixteen";
 
-      const pricing = calculateMovingPrice({
+      let pricing = calculateMovingPrice({
         movers: parsedMovers,
         hours: parsedHours,
         addOns: safeAddOns,
@@ -23311,6 +23452,42 @@ Thank you for your business!
         dropoff: dropoffLocation,
         promo: promoInput,
       });
+
+      // Fixed moving packages are recalculated here immediately before Square
+      // checkout. This protects the charge from altered browser totals and
+      // refuses to quietly fall back to a normal rate when a customer entered
+      // a package code that does not qualify.
+      const jobPromoQuote = await calculateJobQuoteWithPromo({
+        promoCode: promoCode ? String(promoCode) : undefined,
+        serviceType: "moving",
+        crewSize: parsedMovers,
+        confirmedHours: Math.round(parsedHours),
+        truckConfig: safeAddOns.truck ? "company_truck" : "no_truck",
+        trailerRequested: false,
+        fromAddress,
+        toAddress,
+      });
+      if (promoCode && String(promoCode).trim().toUpperCase() === "LOCAL4X4" && !jobPromoQuote.promotion) {
+        return res.status(400).json({ error: jobPromoQuote.promo?.reason || "LOCAL4X4 could not be verified for this move." });
+      }
+      if (jobPromoQuote.promotion) {
+        const nonTruckAddOns = Math.max(0, pricing.addOnTotal - pricing.truckAddOnCost);
+        const packageTotal = Math.round((jobPromoQuote.total + nonTruckAddOns) * 100) / 100;
+        pricing = {
+          ...pricing,
+          laborSubtotal: jobPromoQuote.packagePrice || jobPromoQuote.total,
+          discountedLaborTotal: jobPromoQuote.packagePrice || jobPromoQuote.total,
+          truckAddOnCost: 0,
+          addOnTotal: nonTruckAddOns,
+          travelCost: 0,
+          longDistanceCost: 0,
+          promoCode: jobPromoQuote.promotion.code,
+          promoDescription: jobPromoQuote.promotion.description,
+          promoDiscountAmount: Math.max(0, Math.round((pricing.grandTotal - packageTotal) * 100) / 100),
+          subtotalBeforePromo: pricing.grandTotal,
+          grandTotal: packageTotal,
+        };
+      }
 
       const depositAmount = Math.round(pricing.grandTotal * 0.3 * 100) / 100;
       const depositCents = BigInt(Math.round(depositAmount * 100));
@@ -23322,7 +23499,7 @@ Thank you for your business!
         .join(", ");
       const detailText = [
         `[DEPOSIT BOOKING] ${parsedMovers} movers, ${pricing.billableHours} hrs`,
-        safeAddOns.truck ? `Truck (${safeTruckSize})` : null,
+        jobPromoQuote.promotion ? `${jobPromoQuote.promotion.code} package: JC truck + trailer included` : safeAddOns.truck ? `Truck (${safeTruckSize})` : null,
         addOnNames ? `Add-ons: ${addOnNames}` : null,
         `Grand total: $${pricing.grandTotal} | Deposit paid: $${depositAmount}`,
         details || null,
@@ -23340,7 +23517,9 @@ Thank you for your business!
         details: detailText,
         propertySize: "calculator-booking",
         crewSize: parsedMovers,
-        truckConfig: safeAddOns.truck ? "company_truck" : "none",
+        truckConfig: jobPromoQuote.promotion ? "company_truck" : safeAddOns.truck ? "company_truck" : "none",
+        trailerRequested: Boolean(jobPromoQuote.promotion),
+        promoCode: jobPromoQuote.promotion?.code || (promoCode ? String(promoCode).trim().toUpperCase() : null),
         basePrice: pricing.laborSubtotal.toFixed(2),
         totalPrice: pricing.grandTotal.toFixed(2),
       });
