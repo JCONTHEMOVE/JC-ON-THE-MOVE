@@ -20,6 +20,7 @@ import { faucetService } from "./services/faucet";
 import { insertFundingDepositSchema, insertFaucetConfigSchema, insertFaucetWalletSchema } from "@shared/schema";
 import { z } from "zod";
 import { EncryptionService } from "./services/encryption";
+import { decryptJobAccessDetails, encryptJobAccessDetails } from "./services/job-access";
 import { eq, desc, sql, and, gte, lte, or, ilike, inArray, isNull } from 'drizzle-orm';
 import { db, pool } from './db';
 import { rewards, walletAccounts, walletPayouts, cashoutRequests, fundingDeposits, reserveTransactions, treasuryAccounts, users, leads, swapRequests, treasurySwapRules, bitcoinPayments, stakes, stakingTiers, contacts, notifications, walletTransactions, jewelryItems, shopItems, giftCards, miningSessions, miningClaims, treasuryWithdrawals, tokenConversions, rewardSettings, recoveryTokens, promoCodes, reviews, reviewTipAllocations, rewardCategories, rewardItems, rewardRedemptions, buybackFund, laborQuotes, jobTradeRequests, workerProfiles, quoteApprovals, quoteConsensusVotes, quoteAttributions, marketingReps, marketingCallEvents, insertMarketingRepSchema, jobPayoutSettings, referralPartners, jobAssignments, jobPayoutCalculations, jobWorkerPayouts } from '@shared/schema';
@@ -9213,7 +9214,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         });
         return { ...lead, bonus };
       });
-      res.json(withBonus);
+      res.json(withBonus.map((lead: any) => presentJobFlowRecord(lead, req.currentUser, true)));
     } catch (error) {
       console.error("Error fetching assigned leads:", error);
       res.status(500).json({ error: "Failed to fetch assigned jobs" });
@@ -9260,7 +9261,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         return res.status(403).json({ error: "Access denied" });
       }
 
-      res.json(lead);
+      res.json(presentJobFlowRecord(lead, user, isOwner || isAssignedCrew));
     } catch (error) {
       console.error("Error fetching lead:", error);
       res.status(500).json({ error: "Failed to fetch lead" });
@@ -11036,6 +11037,7 @@ Thank you for your business!
       const PAYOUT_FIELDS = [
         "totalPrice", "basePrice", "tokenAllocation", "crewMembers", "crewBonusFlags", "confirmedHours",
         "crewSize", "confirmedDate", "arrivalWindow", "truckConfig", "orderLineItems", "quoteNotes",
+        "jobPlanDetails", "accessInstructionsCiphertext", "trailerRequested", "crewLeadUserId",
       ];
       const hasSensitiveChange = PAYOUT_FIELDS.some(f => f in updateData);
       const isCompletingJob = false; // status changes now blocked above
@@ -11100,6 +11102,18 @@ Thank you for your business!
     pricingSource: z.enum(["rate_card_auto", "manual_override"]).optional(),
   });
 
+  const jobPlanDetailsSchema = z.object({
+    accessCode: z.string().trim().max(1000).optional().default(""),
+    entryInstructions: z.string().trim().max(4000).optional().default(""),
+    stairsFlights: z.number().int().min(0).max(50).optional().default(0),
+    hasElevator: z.boolean().optional().default(false),
+    specialItemsNotes: z.string().trim().max(4000).optional().default(""),
+    additionalStops: z.array(z.object({
+      address: z.string().trim().min(1).max(500),
+      note: z.string().trim().max(1000).optional().default(""),
+    })).max(8).optional().default([]),
+  });
+
   const jobSetupSchema = z.object({
     firstName: z.string().trim().min(1, "First name is required").max(100),
     lastName: z.string().trim().min(1, "Last name is required").max(100),
@@ -11117,6 +11131,7 @@ Thank you for your business!
     confirmedHours: z.number().finite().min(1).max(24).optional(),
     crewMembers: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
     crewLeadUserId: z.string().trim().min(1).max(120).optional().nullable(),
+    jobPlanDetails: jobPlanDetailsSchema.optional(),
     quote: jobSetupQuoteSchema.optional().nullable(),
   });
 
@@ -11147,6 +11162,7 @@ Thank you for your business!
         || input.confirmedHours !== undefined
         || input.crewMembers !== undefined
         || input.crewLeadUserId !== undefined
+        || input.jobPlanDetails !== undefined
         || input.quote !== undefined;
       if (hasPrivilegedData && !canManageSetup) {
         return res.status(403).json({ error: "Administrator access required to change job setup, crew, or pricing" });
@@ -11172,15 +11188,23 @@ Thank you for your business!
         if (input.confirmedHours !== undefined) patch.confirmedHours = input.confirmedHours;
         if (input.crewMembers !== undefined) patch.crewMembers = input.crewMembers;
         if (input.crewLeadUserId !== undefined) patch.crewLeadUserId = input.crewLeadUserId || null;
+        if (input.jobPlanDetails !== undefined) {
+          const { accessCode, entryInstructions, ...operationalDetails } = input.jobPlanDetails;
+          patch.jobPlanDetails = operationalDetails;
+          patch.accessInstructionsCiphertext = encryptJobAccessDetails({ accessCode, entryInstructions });
+        }
 
         if (input.quote) {
           const quote = input.quote;
+          const moveDetails = input.jobPlanDetails ?? ((currentLead.jobPlanDetails && typeof currentLead.jobPlanDetails === "object") ? currentLead.jobPlanDetails as Record<string, unknown> : {});
           const { calculateJobQuotePreview } = await import("./services/jobRateCard");
           const autoQuote = await calculateJobQuotePreview({
             crewSize: quote.crewSize,
             confirmedHours: quote.confirmedHours,
             truckConfig: input.truckConfig ?? currentLead.truckConfig,
             trailerRequested: input.trailerRequested ?? currentLead.trailerRequested,
+            stairsFlights: Number(moveDetails.stairsFlights || 0),
+            hasElevator: Boolean(moveDetails.hasElevator),
           });
           const specialFees = [
             quote.hasHotTub ? Number(quote.hotTubFee) : 0,
@@ -11239,6 +11263,8 @@ Thank you for your business!
           crewSize: updatedLead.crewSize || null,
           confirmedHours: updatedLead.confirmedHours || null,
           truckConfig: updatedLead.truckConfig || null,
+          jobPlanDetails: updatedLead.jobPlanDetails || null,
+          hasAccessInstructions: Boolean(updatedLead.accessInstructionsCiphertext),
         }))
         .digest("hex");
 
@@ -11317,6 +11343,8 @@ Thank you for your business!
     confirmedHours: z.number().finite().min(1).max(24),
     truckConfig: z.string().trim().max(80).optional(),
     trailerRequested: z.boolean().optional(),
+    stairsFlights: z.number().int().min(0).max(50).optional(),
+    hasElevator: z.boolean().optional(),
   });
   app.post("/api/leads/:id/quote-preview", isAuthenticated, async (req: any, res) => {
     try {
@@ -12854,6 +12882,14 @@ Thank you for your business!
     user && (["admin", "business_owner"].includes(String(user.role || "")) || user.email === "upmichiganstatemovers@gmail.com"),
   );
 
+  const presentJobFlowRecord = (record: any, user: any, includeAccess: boolean) => {
+    const { accessInstructionsCiphertext, ...safeRecord } = record;
+    return {
+      ...safeRecord,
+      ...(includeAccess ? { jobAccess: decryptJobAccessDetails(accessInstructionsCiphertext) } : {}),
+    };
+  };
+
   const isCrewBoardEligible = (record: Awaited<ReturnType<typeof buildJobFlowRecords>>[number]) => {
     const status = String(record.status || "").toLowerCase();
     return ["available", "open"].includes(status)
@@ -12963,9 +12999,11 @@ Thank you for your business!
       const lead = await storage.getLead(req.params.id);
       if (!lead || lead.archivedAt) return res.status(404).json({ error: "Job not found" });
       const [record] = await buildJobFlowRecords([lead]);
-      if (isBusinessOwnerUser(user) || jobBelongsToCrew(record, user.id)) return res.json(record);
+      if (isBusinessOwnerUser(user) || jobBelongsToCrew(record, user.id)) {
+        return res.json(presentJobFlowRecord(record, user, true));
+      }
       if (isCrewBoardEligible(record)) return res.json((await decorateCrewBoardRecords([record], user.id))[0]);
-      if (await canViewJobTask(user, record)) return res.json(record);
+      if (await canViewJobTask(user, record)) return res.json(presentJobFlowRecord(record, user, false));
       return res.status(403).json({ error: "Access denied" });
     } catch (error) {
       console.error("Error fetching universal job detail:", error);
@@ -13670,6 +13708,21 @@ Thank you for your business!
       const requestedDelivery = (["email", "sms", "both"] as const).includes(deliveryMethod as CustomerQuoteDeliveryMethod)
         ? deliveryMethod as CustomerQuoteDeliveryMethod
         : (isSyntheticOrInvalidCustomerEmail(lead.email) && lead.phone ? "sms" : "email");
+
+      const requiredJobDetails = [
+        !lead.firstName?.trim() || !lead.lastName?.trim() ? "customer name" : null,
+        !lead.confirmedDate?.trim() ? "confirmed date" : null,
+        !lead.arrivalWindow?.trim() ? "arrival window" : null,
+        !lead.fromAddress?.trim() ? "pickup or service address" : null,
+        /(?:moving|residential|commercial|delivery)/i.test(String(lead.serviceType || "")) && !lead.toAddress?.trim()
+          ? "drop-off address"
+          : null,
+        includesEmailDelivery(requestedDelivery) && isSyntheticOrInvalidCustomerEmail(lead.email) ? "valid customer email" : null,
+      ].filter(Boolean);
+      if (requiredJobDetails.length > 0) {
+        return res.status(400).json({ error: `Complete the ${requiredJobDetails.join(", ")} before sending a quote or invoice.` });
+      }
+
       if (includesSmsDelivery(requestedDelivery)) {
         if (!lead.phone?.trim()) {
           return res.status(400).json({ error: "A phone number is required before sending this quote by text message." });

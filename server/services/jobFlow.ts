@@ -124,7 +124,7 @@ export function boardLocation(address: string | null | undefined) {
 
 /** Do not send customer address, contact, notes, or quote internals to unassigned crew. */
 export function toCrewBoardFlow(record: JobFlowRecord, userId: string) {
-  const { firstName, lastName, phone, email, details, dispatchNotes, toAddress, quoteSnapshot, zoneSnapshot, ...safe } = record as any;
+  const { firstName, lastName, phone, email, details, dispatchNotes, toAddress, quoteSnapshot, zoneSnapshot, jobPlanDetails, accessInstructionsCiphertext, ...safe } = record as any;
   return {
     ...safe,
     fromAddress: boardLocation(record.fromAddress),

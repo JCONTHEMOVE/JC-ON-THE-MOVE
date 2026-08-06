@@ -5,6 +5,8 @@ const rateCard = {
   laborRatePerMoverHour: 87.5,
   truckFlat: 300,
   trailerFlat: 175,
+  stairsPerFlight: 25,
+  elevatorFlat: 30,
   jcmovesPerDollar: 15,
 };
 
@@ -27,5 +29,17 @@ const equipped = calculateJobQuoteFromRateCard(rateCard, {
 assert.equal(equipped.truck, 300);
 assert.equal(equipped.trailer, 175);
 assert.equal(equipped.total, 825);
+
+const accessPriced = calculateJobQuoteFromRateCard(rateCard, {
+  crewSize: 2,
+  confirmedHours: 2,
+  truckConfig: "no_truck",
+  trailerRequested: false,
+  stairsFlights: 2,
+  hasElevator: true,
+});
+assert.equal(accessPriced.stairs, 50);
+assert.equal(accessPriced.elevator, 30);
+assert.equal(accessPriced.total, 430);
 
 console.log("jobRateCard tests passed");

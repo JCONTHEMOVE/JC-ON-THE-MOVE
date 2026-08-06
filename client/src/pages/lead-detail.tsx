@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Users, DollarSign, Award, TrendingUp, CheckCircle, Clock, Star, ExternalLink, Sparkles, Send, FileText, Loader2, Bitcoin, Copy, Check, Zap, ShoppingBag, AlertTriangle, UserCheck, Camera, Image, ChevronRight, PlayCircle, ChevronDown, ChevronUp, MessageSquare, Minus, Plus, RefreshCw, Hash, Archive, Trash2, X, Truck } from "lucide-react";
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Users, DollarSign, Award, TrendingUp, CheckCircle, Clock, Star, ExternalLink, Sparkles, Send, FileText, Loader2, Bitcoin, Copy, Check, Zap, ShoppingBag, AlertTriangle, UserCheck, Camera, Image, ChevronRight, PlayCircle, ChevronDown, ChevronUp, MessageSquare, Minus, Plus, RefreshCw, Hash, Archive, Trash2, X, Truck, CircleHelp } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -24,6 +24,7 @@ import { JobOrderTicket } from "@/components/job-order-ticket";
 import { JobSetupWorkspace } from "@/components/job-setup-workspace";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import MarketplaceSourceFlowStrip from "@/components/MarketplaceSourceFlowStrip";
 import MarketplaceProcessGuide from "@/components/MarketplaceProcessGuide";
 import { BookingMenuIntelligenceCard } from "@/components/BookingMenuIntelligenceCard";
@@ -79,6 +80,8 @@ interface OrderLineItem {
 }
 
 type LeadQuoteSnapshot = {
+  rateCardAutoQuote?: { total?: number; projectedCustomerJcMoves?: number; projectedCrewPoolJcMoves?: number } | null;
+  manualQuoteOverride?: { submittedBasePrice?: number; automaticBasePrice?: number; savedAt?: string } | null;
   source?: string | null;
   marketplaceShapeId?: string | null;
   marketplaceShape?: { id?: string | null } | null;
@@ -129,6 +132,7 @@ interface Lead {
   assignedToUserId?: string;
   createdByUserId?: string;
   truckConfig?: string;
+  trailerRequested?: boolean;
   truckProvider?: string;
   truckSize?: string;
   crewSize?: number;
@@ -138,6 +142,17 @@ interface Lead {
   confirmedFromAddress?: string;
   confirmedToAddress?: string;
   crewMembers?: string[];
+  crewLeadUserId?: string | null;
+  jobPlanDetails?: {
+    stairsFlights?: number;
+    hasElevator?: boolean;
+    specialItemsNotes?: string;
+    additionalStops?: Array<{ address?: string; note?: string }>;
+  } | null;
+  jobAccess?: {
+    accessCode?: string;
+    entryInstructions?: string;
+  } | null;
   crewBonusFlags?: Record<string, boolean>;
   hasHotTub?: boolean;
   hotTubWeight?: number;
@@ -461,7 +476,7 @@ export default function LeadDetailPage() {
   const [quoteSentAt, setQuoteSentAt] = useState<string | null>(null);
   const [squarePaymentUrl, setSquarePaymentUrl] = useState<string | null>(null);
   const [copiedPaymentLink, setCopiedPaymentLink] = useState(false);
-  const [showJobSetup, setShowJobSetup] = useState(false);
+  const [showJobSetup, setShowJobSetup] = useState(true);
   const jobSetupRef = useRef<HTMLDivElement>(null);
   // Crew & Service Plan inline state
   const [planCrewSize, setPlanCrewSize] = useState(2);
@@ -1568,7 +1583,12 @@ export default function LeadDetailPage() {
           </div>
         )}
 
-        <Card className="mb-4" data-testid="job-brief">
+        <details className="group mb-4 rounded-xl border border-border bg-card">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+            More job details
+            <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+          </summary>
+        <Card className="border-0 shadow-none" data-testid="job-brief">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1688,7 +1708,7 @@ export default function LeadDetailPage() {
               <div className="flex items-start gap-3">
                 <DollarSign className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Finance</p>
+                  <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quote<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain quote"><CircleHelp className="h-3 w-3" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">The live rate card calculates labor, truck, trailer, stairs, and elevator fees on the server. Manual changes stay labeled for audit.</PopoverContent></Popover></p>
                   <p className="capitalize text-sm font-medium">{paymentState}</p>
                   {hasAdminAccess && (
                     <button type="button" onClick={() => leadHasQuote ? setShowQuoteDeliveryDialog(true) : openJobSetup()} className="mt-1 text-xs font-medium text-blue-400 hover:underline">
@@ -1700,7 +1720,7 @@ export default function LeadDetailPage() {
               <div className="flex items-start gap-3">
                 <Zap className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">JCMOVES</p>
+                  <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">JCMOVES<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain JCMOVES"><CircleHelp className="h-3 w-3" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">Projections use the saved rate card. Permanent customer and crew ledger entries are created only after this job is paid and completed.</PopoverContent></Popover></p>
                   <p className="text-sm font-medium">{jcmovesState}</p>
                   {hasAdminAccess && (
                     <button type="button" onClick={() => { setShowAdvanced(true); setActiveTab("history"); }} className="mt-1 text-xs font-medium text-blue-400 hover:underline">
@@ -1712,6 +1732,7 @@ export default function LeadDetailPage() {
             </div>
           </CardContent>
         </Card>
+        </details>
 
         <Card className="mb-4 hidden" aria-hidden="true">
           <CardHeader className="pb-3">

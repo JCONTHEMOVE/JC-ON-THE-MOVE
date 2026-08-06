@@ -160,6 +160,31 @@ function leadIdToLockKey(leadId: string): number {
 }
 
 /**
+ * Produces whole-token crew awards for a finalized reward pool. The selected
+ * lead receives 15% first; the remaining pool is divided evenly across every
+ * selected crew member (including the lead). Any integer-rounding remainder
+ * is deliberately awarded to the lead so the ledger always balances exactly.
+ */
+export function calculateCrewPoolAllocation(
+  poolTokens: number,
+  selectedCrewIds: Array<string | null | undefined>,
+  requestedCrewLeadId?: string | null,
+) {
+  const crewIds = Array.from(new Set(selectedCrewIds.filter((memberId): memberId is string => Boolean(memberId))));
+  const crewLeadId = crewIds.includes(requestedCrewLeadId || "") ? requestedCrewLeadId! : crewIds[0] || null;
+  const leadBonus = crewLeadId ? Math.floor(poolTokens * 0.15) : 0;
+  const remainingPool = poolTokens - leadBonus;
+  const baseShare = crewIds.length ? Math.floor(remainingPool / crewIds.length) : 0;
+  const roundingRemainder = crewIds.length ? remainingPool - (baseShare * crewIds.length) : 0;
+  const amounts = Object.fromEntries(crewIds.map((memberId) => [
+    memberId,
+    baseShare + (memberId === crewLeadId ? leadBonus + roundingRemainder : 0),
+  ]));
+
+  return { crewIds, crewLeadId, leadBonus, baseShare, roundingRemainder, amounts };
+}
+
+/**
  * Current job-card reward rule: one customer pool and one crew pool, each
  * equal to quote dollars × the editable JCMOVES rate. The crew lead receives
  * a 15% bonus; the remaining 85% is split evenly among every selected member
@@ -182,15 +207,11 @@ async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUs
     return null;
   }
   const poolTokens = Math.round(quoteTotal * rateCard.jcmovesPerDollar);
-  const crewIds = Array.from(new Set([
+  const crewAllocation = calculateCrewPoolAllocation(poolTokens, [
     ...(Array.isArray(lead.crewMembers) ? lead.crewMembers : []),
     ...(lead.assignedToUserId ? [lead.assignedToUserId] : []),
-  ].filter(Boolean)));
-  const crewLeadId = crewIds.includes(lead.crewLeadUserId || "") ? lead.crewLeadUserId! : crewIds[0] || null;
-  const leadBonus = crewLeadId ? Math.floor(poolTokens * 0.15) : 0;
-  const remainingPool = poolTokens - leadBonus;
-  const baseShare = crewIds.length ? Math.floor(remainingPool / crewIds.length) : 0;
-  const roundingRemainder = crewIds.length ? remainingPool - (baseShare * crewIds.length) : 0;
+  ], lead.crewLeadUserId);
+  const { crewIds, crewLeadId, leadBonus, baseShare, roundingRemainder } = crewAllocation;
   const now = new Date();
 
   const customerLookup = lead.email
@@ -240,7 +261,7 @@ async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUs
   }
 
   for (const memberId of crewIds) {
-    const amount = baseShare + (memberId === crewLeadId ? leadBonus + roundingRemainder : 0);
+    const amount = crewAllocation.amounts[memberId];
     const crewMember = await storage.getUser(memberId).catch(() => null);
     if (!crewMember || amount <= 0) continue;
     if (await writeLedger({

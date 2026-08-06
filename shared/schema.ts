@@ -37,6 +37,11 @@ export const leads = pgTable("leads", {
   createdByUserId: varchar("created_by_user_id").references(() => users.id), // Track employee who created the job for rewards
   truckConfig: text("truck_config"), // 'customer_truck', 'company_truck', 'no_truck'
   trailerRequested: boolean("trailer_requested").notNull().default(false),
+  // Non-sensitive operational details used by the unified job card. Entry
+  // codes and private arrival instructions live in the encrypted companion
+  // column below so they never appear in ordinary lead projections.
+  jobPlanDetails: jsonb("job_plan_details").default("{}"),
+  accessInstructionsCiphertext: text("access_instructions_ciphertext"),
   // Staff intake keeps the human-readable truck choice alongside the legacy
   // configuration field so the calendar, lead detail, and quote snapshot agree.
   truckProvider: text("truck_provider"), // 'jc_on_the_move' | 'customer' | 'rental_uhaul' | 'none'

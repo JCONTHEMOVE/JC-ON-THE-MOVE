@@ -379,7 +379,9 @@ server.listen(port, '0.0.0.0', () => {
       await dbPool.query(`
         ALTER TABLE leads
           ADD COLUMN IF NOT EXISTS trailer_requested BOOLEAN NOT NULL DEFAULT FALSE,
-          ADD COLUMN IF NOT EXISTS crew_lead_user_id VARCHAR REFERENCES users(id);
+          ADD COLUMN IF NOT EXISTS crew_lead_user_id VARCHAR REFERENCES users(id),
+          ADD COLUMN IF NOT EXISTS job_plan_details JSONB NOT NULL DEFAULT '{}'::jsonb,
+          ADD COLUMN IF NOT EXISTS access_instructions_ciphertext TEXT;
         CREATE TABLE IF NOT EXISTS job_jcmoves_ledger (
           id BIGSERIAL PRIMARY KEY,
           lead_id VARCHAR NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
