@@ -1,6 +1,12 @@
 name: Production Availability
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/production-availability.yml
+      - scripts/check-production-deploy.mjs
   schedule:
     # GitHub scheduled workflows can be delayed during high load, especially
     # near the top of the hour. Offset the check to avoid peak scheduling.
@@ -15,12 +21,9 @@ on:
         description: Optional commit SHA to verify after a deployment
         required: false
 
-# This workflow only needs to read repository contents.
 permissions:
   contents: read
 
-# Do not cancel an availability check merely because another scheduled check
-# has been queued. Each run should either execute or report its own failure.
 concurrency:
   group: production-availability-${{ github.run_id }}
   cancel-in-progress: false
