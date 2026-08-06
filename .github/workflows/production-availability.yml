@@ -2,7 +2,9 @@ name: Production Availability
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # GitHub scheduled workflows can be delayed during high load, especially
+    # near the top of the hour. Offset the check to avoid peak scheduling.
+    - cron: "7,27,47 * * * *"
   workflow_dispatch:
     inputs:
       health_url:
@@ -13,13 +15,20 @@ on:
         description: Optional commit SHA to verify after a deployment
         required: false
 
+# This workflow only needs to read repository contents.
+permissions:
+  contents: read
+
+# Do not cancel an availability check merely because another scheduled check
+# has been queued. Each run should either execute or report its own failure.
 concurrency:
-  group: production-availability
+  group: production-availability-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
   readiness:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       PUBLIC_HEALTH_URL: ${{ github.event.inputs.health_url || vars.PUBLIC_HEALTH_URL || 'https://www.jconthemove.com/api/health' }}
       EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit || '' }}
