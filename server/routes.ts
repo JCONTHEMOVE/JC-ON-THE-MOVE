@@ -67,7 +67,7 @@ import { grantLotteryTicketsForActivity } from "./services/disburse-job-tokens";
 import { getDepositInfo, extractZip } from "@shared/depositRules";
 import { MIN_REDEMPTION_TOKENS, REDEMPTION_INCREMENT, roundToIncrement, validateRedemption, tokensToDollars } from "@shared/tokenRedemptionRules";
 import { calculateBtcLightningOffer } from "@shared/btcLightningOffer";
-import { emitJobEvent, eventTypeForStatus, deliverCrewAnnouncementToWebhooks } from "./services/jobEventBus";
+import { emitJobEvent, eventTypeForStatus, deliverCrewAnnouncementToWebhooks, getJobEventWebhookReadiness } from "./services/jobEventBus";
 import { notificationService } from "./services/notification";
 import { buildJobFlowRecords, jobBelongsToCrew, toCrewBoardFlow } from "./services/jobFlow";
 import { calculateLaborBooking, normalizeLaborWorkScope } from "@shared/laborBooking";
@@ -1613,6 +1613,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         ADD COLUMN IF NOT EXISTS referral_count INTEGER DEFAULT 0,
         ADD COLUMN IF NOT EXISTS push_subscription JSONB,
         ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS job_alert_channel_preference TEXT NOT NULL DEFAULT 'both',
         ADD COLUMN IF NOT EXISTS wallet_mode TEXT,
         ADD COLUMN IF NOT EXISTS personal_wallet_address TEXT,
         ADD COLUMN IF NOT EXISTS company_wallet_id VARCHAR,
@@ -4907,6 +4908,12 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       } catch (e) { console.error('Admin email notification failed:', e); }
 
       const dispatched = assignedCrew.length >= tierCfg.movers;
+      const dispatchedLead = (await storage.getLead(lead.id)) || lead;
+      await emitJobEvent(assignedCrew.length > 0 ? "crew_assigned" : "job_available", dispatchedLead, {
+        eventId: `junk-booking:${lead.id}`,
+        source: "junk_booking",
+        status: dispatched ? "available" : "quoted",
+      });
       res.json({
         jobId: lead.id,
         status: dispatched ? "available" : "quoted",
@@ -4995,6 +5002,12 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       } catch (e) { console.error('Admin email notification failed:', e); }
 
       const dispatched = assignedCrew.length >= moverCount;
+      const dispatchedLead = (await storage.getLead(lead.id)) || lead;
+      await emitJobEvent(assignedCrew.length > 0 ? "crew_assigned" : "job_available", dispatchedLead, {
+        eventId: `moving-booking:${lead.id}`,
+        source: "moving_booking",
+        status: dispatched ? "available" : "new",
+      });
       res.json({
         jobId: lead.id,
         status: dispatched ? "available" : "new",
@@ -5066,6 +5079,12 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       } catch (e) { console.error('Admin email notification failed:', e); }
 
       const dispatched = assignedCrew.length >= moverCount;
+      const dispatchedLead = (await storage.getLead(lead.id)) || lead;
+      await emitJobEvent(assignedCrew.length > 0 ? "crew_assigned" : "job_available", dispatchedLead, {
+        eventId: `labor-booking:${lead.id}`,
+        source: "labor_booking",
+        status: dispatched ? "available" : "new",
+      });
       res.json({
         jobId: lead.id,
         status: dispatched ? "available" : "new",
@@ -5283,6 +5302,11 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       try {
         await notifyAdminNewQuote({ customerName, serviceType: "window_cleaning", phone: customerPhone || undefined, email: customerEmail || undefined });
       } catch (e) { console.error('Admin email notification failed:', e); }
+
+      await emitJobEvent("quote_requested", lead, {
+        eventId: `window-cleaning-quote:${lead.id}`,
+        source: "window_cleaning_quote",
+      });
 
       res.json({
         jobId: lead.id,
@@ -6131,6 +6155,12 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       }
 
       console.log(`🏪 Marketplace job created: ${lead.id} (available)`);
+      await emitJobEvent("job_available", updatedLead, {
+        eventId: `marketplace-job-available:${lead.id}`,
+        source: "marketplace_post",
+        previousStatus: lead.status || "new",
+        status: "available",
+      });
       res.status(201).json({ ...updatedLead, rewardMessage });
     } catch (error) {
       respondLeadError(res, error, { route: "leads_marketplace", errorCode: "LEAD_CREATE_FAILED" });
@@ -6191,9 +6221,10 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         "eligible_crew_count INTEGER NOT NULL DEFAULT 0, delivery_summary JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
       );
       const recipients = await storage.getEmployees();
+      const personalRecipients = recipients.filter((employee) => employee.jobAlertChannelPreference !== "discord");
       const announcementId = crypto.randomUUID();
       const sentBy = req.currentUser?.id || req.user?.id || req.session?.userId || null;
-      const notifications = await Promise.allSettled(recipients.map((employee) =>
+      const notifications = await Promise.allSettled(personalRecipients.map((employee) =>
         notificationService.sendNotification({
           userId: employee.id,
           type: "system_alert",
@@ -6209,9 +6240,10 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         source: "crew_announcement",
       });
       const deliverySummary = {
-        inAppAttempted: recipients.length,
+        inAppAttempted: personalRecipients.length,
         inAppDelivered,
-        inAppFailed: recipients.length - inAppDelivered,
+        inAppFailed: personalRecipients.length - inAppDelivered,
+        discordOnlyRecipients: recipients.length - personalRecipients.length,
         discordConfigured: discord.configured,
         discordDelivered: discord.delivered,
       };
@@ -6225,6 +6257,29 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       if (error instanceof z.ZodError) return res.status(400).json({ error: "Enter a title and message for the crew." });
       console.error("[crew-announcements] failed:", error);
       return res.status(500).json({ error: "Could not send the crew announcement." });
+    }
+  });
+
+  // Owner-only health view. It reports configuration and provider outcomes
+  // without ever returning a webhook URL or secret value.
+  app.get("/api/admin/job-alerts/readiness", isAuthenticated, requireBusinessOwner, async (_req, res) => {
+    try {
+      const readiness = getJobEventWebhookReadiness();
+      const { rows } = await pool.query(
+        `SELECT provider, status, response_status, error_message, attempts, metadata, created_at, updated_at
+           FROM job_webhook_deliveries
+          ORDER BY updated_at DESC, id DESC
+          LIMIT 20`,
+      );
+      res.json({
+        ...readiness,
+        lastSuccessfulDelivery: rows.find((row) => row.status === "sent") || null,
+        lastFailedDelivery: rows.find((row) => row.status === "failed") || null,
+        recentDeliveries: rows,
+      });
+    } catch (error) {
+      console.error("[job-alerts] readiness failed:", error);
+      res.status(500).json({ error: "Could not load job alert readiness." });
     }
   });
 
@@ -9430,6 +9485,11 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         console.error('Lead creation reward error:', rewardError);
       }
 
+      await emitJobEvent("quote_requested", lead, {
+        eventId: `employee-quote:${lead.id}`,
+        actorId: employeeId,
+        source: "employee_lead",
+      });
       res.json({ success: true, leadId: lead.id, orderNumber: lead.orderNumber ?? null, message: `Job created!${rewardMessage} You'll also earn a bonus when it's completed.` });
     } catch (error) {
       respondLeadError(res, error, { route: "leads_employee", errorCode: "LEAD_CREATE_FAILED" });
@@ -9504,6 +9564,11 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         },
       }).returning();
 
+      await emitJobEvent(requiresOwnerReview ? "quote_requested" : "job_available", lead, {
+        eventId: `staff-job-intake:${lead.id}`,
+        actorId,
+        source: "staff_job_form",
+      });
       res.status(201).json({
         lead,
         estimate,
@@ -14130,10 +14195,19 @@ Thank you for your business!
         storage.getWorkerSchedule(userId),
         storage.getWorkerGoals(userId),
         storage.getWorkerJobStats(userId),
-        pool.query(`SELECT accepted_job_types FROM users WHERE id = $1`, [userId]),
+        pool.query(`SELECT accepted_job_types, job_alert_channel_preference FROM users WHERE id = $1`, [userId]),
       ]);
       const acceptedJobTypes = userRow.rows[0]?.accepted_job_types ?? ['moving','junk','snow','handyman','labor','cleaning','demolition'];
-      res.json({ blocks, schedule, goals: goals ?? null, stats, acceptedJobTypes });
+      const notificationPreference = userRow.rows[0]?.job_alert_channel_preference ?? 'both';
+      res.json({
+        blocks,
+        schedule,
+        goals: goals ?? null,
+        stats,
+        acceptedJobTypes,
+        notificationPreference,
+        discordInviteUrl: "https://discord.gg/G6dcwFY4E",
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -14210,6 +14284,37 @@ Thank you for your business!
       res.json({ success: true, acceptedJobTypes: jobTypes });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  const jobAlertPreferenceSchema = z.object({
+    preference: z.enum(["in_app", "discord", "both"]),
+  });
+
+  // Discord is the shared crew operations channel. This preference controls
+  // whether the worker also receives personal in-app/push notifications.
+  app.put("/api/workers/notification-preferences", isAuthenticated, requireEmployee, async (req: any, res) => {
+    try {
+      const { preference } = jobAlertPreferenceSchema.parse(req.body);
+      await pool.query(
+        `UPDATE users
+            SET job_alert_channel_preference = $1,
+                notifications_enabled = true,
+                updated_at = NOW()
+          WHERE id = $2`,
+        [preference, req.currentUser.id],
+      );
+      res.json({
+        success: true,
+        notificationPreference: preference,
+        discordInviteUrl: "https://discord.gg/G6dcwFY4E",
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Choose in-app, Discord, or both." });
+      }
+      console.error("Error saving worker notification preference:", error);
+      res.status(500).json({ error: "Failed to save notification preference" });
     }
   });
 
@@ -14993,17 +15098,27 @@ Thank you for your business!
       if (!actor || !["admin", "business_owner"].includes(actor.role || "")) {
         return res.status(403).json({ error: "Administrator access required" });
       }
-      const { rows } = await pool.query(
-        `SELECT d.event_id, d.recipient_user_id, d.channel, d.status, d.error_message,
-                d.attempts, d.metadata, d.created_at, d.updated_at, u.first_name, u.last_name, u.email
-           FROM job_alert_deliveries d
-           LEFT JOIN users u ON u.id = d.recipient_user_id
-          WHERE d.lead_id = $1
-          ORDER BY d.created_at DESC, d.id DESC
-          LIMIT 200`,
-        [req.params.id],
-      );
-      res.json({ deliveries: rows });
+      const [personalResult, webhookResult] = await Promise.all([
+        pool.query(
+          `SELECT d.event_id, d.recipient_user_id, d.channel, d.status, d.error_message,
+                  d.attempts, d.metadata, d.created_at, d.updated_at, u.first_name, u.last_name, u.email
+             FROM job_alert_deliveries d
+             LEFT JOIN users u ON u.id = d.recipient_user_id
+            WHERE d.lead_id = $1
+            ORDER BY d.created_at DESC, d.id DESC
+            LIMIT 200`,
+          [req.params.id],
+        ),
+        pool.query(
+          `SELECT event_id, provider, status, response_status, error_message, attempts, metadata, created_at, updated_at
+             FROM job_webhook_deliveries
+            WHERE lead_id = $1
+            ORDER BY created_at DESC, id DESC
+            LIMIT 200`,
+          [req.params.id],
+        ),
+      ]);
+      res.json({ deliveries: personalResult.rows, webhooks: webhookResult.rows });
     } catch (error) {
       console.error("Error fetching job alert deliveries:", error);
       res.status(500).json({ error: "Failed to fetch job alert deliveries" });
@@ -27494,6 +27609,11 @@ Thank you for your business!
               await db.update(rewardRedemptions)
                 .set({ adminNotes: `Auto-created job request: Lead #${autoCreatedLeadId}` })
                 .where(eq(rewardRedemptions.id, redemption.id));
+              await emitJobEvent("quote_requested", newLead, {
+                eventId: `reward-redemption-quote:${newLead.id}`,
+                actorId: userId,
+                source: "reward_redemption",
+              });
             }
 
             // Notify admin via email that a reward-based service request came in
@@ -29191,6 +29311,11 @@ Thank you for your business!
         // Link lead back to quote
         if (leadId) {
           await db.update(laborQuotes).set({ leadId, status: "scheduled" }).where(eq(laborQuotes.id, quote.id));
+          await emitJobEvent("quote_requested", newLead, {
+            eventId: `labor-calculator-quote:${newLead.id}`,
+            actorId: userId,
+            source: "labor_calculator",
+          });
         }
 
         // Admin notification email
@@ -29665,6 +29790,13 @@ Thank you for your business!
       } catch (notifyErr) {
         console.error("[chatbot-quote] admin SMS notification failed:", notifyErr instanceof Error ? notifyErr.message : notifyErr);
       }
+
+      await emitJobEvent("quote_requested", lead, {
+        eventId: `chatbot-quote:${lead.id}`,
+        actorId: userId,
+        source: "chatbot_quote",
+        status: lead.status,
+      });
 
       res.json({
         leadId: lead.id,

@@ -396,7 +396,7 @@ server.listen(port, '0.0.0.0', () => {
           ADD COLUMN IF NOT EXISTS access_instructions_ciphertext TEXT;
         CREATE TABLE IF NOT EXISTS job_jcmoves_ledger (
           id BIGSERIAL PRIMARY KEY,
-          lead_id VARCHAR NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+          lead_id VARCHAR REFERENCES leads(id) ON DELETE CASCADE,
           recipient_type TEXT NOT NULL CHECK (recipient_type IN ('customer', 'crew')),
           recipient_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL,
           recipient_label TEXT,
@@ -538,8 +538,29 @@ server.listen(port, '0.0.0.0', () => {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           UNIQUE (event_id, recipient_user_id, channel)
         );
+        ALTER TABLE job_alert_deliveries ALTER COLUMN lead_id DROP NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_job_alert_deliveries_lead_created
           ON job_alert_deliveries(lead_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS job_webhook_deliveries (
+          id BIGSERIAL PRIMARY KEY,
+          event_id TEXT NOT NULL,
+          lead_id VARCHAR REFERENCES leads(id) ON DELETE CASCADE,
+          webhook_url_hash TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('sent', 'failed')),
+          response_status INTEGER,
+          error_message TEXT,
+          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          attempts INTEGER NOT NULL DEFAULT 1,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (event_id, webhook_url_hash)
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_webhook_deliveries_lead_created
+          ON job_webhook_deliveries(lead_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_job_webhook_deliveries_status_updated
+          ON job_webhook_deliveries(status, updated_at DESC);
       `);
       console.log('Job alert delivery audit table ready');
     }

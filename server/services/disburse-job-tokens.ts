@@ -34,6 +34,7 @@ import { storage } from "../storage";
 import type { Lead } from "@shared/schema";
 import { EARN_RATE_PER_DOLLAR } from "../../shared/rewards";
 import { getJobRateCard } from "./jobRateCard";
+import { emitJobEvent } from "./jobEventBus";
 
 const TOKEN_PRICE            = 0.00000508432;
 const HOURS_RATE             = 25;    // JCMOVES per confirmed hour per crew member
@@ -89,6 +90,7 @@ export type DisbursementSummary = {
   perCrewFlatTokens: number;
   perCrewHoursTokens: number;
   crewIds: string[];
+  crewTokenAmounts?: Record<string, number>;
   customerId?: string;
   disbursedAt: Date;
 };
@@ -392,6 +394,7 @@ async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUs
     perCrewFlatTokens: 0,
     perCrewHoursTokens: 0,
     crewIds,
+    crewTokenAmounts: crewAllocation.amounts,
     customerId: customer?.id,
     disbursedAt: now,
   } as DisbursementSummary;
@@ -430,7 +433,20 @@ export async function disburseJobTokens(leadId: string): Promise<DisbursementSum
 
     // New awards use the paid-and-completed rate-card ledger. The legacy
     // implementation remains below only as historical reference.
-    return disburseRateCardJcMoves(leadId, (freshLead || lead) as Lead & { crewLeadUserId?: string | null });
+    const rateCardSummary = await disburseRateCardJcMoves(leadId, (freshLead || lead) as Lead & { crewLeadUserId?: string | null });
+    if (rateCardSummary) {
+      const alertedLead = await storage.getLead(leadId) || freshLead || lead;
+      await emitJobEvent("jcmoves_disbursed", alertedLead, {
+        eventId: `jcmoves-disbursed:${leadId}:${rateCardSummary.disbursedAt.toISOString()}`,
+        source: "paid_completion_disbursement",
+        recipientUserIds: rateCardSummary.crewIds,
+        extra: {
+          crewTokenTotal: Object.values(rateCardSummary.crewTokenAmounts || {}).reduce((total, amount) => total + amount, 0),
+          crewTokenAmounts: rateCardSummary.crewTokenAmounts || {},
+        },
+      });
+    }
+    return rateCardSummary;
 
     const legacyCrewMembers = (lead.crewMembers || []) as Array<string | null>;
     const crewIds: string[] = legacyCrewMembers.flatMap((memberId) => typeof memberId === "string" && memberId.length > 0 ? [memberId] : [])

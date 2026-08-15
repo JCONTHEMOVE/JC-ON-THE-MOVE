@@ -2,7 +2,12 @@ import crypto from "crypto";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { notificationService } from "./notification";
-import { hasJobAlertDelivery, recordJobAlertDelivery } from "./jobAlertDelivery";
+import {
+  hasJobAlertDelivery,
+  hasSuccessfulJobWebhookDelivery,
+  recordJobAlertDelivery,
+  recordJobWebhookDelivery,
+} from "./jobAlertDelivery";
 import { leads, users, type Lead } from "@shared/schema";
 
 export type JobEventType =
@@ -16,9 +21,10 @@ export type JobEventType =
   | "job_updated"
   | "job_completed"
   | "jcmoves_pending"
+  | "jcmoves_disbursed"
   | "upcoming_job_reminder";
 
-type RecipientScope = "owners" | "eligible_crew" | "assigned_crew" | "owners_and_assigned_crew" | "owners_and_eligible_crew";
+type RecipientScope = "owners" | "all_crew" | "eligible_crew" | "assigned_crew" | "owners_and_assigned_crew" | "owners_and_all_crew" | "owners_and_eligible_crew";
 
 interface EmitJobEventOptions {
   /** Stable caller-provided key makes a retried mutation idempotent. */
@@ -35,7 +41,7 @@ interface EmitJobEventOptions {
 interface JobEventMessage {
   title: string;
   message: string;
-  notificationType: "quote_request" | "crew_opportunity" | "crew_selected" | "job_assigned" | "job_status_change" | "jcmoves_pending" | "upcoming_job_reminder" | "system_alert";
+  notificationType: "quote_request" | "crew_opportunity" | "crew_selected" | "job_assigned" | "job_status_change" | "jcmoves_pending" | "upcoming_job_reminder" | "system_alert" | "reward_available";
   scope: RecipientScope;
 }
 
@@ -43,6 +49,7 @@ type UserRecipient = {
   id: string;
   email: string | null;
   role: string | null;
+  jobAlertChannelPreference: string | null;
 };
 
 const OWNER_EMAILS = new Set([
@@ -50,12 +57,57 @@ const OWNER_EMAILS = new Set([
   "michigankid906@gmail.com",
 ]);
 
-const webhookUrls = (process.env.JC_JOB_EVENT_WEBHOOK_URLS || process.env.JOB_EVENT_WEBHOOK_URLS || "")
-  .split(",")
-  .map((url) => url.trim())
-  .filter(Boolean);
+const WEBHOOK_ENV_KEYS = [
+  "JC_JOB_EVENT_WEBHOOK_URLS",
+  "JOB_EVENT_WEBHOOK_URLS",
+  "DISCORD_JOB_WEBHOOK_URL",
+  "DISCORD_WEBHOOK_URL",
+] as const;
 
-const webhookSecret = process.env.JC_JOB_EVENT_WEBHOOK_SECRET || process.env.JOB_EVENT_WEBHOOK_SECRET || "";
+export function parseJobEventWebhookUrls(env: NodeJS.ProcessEnv = process.env): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const key of WEBHOOK_ENV_KEYS) {
+    for (const rawUrl of String(env[key] || "").split(",")) {
+      const url = rawUrl.trim();
+      if (!url || seen.has(url)) continue;
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") continue;
+      } catch {
+        continue;
+      }
+      seen.add(url);
+      urls.push(url);
+    }
+  }
+  return urls;
+}
+
+function currentWebhookUrls() {
+  return parseJobEventWebhookUrls();
+}
+
+function currentWebhookSecret() {
+  return process.env.JC_JOB_EVENT_WEBHOOK_SECRET || process.env.JOB_EVENT_WEBHOOK_SECRET || "";
+}
+
+function webhookProvider(url: string) {
+  if (url.includes("discord.com/api/webhooks") || url.includes("discordapp.com/api/webhooks")) return "discord";
+  if (url.includes("hooks.slack.com")) return "slack";
+  return "generic";
+}
+
+export function getJobEventWebhookReadiness() {
+  const urls = currentWebhookUrls();
+  return {
+    configured: urls.length > 0,
+    configuredCount: urls.length,
+    providers: Array.from(new Set(urls.map(webhookProvider))),
+    signingSecretConfigured: Boolean(currentWebhookSecret()),
+    pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
+  };
+}
 
 function customerName(lead: Pick<Lead, "firstName" | "lastName">) {
   return `${lead.firstName || ""} ${lead.lastName || ""}`.trim() || "Customer";
@@ -99,10 +151,10 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
   switch (type) {
     case "quote_requested":
       return {
-        scope: "owners_and_eligible_crew",
+        scope: "owners_and_all_crew",
         notificationType: "crew_opportunity",
         title: "Possible Job Opportunity",
-        message: `A ${service} request is ready for crew-size and quote sampling for ${date}.`,
+        message: `A ${service} request is ready for crew-size and quote sampling for ${date}. Open the quote board to make a selection and build booking progress.`,
       };
     case "quote_sent": {
       const total = formatLeadPrice(lead);
@@ -163,6 +215,15 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
         title: "JCMOVES Pending",
         message: `${name}'s ${service} job is complete, but JCMOVES have not been disbursed yet. ${String(options.extra?.pendingReason || "An administrator can review the payout status.")}`,
       };
+    case "jcmoves_disbursed": {
+      const total = Number(options.extra?.crewTokenTotal || 0);
+      return {
+        scope: "owners_and_assigned_crew",
+        notificationType: "reward_available",
+        title: "JCMOVES Paid",
+        message: `${name}'s ${service} job has been settled${total > 0 ? ` with ${total.toLocaleString()} JCMOVES paid to the crew` : " and crew JCMOVES were deposited"}. Open Earnings to review the ledger.`,
+      };
+    }
     case "upcoming_job_reminder":
       return {
         scope: "assigned_crew",
@@ -182,7 +243,7 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
 }
 
 async function ownerRecipients(): Promise<UserRecipient[]> {
-  return db.select({ id: users.id, email: users.email, role: users.role })
+  return db.select({ id: users.id, email: users.email, role: users.role, jobAlertChannelPreference: users.jobAlertChannelPreference })
     .from(users)
     .where(
       and(
@@ -206,7 +267,7 @@ async function eligibleCrewRecipients(lead: Lead): Promise<UserRecipient[]> {
     junk_removal: "junk",
   };
   const service = serviceAliases[rawService] || rawService;
-  return db.select({ id: users.id, email: users.email, role: users.role })
+  return db.select({ id: users.id, email: users.email, role: users.role, jobAlertChannelPreference: users.jobAlertChannelPreference })
     .from(users)
     .where(
       and(
@@ -238,7 +299,7 @@ async function assignedCrewRecipients(lead: Lead): Promise<UserRecipient[]> {
     }
   }
   if (ids.size === 0) return [];
-  return db.select({ id: users.id, email: users.email, role: users.role })
+  return db.select({ id: users.id, email: users.email, role: users.role, jobAlertChannelPreference: users.jobAlertChannelPreference })
     .from(users)
     .where(
       and(
@@ -252,6 +313,10 @@ async function assignedCrewRecipients(lead: Lead): Promise<UserRecipient[]> {
     );
 }
 
+async function allCrewRecipients(): Promise<UserRecipient[]> {
+  return eligibleCrewRecipients({ serviceType: "" } as Lead);
+}
+
 function uniqueRecipients(recipients: UserRecipient[]) {
   const seen = new Set<string>();
   return recipients.filter((recipient) => {
@@ -263,7 +328,9 @@ function uniqueRecipients(recipients: UserRecipient[]) {
 
 async function recipientsFor(scope: RecipientScope, lead: Lead) {
   if (scope === "owners") return ownerRecipients();
+  if (scope === "all_crew") return allCrewRecipients();
   if (scope === "eligible_crew") return eligibleCrewRecipients(lead);
+  if (scope === "owners_and_all_crew") return uniqueRecipients([...(await ownerRecipients()), ...(await allCrewRecipients())]);
   if (scope === "owners_and_eligible_crew") return uniqueRecipients([...(await ownerRecipients()), ...(await eligibleCrewRecipients(lead))]);
   const assigned = await assignedCrewRecipients(lead);
   if (scope === "assigned_crew") return assigned;
@@ -291,7 +358,7 @@ function summarizeLead(lead: Lead) {
   };
 }
 
-function formatWebhookBody(url: string, payload: Record<string, unknown>) {
+export function formatJobWebhookBody(url: string, payload: Record<string, unknown>) {
   const title = String(payload.title || payload.type || "JC Job Event");
   const message = String(payload.message || "");
   const lead = payload.lead && typeof payload.lead === "object"
@@ -345,37 +412,104 @@ function formatWebhookBody(url: string, payload: Record<string, unknown>) {
   return JSON.stringify(payload);
 }
 
-async function deliverWebhooks(payload: Record<string, unknown>) {
-  if (webhookUrls.length === 0) return;
+type WebhookDeliverySummary = { configured: number; delivered: number; failed: number; skipped: number };
 
-  await Promise.allSettled(webhookUrls.map(async (url) => {
-    const body = formatWebhookBody(url, payload);
+function waitForRetry(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function deliverWebhooks(
+  payload: Record<string, unknown>,
+  context: { eventId: string; leadId?: string | null },
+): Promise<WebhookDeliverySummary> {
+  const webhookUrls = currentWebhookUrls();
+  const summary: WebhookDeliverySummary = { configured: webhookUrls.length, delivered: 0, failed: 0, skipped: 0 };
+  if (webhookUrls.length === 0) return summary;
+
+  await Promise.all(webhookUrls.map(async (url) => {
+    const provider = webhookProvider(url);
+    const webhookUrlHash = crypto.createHash("sha256").update(url).digest("hex");
+    try {
+      if (await hasSuccessfulJobWebhookDelivery(context.eventId, webhookUrlHash)) {
+        summary.skipped += 1;
+        return;
+      }
+    } catch (error) {
+      console.warn("[jobEventBus] could not inspect webhook audit; delivery will still be attempted:", error instanceof Error ? error.message : error);
+    }
+
+    const body = formatJobWebhookBody(url, payload);
+    const webhookSecret = currentWebhookSecret();
     const signature = webhookSecret
       ? crypto.createHmac("sha256", webhookSecret).update(body).digest("hex")
       : "";
-    const isDiscord = url.includes("discord.com/api/webhooks") || url.includes("discordapp.com/api/webhooks");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(isDiscord ? {} : { "x-jc-event": String(payload.type || "") }),
-          ...(!isDiscord && signature ? { "x-jc-signature": `sha256=${signature}` } : {}),
-        },
-        body,
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        console.warn(`[jobEventBus] webhook ${url} returned ${response.status}`);
+    const isDiscord = provider === "discord";
+    let attempts = 0;
+    let responseStatus: number | null = null;
+    let errorMessage: string | null = null;
+
+    while (attempts < 3) {
+      attempts += 1;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(isDiscord ? {} : { "x-jc-event": String(payload.type || "") }),
+            ...(!isDiscord && signature ? { "x-jc-signature": `sha256=${signature}` } : {}),
+          },
+          body,
+          signal: controller.signal,
+        });
+        responseStatus = response.status;
+        if (response.ok) {
+          errorMessage = null;
+          break;
+        }
+        errorMessage = `Provider returned HTTP ${response.status}`;
+        if (attempts < 3 && (response.status === 429 || response.status >= 500)) {
+          const retryAfter = Number(response.headers.get("retry-after") || 0);
+          await waitForRetry(Math.min(3000, retryAfter > 0 ? retryAfter * 1000 : attempts * 300));
+          continue;
+        }
+        break;
+      } catch (error) {
+        errorMessage = error instanceof Error ? error.message : "Webhook request failed";
+        if (attempts < 3) {
+          await waitForRetry(attempts * 300);
+          continue;
+        }
+      } finally {
+        clearTimeout(timeout);
       }
-    } catch (error) {
-      console.error(`[jobEventBus] webhook ${url} failed:`, error instanceof Error ? error.message : error);
-    } finally {
-      clearTimeout(timeout);
+    }
+
+    const sent = errorMessage === null && responseStatus !== null && responseStatus >= 200 && responseStatus < 300;
+    if (sent) summary.delivered += 1;
+    else summary.failed += 1;
+    try {
+      await recordJobWebhookDelivery({
+        eventId: context.eventId,
+        leadId: context.leadId || null,
+        webhookUrlHash,
+        provider,
+        status: sent ? "sent" : "failed",
+        responseStatus,
+        errorMessage,
+        attempts,
+        metadata: { type: String(payload.type || ""), source: String(payload.source || "job_event_bus") },
+      });
+    } catch (auditError) {
+      console.error("[jobEventBus] webhook audit write failed:", auditError instanceof Error ? auditError.message : auditError);
+    }
+    if (!sent) {
+      console.warn(`[jobEventBus] ${provider} webhook failed after ${attempts} attempt(s): ${errorMessage || "unknown error"}`);
     }
   }));
+
+  return summary;
 }
 
 /**
@@ -389,60 +523,115 @@ export async function deliverCrewAnnouncementToWebhooks(input: {
   message: string;
   source?: string;
 }): Promise<{ configured: number; delivered: number }> {
-  if (webhookUrls.length === 0) return { configured: 0, delivered: 0 };
-
-  let delivered = 0;
-  await Promise.allSettled(webhookUrls.map(async (url) => {
-    const payload = {
-      id: crypto.randomUUID(),
-      type: "crew_announcement",
-      scope: "crew",
-      title: input.title,
-      message: input.message,
-      source: input.source || "crew_announcement",
-      createdAt: new Date().toISOString(),
-      lead: {},
-    };
-    const body = formatWebhookBody(url, payload);
-    const signature = webhookSecret
-      ? crypto.createHmac("sha256", webhookSecret).update(body).digest("hex")
-      : "";
-    const isDiscord = url.includes("discord.com/api/webhooks") || url.includes("discordapp.com/api/webhooks");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(isDiscord ? {} : { "x-jc-event": "crew_announcement" }),
-          ...(!isDiscord && signature ? { "x-jc-signature": `sha256=${signature}` } : {}),
-        },
-        body,
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        console.warn(`[jobEventBus] crew announcement webhook returned ${response.status}`);
-        return;
-      }
-      delivered += 1;
-    } catch (error) {
-      console.error("[jobEventBus] crew announcement webhook failed:", error instanceof Error ? error.message : error);
-    } finally {
-      clearTimeout(timeout);
-    }
-  }));
-
-  return { configured: webhookUrls.length, delivered };
+  const eventId = crypto.randomUUID();
+  const payload = {
+    id: eventId,
+    type: "crew_announcement",
+    scope: "crew",
+    title: input.title,
+    message: input.message,
+    source: input.source || "crew_announcement",
+    createdAt: new Date().toISOString(),
+    lead: {},
+  };
+  const summary = await deliverWebhooks(payload, { eventId });
+  return { configured: summary.configured, delivered: summary.delivered };
 }
 
 export function eventTypeForStatus(status: string | null | undefined): JobEventType | null {
   if (!status) return null;
   if (status === "quote_requested" || status === "new") return "quote_requested";
-  if (status === "available" || status === "open") return "job_available";
+  if (status === "available" || status === "open" || status === "confirmed") return "job_available";
   if (status === "assigned" || status === "accepted" || status === "dispatched" || status === "in_progress") return "crew_assigned";
   if (status === "completed") return "job_completed";
   return "job_updated";
+}
+
+/**
+ * Some service-specific quote tools predate the shared leads table. They use
+ * this adapter so the same crew audience and Discord channel still receive a
+ * quote opportunity while retaining the service's original source record.
+ */
+export async function emitStandaloneQuoteOpportunity(input: {
+  eventId: string;
+  referenceId: string;
+  customerName: string;
+  serviceType: string;
+  requestedDate?: string | null;
+  source: string;
+  adminPath: string;
+}) {
+  try {
+    const recipients = uniqueRecipients([...(await ownerRecipients()), ...(await allCrewRecipients())]);
+    const title = "Possible Job Opportunity";
+    const service = input.serviceType.replace(/_/g, " ");
+    const date = input.requestedDate || "date TBD";
+    const message = `A ${service} request is ready for crew-size and quote sampling for ${date}. Open the quote board to make a selection and build booking progress.`;
+    const personalAlertsAlreadyAttempted = await hasJobAlertDelivery(input.eventId);
+    const personalRecipients = personalAlertsAlreadyAttempted
+      ? []
+      : recipients.filter((recipient) => recipient.jobAlertChannelPreference !== "discord");
+
+    await Promise.allSettled(personalRecipients.map(async (recipient) => {
+      const isOwnerRecipient = ["admin", "business_owner"].includes(String(recipient.role || ""));
+      const result = await notificationService.sendNotification({
+        userId: recipient.id,
+        type: "crew_opportunity",
+        title,
+        message,
+        data: {
+          type: "quote_requested",
+          source: input.source,
+          referenceId: input.referenceId,
+          eventId: input.eventId,
+          url: isOwnerRecipient ? input.adminPath : "/crew",
+        },
+      });
+      await Promise.all([
+        recordJobAlertDelivery({
+          eventId: input.eventId,
+          leadId: null,
+          recipientUserId: recipient.id,
+          channel: "in_app",
+          status: result.inApp.status,
+          errorMessage: result.inApp.error,
+          metadata: { type: "quote_requested", source: input.source, referenceId: input.referenceId },
+        }),
+        recordJobAlertDelivery({
+          eventId: input.eventId,
+          leadId: null,
+          recipientUserId: recipient.id,
+          channel: "push",
+          status: result.push.status,
+          errorMessage: result.push.error,
+          metadata: { type: "quote_requested", source: input.source, referenceId: input.referenceId },
+        }),
+      ]);
+    }));
+
+    await deliverWebhooks({
+      id: input.eventId,
+      type: "quote_requested",
+      scope: "owners_and_all_crew",
+      title,
+      message,
+      createdAt: new Date().toISOString(),
+      source: input.source,
+      adminUrl: absoluteAppUrl(input.adminPath),
+      crewUrl: absoluteAppUrl("/crew"),
+      lead: {
+        id: input.referenceId,
+        customerName: input.customerName,
+        serviceType: input.serviceType,
+        moveDate: input.requestedDate || null,
+        status: "quote_requested",
+      },
+      recipientCount: recipients.length,
+      personalRecipientCount: personalRecipients.length,
+    }, { eventId: input.eventId });
+  } catch (error) {
+    console.error("[jobEventBus] standalone quote alert failed:", error instanceof Error ? error.message : error);
+  }
 }
 
 export async function emitJobEvent(
@@ -457,9 +646,10 @@ export async function emitJobEvent(
     if (!lead) return;
 
     const eventId = options.eventId || crypto.randomUUID();
-    // A browser retry after a successful plan save must not alert the crew a
-    // second time. Stable event ids are supplied for crew-plan saves.
-    if (options.eventId && await hasJobAlertDelivery(eventId)) return;
+    // A stable event may already have delivered its personal notifications.
+    // Webhooks are handled separately so a failed Discord attempt can retry
+    // without duplicating in-app notifications.
+    const personalAlertsAlreadyAttempted = Boolean(options.eventId && await hasJobAlertDelivery(eventId));
     let effectiveType = type;
     let effectiveOptions = options;
     if (type === "job_completed") {
@@ -501,14 +691,27 @@ export async function emitJobEvent(
       ...(effectiveOptions.extra || {}),
     };
 
-    await Promise.allSettled(recipients.map(async (recipient) => {
+    const personalRecipients = personalAlertsAlreadyAttempted
+      ? []
+      : recipients.filter((recipient) => recipient.jobAlertChannelPreference !== "discord");
+    await Promise.allSettled(personalRecipients.map(async (recipient) => {
       const isOwnerRecipient = ["admin", "business_owner"].includes(String(recipient.role || ""));
+      const personalUrl = effectiveType === "jcmoves_disbursed"
+        ? (isOwnerRecipient ? "/admin/finance" : "/crew/earnings")
+        : (isOwnerRecipient ? adminLeadUrl(lead.id) : crewLeadUrl(lead.id));
+      const crewTokenAmounts = effectiveOptions.extra?.crewTokenAmounts && typeof effectiveOptions.extra.crewTokenAmounts === "object"
+        ? effectiveOptions.extra.crewTokenAmounts as Record<string, number>
+        : {};
+      const personalTokenAmount = Number(crewTokenAmounts[recipient.id] || 0);
+      const personalMessage = effectiveType === "jcmoves_disbursed" && !isOwnerRecipient && personalTokenAmount > 0
+        ? `You received ${personalTokenAmount.toLocaleString()} JCMOVES for ${customerName(lead)}'s ${displayService(lead)} job. Open Earnings to review the ledger.`
+        : message.message;
       const result = await notificationService.sendNotification({
         userId: recipient.id,
         type: message.notificationType as any,
         title: message.title,
-        message: message.message,
-        data: { ...baseData, url: isOwnerRecipient ? adminLeadUrl(lead.id) : crewLeadUrl(lead.id) },
+        message: personalMessage,
+        data: { ...baseData, url: personalUrl },
       });
 
       await Promise.all([
@@ -546,8 +749,9 @@ export async function emitJobEvent(
       crewUrl: absoluteAppUrl(crewLeadUrl(lead.id)),
       lead: summarizeLead(lead),
       recipientCount: recipients.length,
+      personalRecipientCount: personalRecipients.length,
       extra: effectiveOptions.extra || {},
-    });
+    }, { eventId, leadId: lead.id });
   } catch (error) {
     console.error("[jobEventBus] emit failed:", error instanceof Error ? error.message : error);
   }

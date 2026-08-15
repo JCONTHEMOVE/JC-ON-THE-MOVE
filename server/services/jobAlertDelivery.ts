@@ -10,7 +10,7 @@ export type JobAlertStatus = "sent" | "failed" | "skipped";
  */
 export async function recordJobAlertDelivery(input: {
   eventId: string;
-  leadId: string;
+  leadId?: string | null;
   recipientUserId?: string | null;
   channel: JobAlertChannel;
   status: JobAlertStatus;
@@ -30,7 +30,7 @@ export async function recordJobAlertDelivery(input: {
        updated_at = NOW()`,
     [
       input.eventId,
-      input.leadId,
+      input.leadId || null,
       input.recipientUserId || null,
       input.channel,
       input.status,
@@ -44,6 +44,61 @@ export async function hasJobAlertDelivery(eventId: string): Promise<boolean> {
   const { rowCount } = await pool.query(
     "SELECT 1 FROM job_alert_deliveries WHERE event_id = $1 LIMIT 1",
     [eventId],
+  );
+  return (rowCount || 0) > 0;
+}
+
+export type JobWebhookDeliveryStatus = "sent" | "failed";
+
+/**
+ * Webhooks are audited separately from per-user notifications. A target hash
+ * makes retries idempotent without storing the Discord/Slack webhook secret.
+ */
+export async function recordJobWebhookDelivery(input: {
+  eventId: string;
+  leadId?: string | null;
+  webhookUrlHash: string;
+  provider: string;
+  status: JobWebhookDeliveryStatus;
+  responseStatus?: number | null;
+  errorMessage?: string | null;
+  attempts: number;
+  metadata?: Record<string, unknown>;
+}) {
+  await pool.query(
+    `INSERT INTO job_webhook_deliveries
+      (event_id, lead_id, webhook_url_hash, provider, status, response_status, error_message, attempts, metadata)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+     ON CONFLICT (event_id, webhook_url_hash)
+     DO UPDATE SET
+       lead_id = COALESCE(EXCLUDED.lead_id, job_webhook_deliveries.lead_id),
+       provider = EXCLUDED.provider,
+       status = EXCLUDED.status,
+       response_status = EXCLUDED.response_status,
+       error_message = EXCLUDED.error_message,
+       attempts = job_webhook_deliveries.attempts + EXCLUDED.attempts,
+       metadata = EXCLUDED.metadata,
+       updated_at = NOW()`,
+    [
+      input.eventId,
+      input.leadId || null,
+      input.webhookUrlHash,
+      input.provider,
+      input.status,
+      input.responseStatus || null,
+      input.errorMessage || null,
+      input.attempts,
+      JSON.stringify(input.metadata || {}),
+    ],
+  );
+}
+
+export async function hasSuccessfulJobWebhookDelivery(eventId: string, webhookUrlHash: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `SELECT 1 FROM job_webhook_deliveries
+      WHERE event_id = $1 AND webhook_url_hash = $2 AND status = 'sent'
+      LIMIT 1`,
+    [eventId, webhookUrlHash],
   );
   return (rowCount || 0) > 0;
 }

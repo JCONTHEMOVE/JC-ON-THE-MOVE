@@ -1252,11 +1252,12 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
     await tx.query("COMMIT");
     const holdId = String(holdResult.rows[0]?.id || "");
 
-    // This is a new lead and a private admin hold. Workers are intentionally
-    // not alerted until payment/confirmation, avoiding phantom crew work.
+    // Every quote request is offered for crew-size and quote sampling. The
+    // pending-hold flag keeps it distinct from a confirmed dispatch.
     const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
     if (lead) {
-      void emitJobEvent("quote_requested", lead, {
+      await emitJobEvent("quote_requested", lead, {
+        eventId: `instant-booking-quote:${leadId}`,
         source: "instant_booking_hold",
         extra: { bookingId, holdId, pendingHold: true, expiresAt: expiresAt.toISOString() },
       });

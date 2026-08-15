@@ -14,6 +14,7 @@ import {
 import {
   Target, CalendarDays, Clock, TrendingUp, Calendar, Trophy, CheckCircle2, X,
   Loader2, Users, Edit3, Settings2, Ban, Briefcase, ChevronLeft, ChevronRight,
+  BellRing, MessageCircle, ExternalLink,
 } from "lucide-react";
 import type { User } from "@shared/schema";
 import { useAdminViewMode } from "@/hooks/useAdminViewMode";
@@ -71,6 +72,8 @@ type MyAvailability = {
   goals: { weeklyJobGoal: number | null; monthlyJobGoal: number | null; preferredJobSize: string | null } | null;
   stats: { thisWeek: number; thisMonth: number; allTime: number };
   acceptedJobTypes: string[];
+  notificationPreference: "in_app" | "discord" | "both";
+  discordInviteUrl: string;
 };
 
 type DayModalState = {
@@ -252,6 +255,18 @@ export default function CrewSchedulePage() {
       return res.json();
     },
     onSuccess: () => { refetchAvailability(); toast({ title: "✅ Job preferences saved!" }); },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const saveNotificationPreferenceMutation = useMutation({
+    mutationFn: async (preference: MyAvailability["notificationPreference"]) => {
+      const res = await apiRequest("PUT", "/api/workers/notification-preferences", { preference });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchAvailability();
+      toast({ title: "Job alert preference saved" });
+    },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
@@ -565,6 +580,51 @@ export default function CrewSchedulePage() {
           </div>
 
           {/* Job Types I Accept */}
+          {!isAdmin && (
+            <div className="bg-slate-800/40 border border-slate-700/40 rounded-xl p-4 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-white flex items-center gap-2">
+                  <BellRing className="h-4 w-4 text-cyan-400" /> Job Alert Channels
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Choose personal in-app alerts, the shared crew Discord channel, or both.
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { key: "in_app", label: "In-app", icon: BellRing },
+                  { key: "discord", label: "Discord", icon: MessageCircle },
+                  { key: "both", label: "Both", icon: CheckCircle2 },
+                ] as const).map(({ key, label, icon: Icon }) => {
+                  const selected = (myAvailability?.notificationPreference || "both") === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => saveNotificationPreferenceMutation.mutate(key)}
+                      disabled={saveNotificationPreferenceMutation.isPending}
+                      className={`rounded-lg border p-2.5 text-center transition-colors ${selected ? "border-cyan-500 bg-cyan-500/15 text-cyan-200" : "border-slate-700 bg-slate-900/30 text-slate-400 hover:border-slate-600"}`}
+                    >
+                      <Icon className="h-4 w-4 mx-auto mb-1" />
+                      <span className="text-xs font-semibold">{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Discord alerts are posted to the shared crew channel. Join that channel before selecting Discord-only.
+              </p>
+              <a
+                href={myAvailability?.discordInviteUrl || "https://discord.gg/G6dcwFY4E"}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-300 hover:text-indigo-200"
+              >
+                Open crew Discord <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+          )}
+
           {!isAdmin && (() => {
             const effectiveJobTypes = selectedJobTypes ?? myAvailability?.acceptedJobTypes ?? ALL_JOB_TYPES.map(t => t.key);
             const toggleJobType = (key: string) => {

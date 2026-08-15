@@ -238,6 +238,7 @@ export const users = pgTable("users", {
   referralCount: integer("referral_count").default(0), // Number of successful referrals made
   pushSubscription: jsonb("push_subscription"), // Store push notification subscription data
   notificationsEnabled: boolean("notifications_enabled").default(true), // User preference for notifications
+  jobAlertChannelPreference: text("job_alert_channel_preference").notNull().default("both"), // 'in_app' | 'discord' | 'both'
   walletMode: text("wallet_mode"), // 'personal' | 'company' - how user wants to receive JCMOVES tokens
   personalWalletAddress: text("personal_wallet_address"), // User's personal Phantom wallet address (if walletMode = 'personal')
   companyWalletId: varchar("company_wallet_id"), // Foreign key to userWallets for company-assigned wallet (if walletMode = 'company')

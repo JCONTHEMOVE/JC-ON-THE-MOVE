@@ -15,6 +15,7 @@ import { eq, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { sendEmail } from "../services/email";
 import { disburseServiceTokens } from "../services/disburse-service-tokens";
+import { emitStandaloneQuoteOpportunity } from "../services/jobEventBus";
 import {
   findEligibleRebookReminders,
   runRebookReminderSweep,
@@ -253,6 +254,16 @@ router.post("/quote", async (req: Request, res: Response) => {
       status: "quote_requested",
       bundleGroupId,
     }).returning();
+
+    await emitStandaloneQuoteOpportunity({
+      eventId: `lawn-care-quote:${quote.id}`,
+      referenceId: `lawn-care-${quote.id}`,
+      customerName: data.customerName,
+      serviceType: "lawn_care",
+      requestedDate: data.requestedStartDate || null,
+      source: "lawn_care_quote",
+      adminPath: "/admin/lawn-care",
+    });
 
     // Companion leads — one per add-on the customer included with this
     // submission. The shared `bundleGroupId` lets /my-jobs and the admin
@@ -928,6 +939,16 @@ router.post("/rebook", async (req: Request, res: Response) => {
       status: "quote_requested",
       rebookSource,
     }).returning();
+
+    await emitStandaloneQuoteOpportunity({
+      eventId: `lawn-care-rebook:${quote.id}`,
+      referenceId: `lawn-care-${quote.id}`,
+      customerName: prev.customerName,
+      serviceType: "lawn_care",
+      requestedDate: null,
+      source: "lawn_care_rebook",
+      adminPath: "/admin/lawn-care",
+    });
 
     if (prev.email) {
       disburseServiceTokens({
