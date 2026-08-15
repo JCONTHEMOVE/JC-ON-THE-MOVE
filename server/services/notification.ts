@@ -14,7 +14,7 @@ if (vapidPublicKey && vapidPrivateKey) {
 
 export interface NotificationData {
   userId: string;
-  type: 'job_assigned' | 'job_status_change' | 'new_message' | 'system_alert' | 'mining_complete' | 'reward_available';
+  type: 'quote_request' | 'crew_opportunity' | 'crew_selected' | 'job_assigned' | 'job_status_change' | 'jcmoves_pending' | 'upcoming_job_reminder' | 'new_message' | 'system_alert' | 'mining_complete' | 'reward_available';
   title: string;
   message: string;
   data?: any;

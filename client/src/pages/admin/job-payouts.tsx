@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DailyCashSplit } from "@/components/daily-cash-split";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { User } from "@shared/schema";
-import { canFinalizeProfitSharePayout } from "@shared/jobPayout";
 import type { ProfitSharePayoutPreview, ProfitSharePayoutStatus, ProfitShareRole } from "@shared/jobPayout";
 
 type AdminWorkerPayout = {
@@ -20,6 +21,13 @@ type AdminWorkerPayout = {
   roleOnJob: ProfitShareRole;
   hoursWorked: string;
   hourlyPay: string;
+  hourlyRate: string;
+  driverPremiumPay: string;
+  crewBonusPay: string;
+  authorityBonusPct: string;
+  authorityBonusPay: string;
+  jobRevenueSharePct: string;
+  authorityTierSnapshot?: string | null;
   bonusPay: string;
   totalPay: string;
   payoutStatus: ProfitSharePayoutStatus;
@@ -38,6 +46,10 @@ type PayoutJob = {
   totalPrice?: string | null;
   basePrice?: string | null;
   confirmedHours?: number | null;
+  paymentPlan?: string | null;
+  paymentPaidAt?: string | null;
+  recognizedRevenueUsd?: number | null;
+  refundedRevenueUsd?: number | null;
   payout?: {
     id: string;
     status: string;
@@ -61,6 +73,8 @@ type AssignmentDraft = {
   hourlyRate: number;
   hoursWorked: number;
   bonusWeight: number;
+  bonusWeightOverrideReason?: string | null;
+  isDriverForJob: boolean;
 };
 
 const ROLE_LABELS: Record<ProfitShareRole, string> = {
@@ -70,7 +84,6 @@ const ROLE_LABELS: Record<ProfitShareRole, string> = {
 };
 
 const roleOptions: ProfitShareRole[] = ["lead_mover", "mover", "helper"];
-const payoutStatusOptions: ProfitSharePayoutStatus[] = ["manual_pending", "manual_paid", "stripe_pending", "stripe_paid", "failed"];
 
 function money(value: unknown) {
   const n = typeof value === "number" ? value : Number.parseFloat(String(value ?? "0"));
@@ -106,7 +119,7 @@ export default function AdminJobPayoutsPage() {
   const { toast } = useToast();
   const [selectedJobId, setSelectedJobId] = useState<string>("");
   const [search, setSearch] = useState("");
-  const [grossRevenue, setGrossRevenue] = useState<number>(0);
+  const [grossRevenue, setGrossRevenue] = useState<number | null>(null);
   const [dumpFees, setDumpFees] = useState<number>(0);
   const [otherExpenses, setOtherExpenses] = useState<number>(0);
   const [referralPartnerId, setReferralPartnerId] = useState<string>("");
@@ -119,11 +132,11 @@ export default function AdminJobPayoutsPage() {
   const { data: referralPartners = [] } = useQuery<ReferralPartner[]>({ queryKey: ["/api/admin/job-payouts/referral-partners"] });
 
   const selectedJob = jobs.find((job) => job.id === selectedJobId) || null;
-  const selectedJobCanFinalize = canFinalizeProfitSharePayout(selectedJob?.status);
-  const selectedJobCanApprove = selectedJob?.status === "completed";
+  const selectedJobCompleted = ["completed", "customer_approved", "payout_calculated", "payout_sent", "closed"].includes(String(selectedJob?.status || "").toLowerCase());
+  const selectedJobCanFinalize = Boolean(selectedJobCompleted && selectedJob?.paymentPaidAt && !selectedJob?.payout);
 
   const previewBody = {
-    grossRevenue: grossRevenue || numberValue(selectedJob?.totalPrice || selectedJob?.basePrice),
+    ...(grossRevenue !== null ? { grossRevenue } : {}),
     dumpFees,
     otherExpenses,
     referralPartnerId: referralPartnerId || null,
@@ -156,9 +169,9 @@ export default function AdminJobPayoutsPage() {
     const averageProfitPerLaborHour = finalized.length
       ? finalized.reduce((sum, job) => sum + numberValue(job.payout?.profitPerLaborHour), 0) / finalized.length
       : 0;
-    const customerApprovedAwaitingPayout = jobs.filter((job) => canFinalizeProfitSharePayout(job.status) && !job.payout).length;
+    const customerApprovedAwaitingPayout = jobs.filter((job) => ["completed", "customer_approved", "closed"].includes(job.status) && job.paymentPaidAt && !job.payout).length;
     const manualPendingWorkers = finalized.reduce(
-      (sum, job) => sum + (job.payout?.workerPayouts || []).filter((payout) => payout.payoutStatus === "manual_pending").length,
+      (sum, job) => sum + (job.payout?.workerPayouts || []).filter((payout) => payout.payoutStatus === "payroll_pending").length,
       0,
     );
     return {
@@ -220,6 +233,8 @@ export default function AdminJobPayoutsPage() {
       hourlyRate: worker.hourlyRate,
       hoursWorked: worker.hoursWorked,
       bonusWeight: worker.bonusWeight,
+      bonusWeightOverrideReason: worker.bonusWeightOverrideReason || null,
+      isDriverForJob: worker.isDriverForJob === true,
     })));
   };
 
@@ -267,42 +282,19 @@ export default function AdminJobPayoutsPage() {
     onError: (error: Error) => toast({ title: "Finalize blocked", description: error.message, variant: "destructive" }),
   });
 
-  const approveForPayoutMutation = useMutation({
+  const actualHoursMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedJobId) throw new Error("Select a completed job first");
-      const res = await apiRequest("PATCH", `/api/leads/${selectedJobId}/status`, { status: "customer_approved" });
+      const source = assignments.length ? assignments : preview?.workerPayouts || [];
+      const res = await apiRequest("PATCH", `/api/admin/job-payouts/jobs/${selectedJobId}/actual-hours`, {
+        assignments: source.map((worker) => ({ workerId: worker.workerId, actualHours: worker.hoursWorked })),
+      });
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/job-payouts/jobs"] });
       queryClient.invalidateQueries({ queryKey: previewQueryKey });
-      toast({ title: "Customer approval recorded", description: "Worker payout records can now be finalized." });
+      toast({ title: "Actual hours approved", description: "The approval is timestamped and ready for final earnings." });
     },
-    onError: (error: Error) => toast({ title: "Approval failed", description: error.message, variant: "destructive" }),
-  });
-
-  const rewardsMutation = useMutation({
-    mutationFn: async (calculationId: string) => {
-      const res = await apiRequest("POST", `/api/admin/job-payouts/calculations/${calculationId}/issue-rewards`, {});
-      return res.json();
-    },
-    onSuccess: (data) => toast({ title: "Rewards issued", description: `${data.issuedCount || 0} worker reward credits issued.` }),
-    onError: (error: Error) => toast({ title: "Rewards failed", description: error.message, variant: "destructive" }),
-  });
-
-  const payoutStatusMutation = useMutation({
-    mutationFn: async ({ payoutId, status }: { payoutId: string; status: ProfitSharePayoutStatus }) => {
-      const res = await apiRequest("PATCH", `/api/admin/job-payouts/worker-payouts/${payoutId}/status`, { status });
-      return res.json();
-    },
-    onSuccess: (data: AdminWorkerPayout & { jcmovesAutomation?: { issued?: boolean; reason?: string } }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/job-payouts/jobs"] });
-      toast({
-        title: data.jcmovesAutomation?.issued ? "Payout status updated + rewards issued" : "Payout status updated",
-        description: data.jcmovesAutomation?.reason,
-      });
-    },
-    onError: (error: Error) => toast({ title: "Status update failed", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Hours approval blocked", description: error.message, variant: "destructive" }),
   });
 
   const defaultHours = selectedJob?.confirmedHours || 4;
@@ -314,7 +306,7 @@ export default function AdminJobPayoutsPage() {
       ["Job", `${selectedJob.firstName} ${selectedJob.lastName}`],
       ["Order Number", selectedJob.orderNumber || ""],
       ["Status", selectedJob.status],
-      ["Payout Gate", selectedJobCanFinalize ? "Customer Approved - finalizable" : "Preview only - awaiting Customer Approved"],
+      ["Payout Gate", selectedJobCanFinalize ? "Completed, paid, and finalizable" : "Preview only - complete payment/hours requirements first"],
       ["Existing Payout Status", selectedJob.payout?.status || "not finalized"],
       ["Gross Revenue", preview.grossRevenue],
       ["Guaranteed Labor", preview.guaranteedLaborTotal],
@@ -323,13 +315,13 @@ export default function AdminJobPayoutsPage() {
       ["Net Job Profit", preview.netJobProfit],
       ["Profit Per Labor Hour", preview.profitPerLaborHour],
       ["Company Profit", preview.companyProfit],
-      ["Crew Bonus Pool", preview.crewBonusPool],
+      ["Quarterly Profit Bonus Pool", preview.crewBonusPool],
       ["Referral Payout", preview.referralPayout],
       ["Growth Fund", preview.growthFund],
       ["Admin Override Required", preview.adminOverrideRequired ? "yes" : "no"],
       ["Referral Partner", preview.referralPartnerName || ""],
       [],
-      ["Worker", "Role", "Hours", "Hourly Pay", "Bonus Pay", "Total Pay", "JCMOVES", "Manual Payout Status"],
+      ["Worker", "Role", "Hours", "Classification Pay", "Driver Premium", "Quarterly Profit Bonus", "Authority Bonus", "Total Pay", "Revenue Share", "Payroll Status"],
       ...preview.workerPayouts.map((payout) => {
         const employee = employees.find((item) => item.id === payout.workerId);
         const finalizedPayout = finalizedWorkerPayouts.find((item) => item.workerId === payout.workerId);
@@ -338,9 +330,11 @@ export default function AdminJobPayoutsPage() {
           ROLE_LABELS[payout.roleOnJob],
           payout.hoursWorked,
           payout.hourlyPay,
-          payout.bonusPay,
+          payout.driverPremiumPay,
+          payout.crewBonusPay,
+          payout.authorityBonusPay,
           payout.totalPay,
-          payout.jcmovesRewardAmount,
+          percent(payout.jobRevenueSharePct),
           finalizedPayout?.payoutStatus || "",
         ];
       }),
@@ -354,14 +348,14 @@ export default function AdminJobPayoutsPage() {
         <p className="text-xs font-black uppercase tracking-widest text-blue-300">Business cockpit</p>
         <h2 className="mt-1 text-xl font-black text-white">Profit per labor hour is the main score.</h2>
         <p className="mt-1 text-sm text-slate-300">
-          Preview payout math anytime. Final payout records stay manual until the job reaches Customer Approved.
+          Preview the unified calculation anytime. Final earnings require a completed job, confirmed customer payment, and admin-approved actual hours.
         </p>
       </div>
       <div className="grid gap-3 md:grid-cols-5">
         <Metric label="Payout reports" value={String(payoutQueueSummary.finalizedCount)} />
         <Metric label="Net profit tracked" value={money(payoutQueueSummary.totalNetProfit)} accent={payoutQueueSummary.totalNetProfit >= 0 ? "green" : "red"} />
         <Metric label="Avg profit / labor hour" value={money(payoutQueueSummary.averageProfitPerLaborHour)} accent="blue" />
-        <Metric label="Approved awaiting payout" value={String(payoutQueueSummary.customerApprovedAwaitingPayout)} />
+        <Metric label="Paid jobs awaiting finalization" value={String(payoutQueueSummary.customerApprovedAwaitingPayout)} />
         <Metric label="Worker payouts pending" value={String(payoutQueueSummary.manualPendingWorkers)} />
       </div>
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
@@ -394,7 +388,9 @@ export default function AdminJobPayoutsPage() {
                     type="button"
                     onClick={() => {
                       setSelectedJobId(job.id);
-                      setGrossRevenue(numberValue(job.totalPrice || job.basePrice));
+                      setGrossRevenue(job.recognizedRevenueUsd != null
+                        ? numberValue(job.recognizedRevenueUsd)
+                        : numberValue(job.totalPrice || job.basePrice));
                       setDumpFees(0);
                       setOtherExpenses(0);
                       setReferralPartnerId("");
@@ -407,7 +403,14 @@ export default function AdminJobPayoutsPage() {
                         <p className="text-sm font-bold text-white">{job.firstName} {job.lastName}</p>
                         <p className="text-xs text-slate-400 capitalize">{job.serviceType} - {job.status.replace(/_/g, " ")}</p>
                       </div>
-                      <p className="text-sm font-black text-emerald-300">{money(job.totalPrice || job.basePrice)}</p>
+                      <div className="text-right">
+                        <p className="text-sm font-black text-emerald-300">
+                          {money(job.recognizedRevenueUsd ?? job.totalPrice ?? job.basePrice)}
+                        </p>
+                        {job.recognizedRevenueUsd != null && (
+                          <p className="text-[10px] text-slate-500">BTC collected - quote {money(job.totalPrice || job.basePrice)}</p>
+                        )}
+                      </div>
                     </div>
                     {job.payout && (
                       <p className="mt-2 text-[11px] text-slate-400">
@@ -436,7 +439,7 @@ export default function AdminJobPayoutsPage() {
                   <div className="grid gap-3 md:grid-cols-4">
                     <label className="space-y-1">
                       <span className="text-xs text-slate-400">Gross revenue</span>
-                      <Input type="number" value={grossRevenue} onChange={(e) => setGrossRevenue(numberValue(e.target.value))} />
+                      <Input type="number" value={grossRevenue ?? ""} onChange={(e) => setGrossRevenue(e.target.value === "" ? null : numberValue(e.target.value))} />
                     </label>
                     <label className="space-y-1">
                       <span className="text-xs text-slate-400">Dump fees</span>
@@ -461,6 +464,13 @@ export default function AdminJobPayoutsPage() {
                     </label>
                   </div>
 
+                  {selectedJob.paymentPlan === "btc_lightning" && selectedJob.recognizedRevenueUsd != null && (
+                    <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                      Bitcoin payout math uses the {money(selectedJob.recognizedRevenueUsd)} USD accounting value collected after the 5% customer discount
+                      {numberValue(selectedJob.refundedRevenueUsd) > 0 ? ` and ${money(selectedJob.refundedRevenueUsd)} in recorded refunds` : ""}. The original {money(selectedJob.totalPrice || selectedJob.basePrice)} quote remains unchanged.
+                    </p>
+                  )}
+
                   {previewLoading || !preview ? (
                     <div className="flex items-center gap-2 text-sm text-slate-400">
                       <Loader2 className="h-4 w-4 animate-spin" /> Calculating
@@ -474,7 +484,9 @@ export default function AdminJobPayoutsPage() {
                         <Metric label="Margin" value={percent(preview.profitMarginPct)} />
                         <Metric label="Labor" value={money(preview.guaranteedLaborTotal)} />
                         <Metric label="Reserves/expenses" value={money(preview.totalExpensesAndReserves)} />
-                        <Metric label="Crew bonus pool" value={money(preview.crewBonusPool)} />
+                        <Metric label="Quarterly profit bonus pool" value={money(preview.crewBonusPool)} />
+                        <Metric label="Driver premiums" value={money(preview.driverPremiumTotal)} />
+                        <Metric label="5% / 10% bonuses" value={money(preview.authorityBonusTotal)} />
                         <Metric label="Company profit" value={money(preview.companyProfit)} />
                         <Metric label="Referral" value={money(preview.referralPayout)} />
                         <Metric label="Growth fund" value={money(preview.growthFund)} />
@@ -500,21 +512,21 @@ export default function AdminJobPayoutsPage() {
                           {assignmentMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
                           Save workers
                         </Button>
-                        {selectedJobCanApprove && (
+                        {selectedJobCompleted && !selectedJob?.payout && (
                           <Button
                             variant="outline"
-                            onClick={() => approveForPayoutMutation.mutate()}
-                            disabled={approveForPayoutMutation.isPending}
+                            onClick={() => actualHoursMutation.mutate()}
+                            disabled={actualHoursMutation.isPending}
                             className="border-emerald-400/50 text-emerald-200 hover:bg-emerald-500/15"
                           >
-                            {approveForPayoutMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
-                            Approve for Payout
+                            {actualHoursMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                            Approve actual hours
                           </Button>
                         )}
                         <Button
                           onClick={() => finalizeMutation.mutate()}
                           disabled={!selectedJobCanFinalize || finalizeMutation.isPending}
-                          title={selectedJobCanFinalize ? "Finalize payout records" : "Job must be Customer Approved before finalizing payout records"}
+                          title={selectedJobCanFinalize ? "Finalize earnings" : "Job must be completed, paid, and have approved actual hours"}
                         >
                           {finalizeMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
                           Finalize
@@ -524,19 +536,17 @@ export default function AdminJobPayoutsPage() {
                       <div className={`rounded-lg border p-3 text-sm ${selectedJobCanFinalize ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-amber-500/30 bg-amber-500/10 text-amber-100"}`}>
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline" className={selectedJobCanFinalize ? "border-emerald-400/50 text-emerald-200" : "border-amber-400/50 text-amber-200"}>
-                            {selectedJobCanFinalize ? "Customer Approved" : "Preview Only"}
+                            {selectedJobCanFinalize ? "Ready to finalize" : "Preview only"}
                           </Badge>
                           <span className="font-semibold">
                             {selectedJobCanFinalize
-                              ? "This job can be finalized into manual payout records."
-                              : "Finalize is locked until Job Status = Customer Approved."}
+                              ? "Completed and paid; approve actual hours, then finalize the immutable earnings record."
+                              : "Finalize is locked until the job is completed and customer payment is recorded."}
                           </span>
                         </div>
                         {!selectedJobCanFinalize && (
                           <p className="mt-1 text-xs opacity-85">
-                            Current status: {selectedJob.status.replace(/_/g, " ")}. {selectedJobCanApprove
-                              ? "Confirm customer approval to unlock final worker payout records."
-                              : "Calculations can be previewed, exported, and adjusted before approval."}
+                            Current status: {selectedJob.status.replace(/_/g, " ")}. Payment: {selectedJob.paymentPaidAt ? "confirmed" : "not confirmed"}. Calculations remain estimates until finalized.
                           </p>
                         )}
                       </div>
@@ -556,11 +566,8 @@ export default function AdminJobPayoutsPage() {
                         preview={preview}
                       />
 
-                      <FinalizedPayoutStatusPanel
-                        payouts={finalizedWorkerPayouts}
-                        isUpdating={payoutStatusMutation.isPending}
-                        onStatusChange={(payoutId, status) => payoutStatusMutation.mutate({ payoutId, status })}
-                      />
+                      <FinalizedPayoutStatusPanel payouts={finalizedWorkerPayouts} />
+                      {selectedJob.payout && <DailyCashSplit jobId={selectedJob.id} />}
                     </>
                   )}
                 </>
@@ -581,13 +588,18 @@ export default function AdminJobPayoutsPage() {
                     ["insuranceReservePct", "Insurance %"],
                     ["processingFeePct", "Processing %"],
                     ["companyProfitPct", "Company %"],
-                    ["crewBonusPct", "Crew bonus %"],
+                    ["crewBonusPct", "Quarterly profit bonus pool %"],
                     ["referralPct", "Referral %"],
                     ["growthFundPct", "Growth %"],
                     ["leadMoverHourlyRate", "Lead rate"],
                     ["moverHourlyRate", "Mover rate"],
                     ["helperHourlyRate", "Helper rate"],
-                    ["rewardPointsPerDollarEarned", "JCMOVES / $"],
+                    ["driverHourlyPremium", "Driver premium / hour"],
+                    ["leadMoverBonusWeight", "Lead profit-bonus weight"],
+                    ["moverBonusWeight", "Mover profit-bonus weight"],
+                    ["helperBonusWeight", "Helper profit-bonus weight"],
+                    ["silverAuthorityBonusPct", "Silver bonus %"],
+                    ["goldAuthorityBonusPct", "Gold/Platinum bonus %"],
                   ].map(([key, label]) => (
                     <label key={key} className="space-y-1">
                       <span className="text-xs text-slate-400">{label}</span>
@@ -631,23 +643,15 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
-function FinalizedPayoutStatusPanel({
-  payouts,
-  isUpdating,
-  onStatusChange,
-}: {
-  payouts: AdminWorkerPayout[];
-  isUpdating: boolean;
-  onStatusChange: (payoutId: string, status: ProfitSharePayoutStatus) => void;
-}) {
+function FinalizedPayoutStatusPanel({ payouts }: { payouts: AdminWorkerPayout[] }) {
   if (payouts.length === 0) return null;
 
   return (
     <div className="space-y-3 rounded-lg border border-slate-700/70 bg-slate-950/40 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-bold text-white">Manual payout status</h3>
-          <p className="text-xs text-slate-400">Mark manual or Stripe payouts paid to issue the worker&apos;s JCMOVES reward automatically.</p>
+          <h3 className="text-sm font-bold text-white">Finalized employee earnings</h3>
+          <p className="text-xs text-slate-400">Monthly earnings and customer tips post through monthly payroll; profit bonuses post quarterly. JCMOVES use the paid-completion job ledger.</p>
         </div>
         <Badge variant="outline" className="border-blue-400/40 text-blue-200">
           {payouts.length} record{payouts.length === 1 ? "" : "s"}
@@ -657,7 +661,7 @@ function FinalizedPayoutStatusPanel({
         {payouts.map((payout) => (
           <div
             key={payout.id}
-            className="grid gap-2 rounded-md border border-slate-800 bg-slate-900/60 p-3 md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr_1fr]"
+            className="grid gap-2 rounded-md border border-slate-800 bg-slate-900/60 p-3 md:grid-cols-[1.3fr_repeat(5,0.8fr)]"
           >
             <div>
               <p className="text-sm font-semibold text-white">{payoutWorkerName(payout)}</p>
@@ -668,24 +672,16 @@ function FinalizedPayoutStatusPanel({
               <p className="text-sm text-slate-200">{numberValue(payout.hoursWorked).toFixed(2)}</p>
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">Total</p>
-              <p className="text-sm font-black text-emerald-300">{money(payout.totalPay)}</p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Classification</p>
+              <p className="text-sm text-slate-200">{money(payout.hourlyPay)}</p>
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">JCMOVES</p>
-              <p className="text-sm text-purple-200">{numberValue(payout.jcmovesRewardAmount).toFixed(0)}</p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Driver</p>
+              <p className="text-sm text-slate-200">{money(payout.driverPremiumPay)}</p>
             </div>
-            <select
-              className="h-10 rounded-md border border-slate-700 bg-slate-950 px-3 text-sm capitalize text-white"
-              value={payout.payoutStatus}
-              disabled={isUpdating}
-              onChange={(event) => onStatusChange(payout.id, event.target.value as ProfitSharePayoutStatus)}
-              aria-label={`Payout status for ${payoutWorkerName(payout)}`}
-            >
-              {payoutStatusOptions.map((status) => (
-                <option key={status} value={status}>{statusLabel(status)}</option>
-              ))}
-            </select>
+            <div><p className="text-[10px] uppercase tracking-wide text-slate-500">5% / 10%</p><p className="text-sm text-slate-200">{money(payout.authorityBonusPay)}</p></div>
+            <div><p className="text-[10px] uppercase tracking-wide text-slate-500">Quarterly profit bonus</p><p className="text-sm text-amber-200">{money(payout.crewBonusPay)}</p></div>
+            <div><p className="text-[10px] uppercase tracking-wide text-slate-500">Total</p><p className="text-sm font-black text-emerald-300">{money(payout.totalPay)}</p><p className="text-[10px] capitalize text-slate-500">{statusLabel(payout.payoutStatus)}</p></div>
           </div>
         ))}
       </div>
@@ -711,7 +707,7 @@ function WorkerEditor({
     if (!unused) return;
     setAssignments([
       ...assignments,
-      { workerId: unused.id, roleOnJob: assignments.length === 0 ? "lead_mover" : "mover", hourlyRate: assignments.length === 0 ? 30 : 25, hoursWorked: defaultHours, bonusWeight: assignments.length === 0 ? 60 : 40 },
+      { workerId: unused.id, roleOnJob: assignments.length === 0 ? "lead_mover" : "mover", hourlyRate: assignments.length === 0 ? 30 : 25, hoursWorked: defaultHours, bonusWeight: assignments.length === 0 ? 1.5 : 1, bonusWeightOverrideReason: null, isDriverForJob: false },
     ]);
   };
 
@@ -729,7 +725,7 @@ function WorkerEditor({
           const draft = assignments[index] || assignment;
 
           return (
-            <div key={`${assignment.workerId}-${index}`} className="grid gap-2 rounded-lg border border-slate-700/70 bg-slate-950/40 p-3 md:grid-cols-[1.4fr_1fr_0.8fr_0.8fr_0.8fr_1fr]">
+            <div key={`${assignment.workerId}-${index}`} className="grid gap-2 rounded-lg border border-slate-700/70 bg-slate-950/40 p-3 md:grid-cols-[1.4fr_1fr_0.8fr_0.8fr_0.8fr_0.7fr_1fr]">
               <select
                 className="h-10 rounded-md border border-slate-700 bg-slate-950 px-3 text-sm text-white"
                 value={draft.workerId}
@@ -747,7 +743,7 @@ function WorkerEditor({
                 onChange={(e) => {
                   const role = e.target.value as ProfitShareRole;
                   const next = [...assignments];
-                  next[index] = { ...draft, roleOnJob: role, hourlyRate: role === "lead_mover" ? 30 : role === "helper" ? 20 : 25 };
+                  next[index] = { ...draft, roleOnJob: role, hourlyRate: role === "lead_mover" ? 30 : role === "helper" ? 20 : 25, bonusWeight: role === "lead_mover" ? 1.5 : role === "helper" ? 0.75 : 1, bonusWeightOverrideReason: null };
                   setAssignments(next);
                 }}
               >
@@ -768,14 +764,21 @@ function WorkerEditor({
                 next[index] = { ...draft, bonusWeight: numberValue(e.target.value) };
                 setAssignments(next);
               }} />
+              <label className="flex items-center gap-2 text-xs text-slate-300"><Checkbox checked={draft.isDriverForJob === true} onCheckedChange={(value) => {
+                const base = assignments.length ? assignments : preview.workerPayouts.map((worker) => ({ ...worker, isDriverForJob: worker.isDriverForJob === true }));
+                setAssignments(base.map((item, itemIndex) => ({ ...item, isDriverForJob: itemIndex === index ? value === true : false })));
+              }} />Driver</label>
+              <Input className="md:col-span-full" value={draft.bonusWeightOverrideReason || ""} onChange={(event) => {
+                const next = [...assignments];
+                next[index] = { ...draft, bonusWeightOverrideReason: event.target.value };
+                setAssignments(next);
+              }} placeholder="Reason required only when profit-bonus weight differs from the role default" />
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="text-xs text-slate-500">Total</p>
                   <p className="text-sm font-black text-emerald-300">{money(payout?.totalPay || 0)}</p>
                 </div>
-                <Badge variant="outline" className="border-purple-400/40 text-purple-200">
-                  <Coins className="h-3 w-3 mr-1" /> {numberValue(payout?.jcmovesRewardAmount).toFixed(0)}
-                </Badge>
+                <Badge variant="outline" className="border-amber-400/40 text-amber-200">Profit bonus {money(payout?.crewBonusPay || 0)}</Badge>
               </div>
             </div>
           );

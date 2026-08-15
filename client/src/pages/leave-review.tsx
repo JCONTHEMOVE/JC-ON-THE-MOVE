@@ -4,7 +4,7 @@ import {
   Star, Heart, Users, DollarSign, ChevronRight, CheckCircle, Truck,
   ShoppingCart, Bitcoin, Copy, Check, Gem, Tag, ExternalLink,
   Search, Phone, Mail, Hash, ArrowRight, AlertCircle, Calendar,
-  Coins, Wallet
+  Coins, Wallet, Banknote
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -222,7 +222,7 @@ const SERVICE_LABELS: Record<string, string> = {
   handyman: "Handyman", demolition: "Demolition", flooring: "Flooring", painting: "Painting",
 };
 
-type TipMethod = "cart" | "bitcoin" | "jcmoves" | "jcmoves_usd";
+type TipMethod = "cash" | "cart" | "bitcoin" | "jcmoves" | "jcmoves_usd";
 
 type AssignedEmployee = {
   id: string;
@@ -636,6 +636,13 @@ export default function LeaveReviewPage() {
           </Card>
         )}
 
+        {includeTip && tipMethod === "cash" && (
+          <Card className="w-full max-w-md border-emerald-200 dark:border-emerald-800">
+            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-emerald-600"><Banknote className="h-5 w-5" /> Cash tip recorded</CardTitle></CardHeader>
+            <CardContent><p className="text-sm text-muted-foreground">The crew tip is pending admin receipt confirmation. Once confirmed, it will be included in the crew&apos;s monthly payroll and tip ledger.</p></CardContent>
+          </Card>
+        )}
+
         {includeTip && isWalletTip && (
           <Card className="w-full max-w-md border-emerald-200 dark:border-emerald-800">
             <CardHeader className="pb-2">
@@ -1003,7 +1010,13 @@ export default function LeaveReviewPage() {
                   {tipRecipientCount} mover{tipRecipientCount !== 1 ? "s" : ""} x {isTokenTip ? `${formatTokenAmount(tokenTipPerMover)} JCMOVES` : `$${tipPerMover}`} each
                 </p>
                 <Label className="text-sm font-semibold mb-3 block">How would you like to tip?</Label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <button type="button" onClick={() => setTipMethod("cash")}
+                    className={`rounded-xl border-2 p-3 transition-all text-left ${tipMethod === "cash" ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950" : "border-border hover:border-emerald-300"}`}>
+                    <Banknote className={`h-6 w-6 mb-1 ${tipMethod === "cash" ? "text-emerald-500" : "text-muted-foreground"}`} />
+                    <p className={`font-bold text-sm ${tipMethod === "cash" ? "text-emerald-700 dark:text-emerald-300" : "text-foreground"}`}>Cash</p>
+                    <p className="text-xs text-muted-foreground">Admin confirms receipt for monthly payout</p>
+                  </button>
                   <button type="button" onClick={() => setTipMethod("cart")}
                     className={`rounded-xl border-2 p-3 transition-all text-left ${
                       tipMethod === "cart"
@@ -1054,6 +1067,14 @@ export default function LeaveReviewPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Cart method */}
+              {tipMethod === "cash" && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950">
+                  <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">Cash tip: ${totalTip.toFixed(2)}</p>
+                  <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">Give the cash to the crew or office. The allocation stays pending until an admin verifies receipt, then posts to the monthly tip ledger.</p>
+                </div>
+              )}
 
               {/* Cart method */}
               {tipMethod === "cart" && (

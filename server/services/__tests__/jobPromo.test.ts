@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyFixedMovingPackageOffer } from "../jobPromo";
+import { applyFixedMovingPackageOffer, applyPercentageMovingPromo } from "../jobPromo";
 import { calculateJobQuoteFromRateCard } from "../jobRateCard";
 
 const rateCard = {
@@ -42,7 +42,8 @@ const applied = applyFixedMovingPackageOffer({
 assert.equal(applied.applied, true);
 assert.equal(applied.quote.total, 1000);
 assert.equal(applied.quote.packagePrice, 1000);
-assert.equal(applied.quote.projectedCustomerJcMoves, 15000);
+assert.equal(applied.quote.rewardEligibleTotal, automaticQuote.total);
+assert.equal(applied.quote.projectedCustomerJcMoves, 28125);
 assert.equal(applied.quote.promotion?.includesCompanyTruck, true);
 assert.equal(applied.quote.promotion?.includesTrailer, true);
 
@@ -81,5 +82,21 @@ const wrongHours = applyFixedMovingPackageOffer({
 });
 assert.equal(wrongHours.applied, false);
 assert.match(wrongHours.reason || "", /exactly 4 movers for 4 hours/);
+
+const jcmoves = applyPercentageMovingPromo({
+  promo: { code: "JCMOVES", description: "10% off", discountPercent: "10" },
+  automaticQuote: {
+    ...automaticQuote,
+    total: 340,
+    rewardEligibleTotal: 340,
+    projectedCustomerJcMoves: 5_100,
+    projectedCrewPoolJcMoves: 5_100,
+  },
+});
+assert.equal(jcmoves.applied, true);
+assert.equal(jcmoves.quote.total, 306);
+assert.equal(jcmoves.quote.rewardEligibleTotal, 340);
+assert.equal(jcmoves.quote.projectedCustomerJcMoves, 5_100);
+assert.equal(jcmoves.quote.projectedCrewPoolJcMoves, 5_100);
 
 console.log("jobPromo tests passed");

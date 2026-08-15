@@ -4,6 +4,7 @@ import AdminJobPayoutsPage from "@/pages/admin/job-payouts";
 import AdminPaymentsPage from "@/pages/admin/AdminPaymentsPage";
 import AdminWalletLedgerPage from "@/pages/admin/AdminWalletLedgerPage";
 import AdminCashoutsPage from "@/pages/admin/AdminCashoutsPage";
+import AdminPayrollLedgerPage from "@/pages/admin/payroll-ledger";
 
 export default function AdminFinancePage() {
   return (
@@ -11,11 +12,12 @@ export default function AdminFinancePage() {
       <div className="max-w-6xl mx-auto px-4 pt-6">
         <div className="mb-6">
           <h1 className="text-2xl font-black text-white">Finance</h1>
-          <p className="text-slate-400 text-sm">Payouts, Square links, cashouts, treasury, and ledger</p>
+          <p className="text-slate-400 text-sm">Job earnings, monthly payroll and tips, quarterly profit bonuses, cashouts, treasury, and ledger</p>
         </div>
         <Tabs defaultValue="job-payouts">
           <TabsList className="bg-slate-800/50 border border-slate-700/50 mb-6 flex-wrap">
             <TabsTrigger value="job-payouts" className="data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-300">Job Payouts</TabsTrigger>
+            <TabsTrigger value="payroll" className="data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-300">Payroll, Tips & Bonus</TabsTrigger>
             <TabsTrigger value="invoices" className="data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-300">Square Links</TabsTrigger>
             <TabsTrigger value="cashouts" className="data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-300">Cashouts</TabsTrigger>
             <TabsTrigger value="treasury" className="data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-300">Treasury</TabsTrigger>
@@ -23,6 +25,9 @@ export default function AdminFinancePage() {
           </TabsList>
           <TabsContent value="job-payouts">
             <AdminJobPayoutsPage />
+          </TabsContent>
+          <TabsContent value="payroll">
+            <AdminPayrollLedgerPage />
           </TabsContent>
           <TabsContent value="invoices">
             <AdminPaymentsPage />

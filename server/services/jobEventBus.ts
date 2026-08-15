@@ -10,12 +10,15 @@ export type JobEventType =
   | "quote_sent"
   | "job_available"
   | "crew_claimed"
+  | "crew_selected"
   | "crew_plan_saved"
   | "crew_assigned"
   | "job_updated"
-  | "job_completed";
+  | "job_completed"
+  | "jcmoves_pending"
+  | "upcoming_job_reminder";
 
-type RecipientScope = "owners" | "eligible_crew" | "assigned_crew" | "owners_and_assigned_crew";
+type RecipientScope = "owners" | "eligible_crew" | "assigned_crew" | "owners_and_assigned_crew" | "owners_and_eligible_crew";
 
 interface EmitJobEventOptions {
   /** Stable caller-provided key makes a retried mutation idempotent. */
@@ -25,13 +28,14 @@ interface EmitJobEventOptions {
   note?: string;
   previousStatus?: string | null;
   status?: string | null;
+  recipientUserIds?: string[];
   extra?: Record<string, unknown>;
 }
 
 interface JobEventMessage {
   title: string;
   message: string;
-  notificationType: "quote_request" | "job_assigned" | "job_status_change" | "system_alert";
+  notificationType: "quote_request" | "crew_opportunity" | "crew_selected" | "job_assigned" | "job_status_change" | "jcmoves_pending" | "upcoming_job_reminder" | "system_alert";
   scope: RecipientScope;
 }
 
@@ -95,10 +99,10 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
   switch (type) {
     case "quote_requested":
       return {
-        scope: "owners",
-        notificationType: "quote_request",
-        title: "New Job Request",
-        message: `${name} submitted a ${service} request. Review and price it before sending it to crew.`,
+        scope: "owners_and_eligible_crew",
+        notificationType: "crew_opportunity",
+        title: "Possible Job Opportunity",
+        message: `A ${service} request is ready for crew-size and quote sampling for ${date}.`,
       };
     case "quote_sent": {
       const total = formatLeadPrice(lead);
@@ -124,6 +128,13 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
         title: "Crew Claim Needs Review",
         message: `A crew member claimed a slot on ${name}'s ${service} job. Confirm the crew and dispatch when it is ready.`,
       };
+    case "crew_selected":
+      return {
+        scope: "assigned_crew",
+        notificationType: "crew_selected",
+        title: "Selected for a Job",
+        message: `You've been selected for ${name}'s ${service} job on ${date}. Open it to review your schedule and estimated earnings.`,
+      };
     case "crew_plan_saved":
       return {
         scope: "assigned_crew",
@@ -144,6 +155,20 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
         notificationType: "job_status_change",
         title: "Job Completed",
         message: `${name}'s ${service} job is complete. Payout and JCMOVES flow can run.`,
+      };
+    case "jcmoves_pending":
+      return {
+        scope: "owners_and_assigned_crew",
+        notificationType: "jcmoves_pending",
+        title: "JCMOVES Pending",
+        message: `${name}'s ${service} job is complete, but JCMOVES have not been disbursed yet. ${String(options.extra?.pendingReason || "An administrator can review the payout status.")}`,
+      };
+    case "upcoming_job_reminder":
+      return {
+        scope: "assigned_crew",
+        notificationType: "upcoming_job_reminder",
+        title: "Upcoming Job Reminder",
+        message: `You are scheduled for ${name}'s ${service} job on ${date}. Check your crew calendar for the arrival window and job details.`,
       };
     case "job_updated":
     default:
@@ -239,6 +264,7 @@ function uniqueRecipients(recipients: UserRecipient[]) {
 async function recipientsFor(scope: RecipientScope, lead: Lead) {
   if (scope === "owners") return ownerRecipients();
   if (scope === "eligible_crew") return eligibleCrewRecipients(lead);
+  if (scope === "owners_and_eligible_crew") return uniqueRecipients([...(await ownerRecipients()), ...(await eligibleCrewRecipients(lead))]);
   const assigned = await assignedCrewRecipients(lead);
   if (scope === "assigned_crew") return assigned;
   return uniqueRecipients([...(await ownerRecipients()), ...assigned]);
@@ -434,10 +460,35 @@ export async function emitJobEvent(
     // A browser retry after a successful plan save must not alert the crew a
     // second time. Stable event ids are supplied for crew-plan saves.
     if (options.eventId && await hasJobAlertDelivery(eventId)) return;
-    const message = messageFor(type, lead, options);
-    const recipients = uniqueRecipients(await recipientsFor(message.scope, lead));
+    let effectiveType = type;
+    let effectiveOptions = options;
+    if (type === "job_completed") {
+      const [fresh] = await db.select({
+        paymentPaidAt: leads.paymentPaidAt,
+        completionRewardedAt: leads.completionRewardedAt,
+        tokensDisbursedAt: leads.tokensDisbursedAt,
+      }).from(leads).where(eq(leads.id, lead.id)).limit(1);
+      if (!fresh?.completionRewardedAt && !fresh?.tokensDisbursedAt) {
+        effectiveType = "jcmoves_pending";
+        effectiveOptions = {
+          ...options,
+          extra: {
+            ...(options.extra || {}),
+            pendingReason: fresh?.paymentPaidAt
+              ? "The paid-completion issuance needs an administrator retry."
+              : "JCMOVES will issue after full customer payment is confirmed.",
+          },
+        };
+      }
+    }
+    const message = messageFor(effectiveType, lead, effectiveOptions);
+    let recipients = uniqueRecipients(await recipientsFor(message.scope, lead));
+    if (options.recipientUserIds?.length) {
+      const allowed = new Set(options.recipientUserIds);
+      recipients = recipients.filter((recipient) => allowed.has(recipient.id));
+    }
     const baseData = {
-      type,
+      type: effectiveType,
       leadId: lead.id,
       orderNumber: lead.orderNumber,
       url: adminLeadUrl(lead.id),
@@ -447,16 +498,17 @@ export async function emitJobEvent(
       previousStatus: options.previousStatus || null,
       status: options.status || lead.status || null,
       eventId,
-      ...(options.extra || {}),
+      ...(effectiveOptions.extra || {}),
     };
 
     await Promise.allSettled(recipients.map(async (recipient) => {
+      const isOwnerRecipient = ["admin", "business_owner"].includes(String(recipient.role || ""));
       const result = await notificationService.sendNotification({
         userId: recipient.id,
         type: message.notificationType as any,
         title: message.title,
         message: message.message,
-        data: baseData,
+        data: { ...baseData, url: isOwnerRecipient ? adminLeadUrl(lead.id) : crewLeadUrl(lead.id) },
       });
 
       await Promise.all([
@@ -467,7 +519,7 @@ export async function emitJobEvent(
           channel: "in_app",
           status: result.inApp.status,
           errorMessage: result.inApp.error,
-          metadata: { type, source: options.source || "job_event_bus" },
+          metadata: { type: effectiveType, source: options.source || "job_event_bus" },
         }),
         recordJobAlertDelivery({
           eventId,
@@ -476,14 +528,14 @@ export async function emitJobEvent(
           channel: "push",
           status: result.push.status,
           errorMessage: result.push.error,
-          metadata: { type, source: options.source || "job_event_bus" },
+          metadata: { type: effectiveType, source: options.source || "job_event_bus" },
         }),
       ]);
     }));
 
     await deliverWebhooks({
       id: eventId,
-      type,
+      type: effectiveType,
       scope: message.scope,
       title: message.title,
       message: message.message,
@@ -494,7 +546,7 @@ export async function emitJobEvent(
       crewUrl: absoluteAppUrl(crewLeadUrl(lead.id)),
       lead: summarizeLead(lead),
       recipientCount: recipients.length,
-      extra: options.extra || {},
+      extra: effectiveOptions.extra || {},
     });
   } catch (error) {
     console.error("[jobEventBus] emit failed:", error instanceof Error ? error.message : error);

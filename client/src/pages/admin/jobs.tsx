@@ -541,26 +541,26 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
     mutationFn: async () => {
       const amount = parseFloat(btcAmount || totalPrice || lead?.totalPrice || "0");
       if (!amount) throw new Error("No amount set");
-      const res = await apiRequest("POST", `/api/bitcoin/payment-link`, {
+      const res = await apiRequest("POST", `/api/crypto/lightning/job-checkout/${lead!.id}`, {
         referenceType: "job_payment",
         referenceId: lead!.id,
         customerName: `${lead!.firstName} ${lead!.lastName}`,
         customerEmail: lead!.email,
         customerPhone: lead!.phone,
-        usdAmount: amount,
+        originalAmountUsd: amount,
         notes: `Moving job — ${lead!.firstName} ${lead!.lastName}`,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Failed" }));
-        throw new Error(err.error || "Failed to generate BTC link");
+        throw new Error(err.error || "Failed to generate Lightning checkout");
       }
       return res.json();
     },
     onSuccess: (data) => {
       setBtcLink(data.paymentUrl || data.checkoutUrl || null);
-      toast({ title: "BTC link ready", description: "Copy link to share with customer." });
+      toast({ title: "Lightning checkout ready", description: "5% discount and 5% JCMOVES offer applied." });
     },
-    onError: (e: Error) => toast({ title: "BTC failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Lightning checkout failed", description: e.message, variant: "destructive" }),
   });
 
   const markDepositMutation = useMutation({
@@ -990,7 +990,7 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
                 <Input
                   value={btcAmount}
                   onChange={e => setBtcAmount(e.target.value)}
-                  placeholder="USD amount"
+                  placeholder="Saved job total"
                   className="bg-slate-700/60 border-slate-600 text-white text-xs h-8 flex-1"
                 />
                 <Button
@@ -1002,13 +1002,13 @@ function AdminJobDetailPanel({ lead, onClose, employees, tradeRequests, open }: 
                   {generateBtcMutation.isPending
                     ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     : <Bitcoin className="h-3.5 w-3.5" />}
-                  BTC Link
+                  Lightning
                 </Button>
               </div>
 
               {btcLink && (
                 <div className="bg-orange-950/40 border border-orange-500/30 rounded-lg px-3 py-2">
-                  <p className="text-[10px] text-orange-400 mb-1">Bitcoin payment link:</p>
+                  <p className="text-[10px] text-orange-400 mb-1">Bitcoin Lightning checkout · 5% off + 5% JCMOVES:</p>
                   <a href={btcLink} target="_blank" rel="noopener noreferrer" className="text-xs text-orange-300 break-all hover:underline">{btcLink}</a>
                 </div>
               )}

@@ -56,9 +56,16 @@ export const leads = pgTable("leads", {
   confirmedToAddress: text("confirmed_to_address"), // Admin confirmed delivery address
   basePrice: decimal("base_price", { precision: 10, scale: 2 }), // Base moving quote
   tokenAllocation: decimal("token_allocation", { precision: 18, scale: 8 }), // JCMOVES tokens allocated for this job
+  // Immutable rate-card amount used for paid-completion JCMOVES. This is
+  // deliberately separate from totalPrice so an approved discount or fixed
+  // package never changes the rewards customers and crew were shown.
+  jcmovesRewardBase: decimal("jcmoves_reward_base", { precision: 10, scale: 2 }),
+  paymentPlan: text("payment_plan"),
+  paymentPaidAt: timestamp("payment_paid_at"),
   crewMembers: text("crew_members").array(), // Array of assigned employee IDs
   crewLeadUserId: varchar("crew_lead_user_id").references(() => users.id),
-  crewBonusFlags: jsonb("crew_bonus_flags").default("{}"), // Map of userId → boolean; true = bonus mover (+25% payout)
+  driverUserId: varchar("driver_user_id").references(() => users.id),
+  crewBonusFlags: jsonb("crew_bonus_flags").default("{}"), // Legacy only; canonical payouts use job assignments and quarterly profit-bonus weights.
   squareOrderId: varchar("square_order_id"), // Square Order ID created when Build Order is applied
   
   // Special moving items with weight tracking
@@ -269,6 +276,8 @@ export const notifications = pgTable("notifications", {
 export const workerProfiles = pgTable("worker_profiles", {
   userId: varchar("user_id").primaryKey().references(() => users.id),
   authorityTier: text("authority_tier").notNull().default("worker"),
+  payoutClassification: text("payout_classification").notNull().default("mover"),
+  defaultBonusWeight: decimal("default_bonus_weight", { precision: 10, scale: 4 }).notNull().default("1.0000"),
   promoCode: varchar("promo_code").unique(),
   leadsPostedCount: integer("leads_posted_count").notNull().default(0),
   silverCompletedJobsCount: integer("silver_completed_jobs_count").notNull().default(0),
@@ -342,7 +351,14 @@ export const jobPayoutSettings = pgTable("job_payout_settings", {
   leadMoverHourlyRate: decimal("lead_mover_hourly_rate", { precision: 10, scale: 2 }).notNull().default("30.00"),
   moverHourlyRate: decimal("mover_hourly_rate", { precision: 10, scale: 2 }).notNull().default("25.00"),
   helperHourlyRate: decimal("helper_hourly_rate", { precision: 10, scale: 2 }).notNull().default("20.00"),
-  rewardPointsPerDollarEarned: decimal("reward_points_per_dollar_earned", { precision: 10, scale: 4 }).notNull().default("1.0000"),
+  driverHourlyPremium: decimal("driver_hourly_premium", { precision: 10, scale: 2 }).notNull().default("5.00"),
+  leadMoverBonusWeight: decimal("lead_mover_bonus_weight", { precision: 10, scale: 4 }).notNull().default("1.5000"),
+  moverBonusWeight: decimal("mover_bonus_weight", { precision: 10, scale: 4 }).notNull().default("1.0000"),
+  helperBonusWeight: decimal("helper_bonus_weight", { precision: 10, scale: 4 }).notNull().default("0.7500"),
+  silverAuthorityBonusPct: decimal("silver_authority_bonus_pct", { precision: 6, scale: 4 }).notNull().default("0.0500"),
+  goldAuthorityBonusPct: decimal("gold_authority_bonus_pct", { precision: 6, scale: 4 }).notNull().default("0.1000"),
+  payrollTimezone: text("payroll_timezone").notNull().default("America/Chicago"),
+  rewardPointsPerDollarEarned: decimal("reward_points_per_dollar_earned", { precision: 10, scale: 4 }).notNull().default("0.0000"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 }, (table) => [
@@ -372,8 +388,15 @@ export const jobAssignments = pgTable("job_assignments", {
   workerId: varchar("worker_id").notNull().references(() => users.id),
   roleOnJob: text("role_on_job").notNull().default("mover"),
   hourlyRate: decimal("hourly_rate", { precision: 10, scale: 2 }).notNull(),
+  scheduledHours: decimal("scheduled_hours", { precision: 10, scale: 2 }).notNull().default("0.00"),
   hoursWorked: decimal("hours_worked", { precision: 10, scale: 2 }).notNull().default("0.00"),
   bonusWeight: decimal("bonus_weight", { precision: 10, scale: 4 }).notNull().default("0.0000"),
+  bonusWeightOverrideReason: text("bonus_weight_override_reason"),
+  isDriverForJob: boolean("is_driver_for_job").notNull().default(false),
+  driverHourlyPremium: decimal("driver_hourly_premium", { precision: 10, scale: 2 }).notNull().default("5.00"),
+  actualHoursApprovedByUserId: varchar("actual_hours_approved_by_user_id").references(() => users.id),
+  actualHoursApprovedAt: timestamp("actual_hours_approved_at"),
+  authorityTierSnapshot: text("authority_tier_snapshot"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 }, (table) => [
@@ -394,6 +417,8 @@ export const jobPayoutCalculations = pgTable("job_payout_calculations", {
   dumpFees: decimal("dump_fees", { precision: 10, scale: 2 }).notNull().default("0.00"),
   otherExpenses: decimal("other_expenses", { precision: 10, scale: 2 }).notNull().default("0.00"),
   guaranteedLaborTotal: decimal("guaranteed_labor_total", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  driverPremiumTotal: decimal("driver_premium_total", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  authorityBonusTotal: decimal("authority_bonus_total", { precision: 10, scale: 2 }).notNull().default("0.00"),
   netJobProfit: decimal("net_job_profit", { precision: 10, scale: 2 }).notNull().default("0.00"),
   companyProfit: decimal("company_profit", { precision: 10, scale: 2 }).notNull().default("0.00"),
   crewBonusPool: decimal("crew_bonus_pool", { precision: 10, scale: 2 }).notNull().default("0.00"),
@@ -423,9 +448,17 @@ export const jobWorkerPayouts = pgTable("job_worker_payouts", {
   workerId: varchar("worker_id").notNull().references(() => users.id),
   roleOnJob: text("role_on_job").notNull().default("mover"),
   hoursWorked: decimal("hours_worked", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  hourlyRate: decimal("hourly_rate", { precision: 10, scale: 2 }).notNull().default("0.00"),
   hourlyPay: decimal("hourly_pay", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  driverPremiumPay: decimal("driver_premium_pay", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  crewBonusPay: decimal("crew_bonus_pay", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  authorityBonusPct: decimal("authority_bonus_pct", { precision: 6, scale: 4 }).notNull().default("0.0000"),
+  authorityBonusPay: decimal("authority_bonus_pay", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  jobRevenueSharePct: decimal("job_revenue_share_pct", { precision: 10, scale: 4 }).notNull().default("0.0000"),
+  authorityTierSnapshot: text("authority_tier_snapshot"),
   bonusPay: decimal("bonus_pay", { precision: 10, scale: 2 }).notNull().default("0.00"),
   totalPay: decimal("total_pay", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  payrollPeriodId: varchar("payroll_period_id"),
   payoutStatus: text("payout_status").notNull().default("manual_pending"),
   stripeTransferId: text("stripe_transfer_id"),
   jcmovesRewardAmount: decimal("jcmoves_reward_amount", { precision: 18, scale: 8 }).notNull().default("0.00000000"),
@@ -436,6 +469,65 @@ export const jobWorkerPayouts = pgTable("job_worker_payouts", {
   index("idx_job_worker_payouts_lead").on(table.leadId),
   index("idx_job_worker_payouts_worker").on(table.workerId),
   index("idx_job_worker_payouts_status").on(table.payoutStatus),
+]);
+
+export const payrollPeriods = pgTable("payroll_periods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  periodKey: varchar("period_key", { length: 7 }).notNull().unique(),
+  timezone: text("timezone").notNull().default("America/Chicago"),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  status: text("status").notNull().default("draft"),
+  approvedByUserId: varchar("approved_by_user_id").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  recordedPaidByUserId: varchar("recorded_paid_by_user_id").references(() => users.id),
+  recordedPaidAt: timestamp("recorded_paid_at"),
+  paymentReference: text("payment_reference"),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_payroll_periods_status").on(table.status),
+]);
+
+export const payrollEntries = pgTable("payroll_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  periodId: varchar("period_id").notNull().references(() => payrollPeriods.id),
+  workerId: varchar("worker_id").notNull().references(() => users.id),
+  leadId: varchar("lead_id").references(() => leads.id),
+  sourceType: text("source_type").notNull(),
+  sourceId: varchar("source_id").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  earningDate: timestamp("earning_date").notNull(),
+  description: text("description").notNull(),
+  metadata: jsonb("metadata").notNull().default("{}"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_payroll_entries_period").on(table.periodId),
+  index("idx_payroll_entries_worker").on(table.workerId),
+  index("idx_payroll_entries_lead").on(table.leadId),
+  uniqueIndex("uq_payroll_entry_source").on(table.sourceType, table.sourceId),
+]);
+
+// Append-only record of cash handed directly to a worker for a job. Admins
+// edit the target split, while deltaAmount preserves every increase or
+// correction. Monthly payroll posts the inverse delta as an offset.
+export const jobCashPayoutAdjustments = pgTable("job_cash_payout_adjustments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").notNull().references(() => leads.id),
+  workerId: varchar("worker_id").notNull().references(() => users.id),
+  targetPercent: decimal("target_percent", { precision: 6, scale: 2 }).notNull().default("0.00"),
+  previousPercent: decimal("previous_percent", { precision: 6, scale: 2 }).notNull().default("0.00"),
+  eligibleEarningsSnapshot: decimal("eligible_earnings_snapshot", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  targetCashAmount: decimal("target_cash_amount", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  previousCashAmount: decimal("previous_cash_amount", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  deltaAmount: decimal("delta_amount", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  reason: text("reason").notNull(),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_job_cash_payout_lead_worker").on(table.leadId, table.workerId, table.createdAt),
+  index("idx_job_cash_payout_created").on(table.createdAt),
 ]);
 
 // Rewards system tables
@@ -1025,6 +1117,19 @@ export const insertJobWorkerPayoutSchema = createInsertSchema(jobWorkerPayouts).
   createdAt: true,
   updatedAt: true,
 });
+export const insertPayrollPeriodSchema = createInsertSchema(payrollPeriods).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertPayrollEntrySchema = createInsertSchema(payrollEntries).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertJobCashPayoutAdjustmentSchema = createInsertSchema(jobCashPayoutAdjustments).omit({
+  id: true,
+  createdAt: true,
+});
 
 export type JobPayoutSettings = typeof jobPayoutSettings.$inferSelect;
 export type InsertJobPayoutSettings = z.infer<typeof insertJobPayoutSettingsSchema>;
@@ -1036,6 +1141,12 @@ export type JobPayoutCalculation = typeof jobPayoutCalculations.$inferSelect;
 export type InsertJobPayoutCalculation = z.infer<typeof insertJobPayoutCalculationSchema>;
 export type JobWorkerPayout = typeof jobWorkerPayouts.$inferSelect;
 export type InsertJobWorkerPayout = z.infer<typeof insertJobWorkerPayoutSchema>;
+export type PayrollPeriod = typeof payrollPeriods.$inferSelect;
+export type InsertPayrollPeriod = z.infer<typeof insertPayrollPeriodSchema>;
+export type PayrollEntry = typeof payrollEntries.$inferSelect;
+export type InsertPayrollEntry = z.infer<typeof insertPayrollEntrySchema>;
+export type JobCashPayoutAdjustment = typeof jobCashPayoutAdjustments.$inferSelect;
+export type InsertJobCashPayoutAdjustment = z.infer<typeof insertJobCashPayoutAdjustmentSchema>;
 
 // Push subscription schema
 export const pushSubscriptionSchema = z.object({
@@ -1463,6 +1574,10 @@ export const reviewTipAllocations = pgTable("review_tip_allocations", {
   amountUsd: decimal("amount_usd", { precision: 10, scale: 2 }).notNull().default("0.00"),
   tokenAmount: decimal("token_amount", { precision: 18, scale: 8 }).notNull().default("0.00000000"),
   status: text("status").notNull().default("pending_payment"), // 'pending_payment', 'confirmed', 'failed'
+  payrollEligibleAt: timestamp("payroll_eligible_at"),
+  payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id),
+  payrollEntryId: varchar("payroll_entry_id").references(() => payrollEntries.id),
+  payrollPaidAt: timestamp("payroll_paid_at"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   confirmedAt: timestamp("confirmed_at"),

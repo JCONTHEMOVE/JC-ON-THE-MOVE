@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
@@ -7,10 +8,26 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { BtcAutoConfirmStatus } from "@/components/btc-auto-confirm-status";
 
+type LightningPaymentStatus = {
+  status: string;
+  provider_status: string | null;
+  amount_usd: string;
+  original_amount_usd: string;
+  discount_amount_usd: string;
+  reward_value_usd: string;
+  bonus_tokens: string;
+  retention_percent: string;
+  paid_at: string | null;
+};
+
 export default function PaymentSuccessPage() {
   const params = new URLSearchParams(window.location.search);
   const type = params.get("type");
   const isPromo = type === "promo";
+  const isBtcLightning = type === "btc-lightning" || type === "btc-lightning-cancelled";
+  const lightningCancelled = type === "btc-lightning-cancelled";
+  const lightningIntentId = params.get("intent");
+  const lightningStatusToken = params.get("token");
   const shopItemsParam = params.get("shopItems");
   const shopItemIds = shopItemsParam ? shopItemsParam.split(",").filter(Boolean) : [];
   const jewelryItemId = params.get("itemId");
@@ -22,6 +39,19 @@ export default function PaymentSuccessPage() {
   const [shopRewardTotal, setShopRewardTotal] = useState(0);
   const [jewelryReward, setJewelryReward] = useState<{ tokensEarned: number; earnRate: number; purchasePrice: number; itemTitle: string } | null>(null);
   const rewardCalled = useRef(false);
+  const { data: lightningPayment } = useQuery<LightningPaymentStatus>({
+    queryKey: ["/api/crypto/lightning/job-payment", lightningIntentId, lightningStatusToken, "status"],
+    queryFn: async () => {
+      const response = await fetch(`/api/crypto/lightning/job-payment/${encodeURIComponent(lightningIntentId || "")}/status?token=${encodeURIComponent(lightningStatusToken || "")}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Payment status is not available yet");
+      return response.json();
+    },
+    enabled: isBtcLightning && Boolean(lightningIntentId) && Boolean(lightningStatusToken),
+    refetchInterval: isBtcLightning && !lightningCancelled ? 5000 : false,
+  });
 
   useEffect(() => {
     if (shopItemIds.length > 0 && !rewardCalled.current) {
@@ -61,6 +91,48 @@ export default function PaymentSuccessPage() {
         .catch(() => {});
     }
   }, [user]);
+
+  if (isBtcLightning) {
+    const confirmed = lightningPayment?.status === "paid";
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-orange-950 flex items-center justify-center p-4">
+        <Card className="max-w-md w-full border-orange-500/30 bg-slate-900 text-slate-100 shadow-2xl">
+          <CardContent className="pt-8 pb-6 px-6 text-center space-y-5">
+            <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto border-2 ${lightningCancelled ? "bg-slate-800 border-slate-600" : confirmed ? "bg-green-900/50 border-green-500/50" : "bg-orange-900/40 border-orange-500/50"}`}>
+              {confirmed ? <CheckCircle className="h-12 w-12 text-green-400" /> : <Coins className="h-12 w-12 text-orange-400" />}
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">
+                {lightningCancelled ? "Checkout Closed" : confirmed ? "Bitcoin Payment Confirmed" : "Bitcoin Payment Submitted"}
+              </h1>
+              <p className="text-slate-300 mt-2">
+                {lightningCancelled
+                  ? "No completed payment has been recorded. You can reopen the checkout link while it remains valid or contact us for a new one."
+                  : confirmed
+                    ? "Your job payment is recorded and your JCMOVES reward is ready or held for your account."
+                    : "BitPay is confirming the payment. This page refreshes automatically; we will also retain the provider audit record."}
+              </p>
+            </div>
+            {lightningPayment && (
+              <div className="rounded-xl border border-orange-500/30 bg-orange-950/20 p-4 text-left text-sm space-y-2">
+                <div className="flex justify-between"><span className="text-slate-400">Original job value (USD)</span><span>${Number(lightningPayment.original_amount_usd).toFixed(2)}</span></div>
+                <div className="flex justify-between text-green-300"><span>Lightning discount</span><span>-${Number(lightningPayment.discount_amount_usd).toFixed(2)}</span></div>
+                <div className="flex justify-between font-semibold"><span>Paid with Bitcoin</span><span>${Number(lightningPayment.amount_usd).toFixed(2)}</span></div>
+                <div className="flex justify-between text-amber-300"><span>JCMOVES reward</span><span>{Number(lightningPayment.bonus_tokens).toLocaleString()} (${Number(lightningPayment.reward_value_usd).toFixed(2)})</span></div>
+                <div className="pt-2 border-t border-orange-500/20 text-xs text-slate-400">Status: {confirmed ? "confirmed" : lightningPayment.provider_status || lightningPayment.status}</div>
+              </div>
+            )}
+            <p className="text-xs text-slate-400">BTC remains BTC in company custody. USD amounts are accounting values only. Customer tips remain separate from this offer.</p>
+            <Link href="/">
+              <Button className="w-full bg-orange-600 hover:bg-orange-500 text-white">
+                <ArrowLeft className="h-4 w-4 mr-2" /> Back to JC ON THE MOVE
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (isPromo) {
     return (

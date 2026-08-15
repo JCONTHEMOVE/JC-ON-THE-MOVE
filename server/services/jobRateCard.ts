@@ -15,7 +15,15 @@ export type JobQuotePreview = {
   trailer: number;
   stairs: number;
   elevator: number;
+  /** Amount due after any single promo or package is applied. */
   total: number;
+  /**
+   * Frozen earning basis for JCMOVES. Promos reduce the customer charge but
+   * never reduce the rate-card value used for completion rewards.
+   */
+  rewardEligibleTotal: number;
+  preDiscountTotal?: number;
+  discountAmount?: number;
   projectedCustomerJcMoves: number;
   projectedCrewPoolJcMoves: number;
   rateCard: JobRateCard;
@@ -23,13 +31,16 @@ export type JobQuotePreview = {
   promotion?: {
     code: string;
     description: string;
-    fixedBasePrice: number;
-    requiredCrewSize: number;
-    requiredHours: number;
-    verifiedLocalMiles: number;
-    localMilesMax: number;
-    includesCompanyTruck: boolean;
-    includesTrailer: boolean;
+    kind: "percentage_discount" | "fixed_moving_package";
+    discountPercent?: number;
+    discountAmount?: number;
+    fixedBasePrice?: number;
+    requiredCrewSize?: number;
+    requiredHours?: number;
+    verifiedLocalMiles?: number;
+    localMilesMax?: number;
+    includesCompanyTruck?: boolean;
+    includesTrailer?: boolean;
   };
 };
 
@@ -102,6 +113,7 @@ export function calculateJobQuoteFromRateCard(rateCard: JobRateCard, input: {
     stairs,
     elevator,
     total,
+    rewardEligibleTotal: total,
     projectedCustomerJcMoves: projectedTokens,
     projectedCrewPoolJcMoves: projectedTokens,
     rateCard,

@@ -4,9 +4,12 @@ import {
   ROUTE_DAY_CAMPAIGN_NOTE,
   ROUTE_DAY_DISCOUNT,
   ROUTE_DAY_PROMO_PACKAGES,
+  ROUTE_DAY_SUMMARY,
   ROUTE_DAY_TRACKING_POINTS,
   ROUTE_DAY_TRAVEL_PRICE_NOTE,
+  SERVICE_ADDRESS_DISCOUNT_NOTE,
 } from "@shared/routeDays";
+import { marketingCreativeSourceSchema } from "@shared/marketingCreative";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_MODEL = "gpt-5.4-mini";
@@ -33,6 +36,10 @@ export const marketingAdDraftSchema = z.object({
   referralLink: z.string().url().max(2000),
   promoCode: z.string().trim().max(64).optional().default(""),
   workerName: z.string().trim().max(120).optional().default("JC crew"),
+  creativeSource: marketingCreativeSourceSchema.optional().default({
+    kind: "approved_photo",
+    approvedPhotoKey: "crew-ramp",
+  }),
 });
 
 export type MarketingAdDraftInput = z.infer<typeof marketingAdDraftSchema>;
@@ -85,22 +92,30 @@ function cleanWords(value: string | undefined, fallback: string) {
   return text.length > 0 ? text : fallback;
 }
 
+export function buildApprovedMarketingFacebookPost(input: MarketingAdDraftInput) {
+  const area = cleanWords(input.area, "the Northwoods");
+  const focus = cleanWords(input.focus, "moving help");
+  const rawNote = String(input.rawText || "").trim();
+  const extra = rawNote && !/route-day scheduling:/i.test(rawNote) ? rawNote : "";
+  return [
+    `Need ${focus} around ${area}?`,
+    "JC ON THE MOVE can help with loading, unloading, moving, delivery, junk removal, cleanup, and local labor.",
+    `${ROUTE_DAY_DISCOUNT}\nRoute-day schedule: ${ROUTE_DAY_SUMMARY}.\n${IRONWOOD_DAILY_DISCOUNT}`,
+    [
+      "Route-day travel options:",
+      ...ROUTE_DAY_PROMO_PACKAGES.map((pkg) => `• ${pkg.crew} / ${pkg.hours}: ${pkg.priceRange}`),
+    ].join("\n"),
+    `${ROUTE_DAY_TRAVEL_PRICE_NOTE} ${SERVICE_ADDRESS_DISCOUNT_NOTE} Surrounding-area and out-of-town requests use 1.25x travel pricing; promo-town requests on non-route days use 1.5x non-route-day pricing.`,
+    "Send the address/ZIP, date, details, and photos. We will build the right quote before the crew is confirmed.",
+    [input.referralLink, input.promoCode ? `Use code ${input.promoCode}.` : ""].filter(Boolean).join("\n"),
+    extra,
+  ].join("\n\n");
+}
+
 function fallbackDraft(input: MarketingAdDraftInput, reason?: string): MarketingAdDraftResult {
   const area = cleanWords(input.area, "the Northwoods");
   const focus = cleanWords(input.focus, "moving help");
-  const promoLine = input.promoCode ? `\nUse code ${input.promoCode}.` : "";
-  const extra = input.rawText ? `\n\n${input.rawText}` : "";
-  const photoLine = input.photoUrl || input.photoDataUrl ? "\n\nPhoto: use the attached job/crew image." : "";
-  const facebookPost = [
-    `Need ${focus} around ${area}?`,
-    "JC ON THE MOVE can help with moving, delivery, junk removal, cleanup, and local labor.",
-    `${ROUTE_DAY_DISCOUNT} ${IRONWOOD_DAILY_DISCOUNT}`,
-    `${ROUTE_DAY_TRAVEL_PRICE_NOTE} Route-day promo options: ${ROUTE_DAY_PROMO_PACKAGES.map((pkg) => `${pkg.crew} for ${pkg.hours} at ${pkg.priceRange}`).join("; ")}.`,
-    ROUTE_DAY_CAMPAIGN_NOTE,
-    `Use the tracked booking link so the promo code, job count, area, package, and campaign performance can be measured.`,
-    "Send the details, add photos if you have them, and we will build the right quote before the crew is confirmed.",
-    `${input.referralLink}${promoLine}${extra}${photoLine}`,
-  ].join("\n\n");
+  const facebookPost = buildApprovedMarketingFacebookPost(input);
 
   return {
     headline: `${focus} available in ${area}`,
@@ -148,8 +163,9 @@ export async function generateMarketingAdDraft(rawInput: MarketingAdDraftInput):
     return fallbackDraft(input, "OPENAI_API_KEY is not configured");
   }
 
+  const { creativeSource: _creativeSource, ...copyInput } = input;
   const modelInput = {
-    ...input,
+    ...copyInput,
     photoDataUrl: input.photoDataUrl ? "[device photo attached]" : undefined,
   };
   const userContent = input.photoDataUrl
@@ -175,6 +191,8 @@ export async function generateMarketingAdDraft(rawInput: MarketingAdDraftInput):
             "You write practical local-service ads for JC ON THE MOVE.",
             "Keep posts simple, trustworthy, and community-focused.",
             "Prefer a 1-2-3 structure: need help, send details/photos, book through the tracked link.",
+            "Lead with the selected service and area, then state the route schedule and approved 5% offer once, then package targets, travel multipliers, quote/availability disclaimer, and tracked link.",
+            "Do not repeat route-day, discount, package, or travel-language paragraphs.",
             "Never promise guaranteed availability, exact prices, financing, or same-day service.",
             "Always include the provided booking/referral link in the Facebook post and short text.",
             "Do not invent testimonials, licenses, reviews, discounts, or photos.",
@@ -217,7 +235,11 @@ export async function generateMarketingAdDraft(rawInput: MarketingAdDraftInput):
     const fallback = fallbackDraft(input);
     return {
       headline: String(parsed.headline || "").slice(0, 160) || fallback.headline,
-      facebookPost: String(parsed.facebookPost || "").slice(0, 2200) || fallback.facebookPost,
+      // The long-form Facebook caption is deterministic so approved pricing,
+      // route-day terms, disclaimers, and tracking always stay in the same
+      // order. OpenAI still assists with the headline, short reply, target
+      // groups, and checklist.
+      facebookPost: buildApprovedMarketingFacebookPost(input),
       shortText: String(parsed.shortText || "").slice(0, 320) || fallback.shortText,
       hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.map(String).slice(0, 6) : fallback.hashtags,
       ctaLabel: String(parsed.ctaLabel || "Book / Quote").slice(0, 80),

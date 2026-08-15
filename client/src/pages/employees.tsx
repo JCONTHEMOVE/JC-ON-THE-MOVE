@@ -20,13 +20,34 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ArrowLeft, Mail, Users, Trash2 } from "lucide-react";
 
+type PayoutClassification = "lead_mover" | "mover" | "helper";
+type EmployeeWithPayout = User & {
+  payoutProfile?: {
+    authorityTier?: string | null;
+    payoutClassification?: PayoutClassification | null;
+    defaultBonusWeight?: string | null;
+  };
+};
+
 export default function EmployeesPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [userToDelete, setUserToDelete] = useState<EmployeeWithPayout | null>(null);
 
-  const { data: employees = [], isLoading } = useQuery<User[]>({
+  const { data: employees = [], isLoading } = useQuery<EmployeeWithPayout[]>({
     queryKey: ["/api/employees"],
+  });
+
+  const updatePayoutProfileMutation = useMutation({
+    mutationFn: async ({ id, payoutClassification }: { id: string; payoutClassification: PayoutClassification }) => {
+      const response = await apiRequest("PATCH", `/api/employees/${id}/payout-profile`, { payoutClassification });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      toast({ title: "Payout classification updated" });
+    },
+    onError: (error: Error) => toast({ title: "Payout profile failed", description: error.message, variant: "destructive" }),
   });
 
   const updateRoleMutation = useMutation({
@@ -92,7 +113,7 @@ export default function EmployeesPage() {
               <Users className="h-8 w-8 text-purple-400" />
               <div>
                 <h1 className="text-3xl font-bold text-white">Employee Management</h1>
-                <p className="text-slate-400 mt-1">Manage employee roles and permissions</p>
+                <p className="text-slate-400 mt-1">Manage permissions and default payout classifications</p>
               </div>
             </div>
             <Link href="/dashboard" data-testid="link-back-to-dashboard">
@@ -120,7 +141,8 @@ export default function EmployeesPage() {
                 <thead className="bg-muted/50">
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Employee</th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Role</th>
+                    <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Payout class</th>
+                    <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">App role</th>
                     <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Joined</th>
                     <th className="px-6 py-4 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
                   </tr>
@@ -128,7 +150,7 @@ export default function EmployeesPage() {
                 <tbody className="bg-card divide-y divide-border">
                   {employees.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground" data-testid="no-employees">
+                      <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground" data-testid="no-employees">
                         No employees found. Employees will appear here once they log in.
                       </td>
                     </tr>
@@ -144,6 +166,13 @@ export default function EmployeesPage() {
                               <div className="text-sm text-muted-foreground">{employee.email}</div>
                             </div>
                           </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <Select value={employee.payoutProfile?.payoutClassification || "mover"} onValueChange={(value) => updatePayoutProfileMutation.mutate({ id: employee.id, payoutClassification: value as PayoutClassification })}>
+                            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                            <SelectContent><SelectItem value="lead_mover">Lead Mover · $30/hr</SelectItem><SelectItem value="mover">Mover · $25/hr</SelectItem><SelectItem value="helper">Helper · $20/hr</SelectItem></SelectContent>
+                          </Select>
+                          <p className="mt-1 text-xs capitalize text-muted-foreground">{employee.payoutProfile?.authorityTier || "worker"} · profit-bonus weight {Number(employee.payoutProfile?.defaultBonusWeight || 1).toFixed(2)}</p>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <Select

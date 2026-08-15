@@ -96,18 +96,7 @@ export type JobPayoutPreview = {
 };
 
 export type ProfitShareRole = "lead_mover" | "mover" | "helper";
-export type ProfitSharePayoutStatus = "preview" | "calculated" | "manual_pending" | "manual_paid" | "stripe_pending" | "stripe_paid" | "failed";
-
-export const CUSTOMER_APPROVED_PAYOUT_STATUS = "customer_approved";
-export const JCMOVES_REWARD_PAID_STATUSES: ProfitSharePayoutStatus[] = ["manual_paid", "stripe_paid"];
-
-export function canFinalizeProfitSharePayout(status: string | null | undefined): boolean {
-  return String(status || "").toLowerCase() === CUSTOMER_APPROVED_PAYOUT_STATUS;
-}
-
-export function shouldIssueJcmovesRewardForPayoutStatus(status: string | null | undefined): boolean {
-  return JCMOVES_REWARD_PAID_STATUSES.includes(String(status || "").toLowerCase() as ProfitSharePayoutStatus);
-}
+export type ProfitSharePayoutStatus = "preview" | "calculated" | "payroll_pending" | "payroll_approved" | "payroll_recorded_paid" | "manual_pending" | "manual_paid" | "stripe_pending" | "stripe_paid" | "failed";
 
 export type ProfitShareSettings = {
   fuelReservePct: number;
@@ -121,6 +110,13 @@ export type ProfitShareSettings = {
   leadMoverHourlyRate: number;
   moverHourlyRate: number;
   helperHourlyRate: number;
+  driverHourlyPremium: number;
+  leadMoverBonusWeight: number;
+  moverBonusWeight: number;
+  helperBonusWeight: number;
+  silverAuthorityBonusPct: number;
+  goldAuthorityBonusPct: number;
+  payrollTimezone: string;
   rewardPointsPerDollarEarned: number;
 };
 
@@ -136,7 +132,16 @@ export const DEFAULT_PROFIT_SHARE_SETTINGS: ProfitShareSettings = {
   leadMoverHourlyRate: 30,
   moverHourlyRate: 25,
   helperHourlyRate: 20,
-  rewardPointsPerDollarEarned: 1,
+  driverHourlyPremium: 5,
+  leadMoverBonusWeight: 1.5,
+  moverBonusWeight: 1,
+  helperBonusWeight: 0.75,
+  silverAuthorityBonusPct: 0.05,
+  goldAuthorityBonusPct: 0.1,
+  payrollTimezone: "America/Chicago",
+  // Kept for historical snapshots only. Paid-completion JCMOVES are issued
+  // exclusively by the job JCMOVES ledger, never by cash payroll.
+  rewardPointsPerDollarEarned: 0,
 };
 
 export type ProfitShareWorkerInput = {
@@ -147,6 +152,10 @@ export type ProfitShareWorkerInput = {
   hourlyRate: number;
   hoursWorked: number;
   bonusWeight: number;
+  bonusWeightOverrideReason?: string | null;
+  isDriverForJob?: boolean;
+  driverHourlyPremium?: number;
+  authorityTier?: string | null;
   stripeAccountId?: string | null;
 };
 
@@ -165,9 +174,15 @@ export type ProfitShareJobInput = {
 };
 
 export type ProfitShareWorkerPayout = ProfitShareWorkerInput & {
+  classificationPay: number;
   hourlyPay: number;
+  driverPremiumPay: number;
+  crewBonusPay: number;
+  authorityBonusPct: number;
+  authorityBonusPay: number;
   bonusPay: number;
   totalPay: number;
+  jobRevenueSharePct: number;
   jcmovesRewardAmount: number;
 };
 
@@ -178,6 +193,8 @@ export type ProfitSharePayoutPreview = {
   status: string;
   grossRevenue: number;
   guaranteedLaborTotal: number;
+  driverPremiumTotal: number;
+  authorityBonusTotal: number;
   fuelReserve: number;
   vehicleReserve: number;
   insuranceReserve: number;

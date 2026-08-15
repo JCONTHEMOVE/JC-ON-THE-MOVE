@@ -261,20 +261,19 @@ export default function PricingCalibrationPage() {
   const [votes, setVotes] = useState<Record<number, "match" | "tuning">>({});
   const [showSummary, setShowSummary] = useState(false);
 
-  const { data: pricingConfig } = useQuery<{ ratePerMoverHour: number; jc222FlatPrice: number }>({
+  const { data: pricingConfig } = useQuery<{ ratePerMoverHour: number }>({
     queryKey: ["/api/pricing"],
     staleTime: 5 * 60 * 1000,
   });
 
   const liveRate = pricingConfig?.ratePerMoverHour ?? 85;
-  const liveJc222 = pricingConfig?.jc222FlatPrice ?? 222;
 
   const totalScenarios = SCENARIOS.length;
   const votedCount = Object.keys(votes).length;
   const allVoted = votedCount === totalScenarios;
 
   const current = SCENARIOS[currentIdx];
-  const engineOutput: MovingQuote = computeMovingQuote(current.answers, liveRate, liveJc222);
+  const engineOutput: MovingQuote = computeMovingQuote(current.answers, liveRate);
 
   const matchCount = Object.values(votes).filter(v => v === "match").length;
   const tuningCount = Object.values(votes).filter(v => v === "tuning").length;
@@ -348,7 +347,7 @@ export default function PricingCalibrationPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               {SCENARIOS.filter(s => votes[s.id] === "tuning").map(s => {
-                const q = computeMovingQuote(s.answers, liveRate, liveJc222);
+                const q = computeMovingQuote(s.answers, liveRate);
                 return (
                   <div key={s.id} className="flex items-start justify-between p-3 rounded-lg bg-muted/50 gap-3">
                     <div className="flex-1 min-w-0">
@@ -545,7 +544,7 @@ export default function PricingCalibrationPage() {
 
           {/* Crew Package Options */}
           {(() => {
-            const pkgs: CrewPackage[] = buildCrewPackages(current.answers, engineOutput, liveRate, liveJc222);
+            const pkgs: CrewPackage[] = buildCrewPackages(current.answers, engineOutput, liveRate);
             if (pkgs.length === 0) return null;
             return (
               <div className="space-y-1.5">

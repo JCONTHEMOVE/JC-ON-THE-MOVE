@@ -45,7 +45,15 @@ type ValidatedPromo = {
   code: string;
   description: string;
   discountPercent: number;
-  jobOffer?: { kind?: string; fixedBasePrice?: number; requiredCrewSize?: number; requiredHours?: number } | null;
+  jobOffer?: {
+    kind?: string;
+    fixedBasePrice?: number;
+    requiredCrewSize?: number;
+    requiredHours?: number;
+    localMilesMax?: number;
+    requiresCompanyTruck?: boolean;
+    requiresTrailer?: boolean;
+  } | null;
 };
 
 const BOOKING_SUCCESS_STORAGE_KEY = "jc-booking-success-invoice-id";
@@ -158,14 +166,22 @@ export function HomepageBookingCalculator({ preset }: Props) {
 
   const pricing = useMemo(() => {
     if (!pickupInfo) return null;
-    return calculateMovingPrice({
+    const fixedPackage = appliedPromo?.jobOffer?.kind === "fixed_moving_package"
+      ? appliedPromo.jobOffer
+      : null;
+    const packageMatchesSelection = Boolean(
+      fixedPackage
+      && movers === fixedPackage.requiredCrewSize
+      && hours === fixedPackage.requiredHours,
+    );
+    const automatic = calculateMovingPrice({
       movers,
       hours,
       addOns,
       truckSize,
       pickup: pickupInfo,
       dropoff: dropoffInfo,
-      promo: appliedPromo
+      promo: appliedPromo && !fixedPackage
         ? {
             code: appliedPromo.code,
             discountPercent: appliedPromo.discountPercent,
@@ -173,6 +189,31 @@ export function HomepageBookingCalculator({ preset }: Props) {
           }
         : null,
     });
+    const fixedBasePrice = Number(fixedPackage?.fixedBasePrice);
+    if (!fixedPackage || !packageMatchesSelection || !Number.isFinite(fixedBasePrice)) {
+      return automatic;
+    }
+
+    // Packages replace the automatic moving rate and include their required
+    // truck/trailer. Full-address local eligibility is verified server-side.
+    const addOnsOutsidePackage = Math.max(0, automatic.addOnTotal - automatic.truckAddOnCost);
+    const subtotalBeforePromo = automatic.subtotalBeforePromo;
+    const grandTotal = Math.round((fixedBasePrice + addOnsOutsidePackage) * 100) / 100;
+    return {
+      ...automatic,
+      truckAddOnCost: 0,
+      discountedLaborTotal: fixedBasePrice,
+      addOnTotal: addOnsOutsidePackage,
+      travelCost: 0,
+      longDistanceCost: 0,
+      longDistanceMilesBilled: 0,
+      isLongDistance: false,
+      promoCode: appliedPromo?.code || null,
+      promoDescription: appliedPromo?.description || null,
+      subtotalBeforePromo,
+      promoDiscountAmount: Math.max(0, Math.round((subtotalBeforePromo - grandTotal) * 100) / 100),
+      grandTotal,
+    };
   }, [addOns, appliedPromo, dropoffInfo, hours, movers, pickupInfo, truckSize]);
 
   const laborPreview = useMemo(() => {
@@ -259,11 +300,17 @@ export function HomepageBookingCalculator({ preset }: Props) {
         throw new Error(data?.error || "This promo code is not available.");
       }
 
+      const jobOffer = data.jobOffer || null;
+      if (jobOffer?.kind === "fixed_moving_package" &&
+          (movers !== Number(jobOffer.requiredCrewSize) || hours !== Number(jobOffer.requiredHours))) {
+        throw new Error(`This package requires exactly ${jobOffer.requiredCrewSize} movers for ${jobOffer.requiredHours} hours.`);
+      }
+
       setAppliedPromo({
         code: data.code,
         description: data.description || "",
         discountPercent: Number(data.discountPercent || 0),
-        jobOffer: data.jobOffer || null,
+        jobOffer,
       });
       setPromoCode(data.code);
     } catch (error: any) {
@@ -688,7 +735,7 @@ export function HomepageBookingCalculator({ preset }: Props) {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-white">Promo code</p>
-                  <p className="text-xs text-slate-400">Enter a service or package code. LOCAL4X4 is 4 movers for 4 hours locally, with the JC truck and trailer included for $1,000.</p>
+                  <p className="text-xs text-slate-400">Enter an active moving promo or fixed-package code. Package eligibility is verified against the full address before checkout.</p>
                 </div>
                 {appliedPromo ? (
                   <button
@@ -722,6 +769,9 @@ export function HomepageBookingCalculator({ preset }: Props) {
               {appliedPromo ? (
                 <p className="mt-2 text-xs text-emerald-200">
                   {appliedPromo.code} applied{appliedPromo.description ? ` — ${appliedPromo.description}` : ""}.
+                  {appliedPromo.jobOffer?.kind === "fixed_moving_package"
+                    ? ` Package: ${appliedPromo.jobOffer.requiredCrewSize} movers for ${appliedPromo.jobOffer.requiredHours} hours${appliedPromo.jobOffer.localMilesMax ? ` within ${appliedPromo.jobOffer.localMilesMax} local miles` : ""}.`
+                    : ""}
                 </p>
               ) : null}
               {promoError ? <p className="mt-2 text-xs text-red-300">{promoError}</p> : null}

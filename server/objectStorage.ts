@@ -199,7 +199,26 @@ export class ObjectStorageService {
   async saveFileBuffer(buffer: Buffer, mimeType: string, fileExtension: string): Promise<string> {
     const isVideo = mimeType.startsWith('video/');
     const subdir = isVideo ? 'shop/videos' : 'shop';
-    const filename = `${subdir}/${randomUUID()}.${fileExtension}`;
+    return this.savePublicFileBuffer(buffer, mimeType, fileExtension, subdir);
+  }
+
+  // Save a raw Buffer under an explicit public namespace. The namespace is
+  // validated so callers cannot turn an upload into an arbitrary object path.
+  async savePublicFileBuffer(
+    buffer: Buffer,
+    mimeType: string,
+    fileExtension: string,
+    subdir: string,
+  ): Promise<string> {
+    const safeSubdir = subdir.trim().replace(/^\/+|\/+$/g, '');
+    if (!/^[a-z0-9][a-z0-9/_-]{0,120}$/i.test(safeSubdir) || safeSubdir.includes('..')) {
+      throw new Error('Invalid public object namespace');
+    }
+    const safeExtension = fileExtension.trim().toLowerCase().replace(/^\./, '');
+    if (!/^(jpe?g|png|webp|gif|mp4|webm|ogg|mov)$/.test(safeExtension)) {
+      throw new Error('Unsupported public object extension');
+    }
+    const filename = `${safeSubdir}/${randomUUID()}.${safeExtension}`;
     const publicSearchPaths = this.getPublicObjectSearchPaths();
     const publicPath = publicSearchPaths[0];
     const fullPath = `${publicPath}/${filename}`;

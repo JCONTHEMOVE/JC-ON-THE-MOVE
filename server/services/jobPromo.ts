@@ -22,6 +22,7 @@ export type FixedMovingPackageOffer = z.infer<typeof fixedMovingPackageOfferSche
 export type JobPromoRecord = {
   code: string;
   description: string;
+  discountPercent?: string | number | null;
   jobOffer?: unknown;
 };
 
@@ -33,6 +34,45 @@ export type JobPromoEvaluation = {
 
 function roundCurrency(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * A standard service promo and a fixed moving package are mutually
+ * exclusive. This keeps every moving channel on the same rule: one offer,
+ * one final customer price, and one immutable pre-discount reward basis.
+ */
+export function applyPercentageMovingPromo(args: {
+  promo: JobPromoRecord;
+  automaticQuote: JobQuotePreview;
+}): JobPromoEvaluation {
+  const discountPercent = Math.max(0, Math.min(100, Number(args.promo.discountPercent || 0)));
+  if (!Number.isFinite(discountPercent) || discountPercent <= 0) {
+    return { quote: args.automaticQuote, applied: false };
+  }
+
+  const preDiscountTotal = args.automaticQuote.total;
+  const discountAmount = roundCurrency(preDiscountTotal * (discountPercent / 100));
+  const total = roundCurrency(preDiscountTotal - discountAmount);
+  const projectedTokens = Math.round(args.automaticQuote.rewardEligibleTotal * args.automaticQuote.rateCard.jcmovesPerDollar);
+  return {
+    applied: true,
+    quote: {
+      ...args.automaticQuote,
+      total,
+      preDiscountTotal,
+      discountAmount,
+      rewardEligibleTotal: args.automaticQuote.rewardEligibleTotal,
+      projectedCustomerJcMoves: projectedTokens,
+      projectedCrewPoolJcMoves: projectedTokens,
+      promotion: {
+        code: args.promo.code,
+        description: args.promo.description,
+        kind: "percentage_discount",
+        discountPercent,
+        discountAmount,
+      },
+    },
+  };
 }
 
 /**
@@ -79,7 +119,7 @@ export function applyFixedMovingPackageOffer(args: {
   }
 
   const total = roundCurrency(offer.fixedBasePrice + args.automaticQuote.stairs + args.automaticQuote.elevator);
-  const projectedTokens = Math.round(total * args.automaticQuote.rateCard.jcmovesPerDollar);
+  const projectedTokens = Math.round(args.automaticQuote.rewardEligibleTotal * args.automaticQuote.rateCard.jcmovesPerDollar);
   return {
     applied: true,
     quote: {
@@ -90,12 +130,16 @@ export function applyFixedMovingPackageOffer(args: {
       truck: 0,
       trailer: 0,
       total,
+      preDiscountTotal: args.automaticQuote.total,
+      discountAmount: roundCurrency(Math.max(0, args.automaticQuote.total - total)),
+      rewardEligibleTotal: args.automaticQuote.rewardEligibleTotal,
       projectedCustomerJcMoves: projectedTokens,
       projectedCrewPoolJcMoves: projectedTokens,
       packagePrice: offer.fixedBasePrice,
       promotion: {
         code: args.promo.code,
         description: args.promo.description,
+        kind: "fixed_moving_package",
         fixedBasePrice: offer.fixedBasePrice,
         requiredCrewSize: offer.requiredCrewSize,
         requiredHours: offer.requiredHours,

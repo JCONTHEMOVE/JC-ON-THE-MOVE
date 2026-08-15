@@ -22,8 +22,6 @@ import MarketplaceProcessGuide from "@/components/MarketplaceProcessGuide";
 import { WalletChoiceModal } from "@/components/WalletChoiceModal";
 import { MarketingLaunchCard } from "@/components/MarketingLaunchCard";
 import {
-  IRONWOOD_DAILY_DISCOUNT,
-  ROUTE_DAY_CAMPAIGN_NOTE,
   ROUTE_DAY_PROMO_PACKAGES,
   ROUTE_DAY_SCHEDULE,
   routeDayLandingHref,
@@ -70,6 +68,14 @@ interface CrewPayout {
   leadId: string;
   hoursWorked: string;
   hourlyPay: string;
+  hourlyRate: string;
+  driverPremiumPay: string;
+  crewBonusPay: string;
+  authorityBonusPct: string;
+  authorityBonusPay: string;
+  jobRevenueSharePct: string;
+  authorityTierSnapshot?: string | null;
+  roleOnJob: string;
   bonusPay: string;
   totalPay: string;
   payoutStatus: string;
@@ -79,6 +85,12 @@ interface CrewPayout {
   firstName?: string | null;
   lastName?: string | null;
   serviceType?: string | null;
+}
+
+interface CrewPayrollPeriod {
+  period: { id: string; periodKey: string; status: string; paymentReference?: string | null };
+  total: number;
+  entries: Array<{ id: string; amount: string; sourceType: string; description: string }>;
 }
 
 interface MarketingAdDraft {
@@ -93,9 +105,46 @@ interface MarketingAdDraft {
   postingChecklist?: string[];
   campaignId?: string;
   trackedLink?: string;
+  shareUrl?: string;
+  creative?: MarketingCreativeResult;
   provider: string;
   fallbackUsed: boolean;
   reason?: string;
+}
+
+type MarketingCreativeSourceKind = "approved_photo" | "uploaded_photo" | "ai_scene";
+
+interface MarketingCreativeResult {
+  feedImageUrl: string;
+  ogImageUrl: string;
+  shareUrl: string;
+  altText: string;
+  revision: number;
+  source: MarketingCreativeSourceKind;
+  sourceKind: MarketingCreativeSourceKind;
+  provider: "jc_photo" | "openai" | "upload";
+  model: string;
+  fallbackUsed: boolean;
+  reason?: string;
+  aiGenerationCount: number;
+}
+
+interface MarketingCreativeOptions {
+  approvedPhotos: Array<{
+    key: "crew-ramp";
+    label: string;
+    description: string;
+    thumbnailUrl: string;
+  }>;
+  defaultApprovedPhoto: "crew-ramp";
+  maxAiGenerations: number;
+  readiness: {
+    deterministicReady: boolean;
+    openAiConfigured: boolean;
+    objectStorageConfigured: boolean;
+    aiReady: boolean;
+    imageModel: string;
+  };
 }
 
 interface MarketingAdReward {
@@ -121,6 +170,12 @@ interface MarketingCampaignPerformanceRow {
   attributed_cards: number;
   attributed_leads: number;
   attributed_bookings: number;
+  feed_image_url?: string | null;
+  og_image_url?: string | null;
+  share_url?: string | null;
+  creative_revision?: number;
+  creative_source?: MarketingCreativeSourceKind | null;
+  creative_fallback_used?: boolean;
 }
 
 interface MarketingCampaignPerformanceResponse {
@@ -188,7 +243,7 @@ const AD_AREA_OPTIONS = [
 ];
 const AD_FOCUS_OPTIONS = ["Moving help", "U-Haul load/unload", "Junk removal", "Delivery help", "PODS / U-Box help", "Last-minute labor"];
 const AD_NOTE_PRESETS = [
-  { label: "Route days", text: `${ROUTE_DAY_CAMPAIGN_NOTE} ${IRONWOOD_DAILY_DISCOUNT}` },
+  { label: "Route days", text: "More route days are added as demand grows." },
   { label: "Openings", text: "A few local openings this week. Send ZIP, date, and photos for a quick quote review." },
   { label: "Last-minute", text: "Last-minute load/unload and delivery help may be available depending on crew timing." },
   { label: "Heavy item", text: "Good fit for couches, appliances, garage items, storage units, and truck unloads." },
@@ -203,7 +258,8 @@ function appendAdNote(current: string, next: string) {
 }
 
 function buildAdPostText(draft: MarketingAdDraft) {
-  const linkLine = draft.trackedLink && !draft.facebookPost.includes(draft.trackedLink) ? `\n\n${draft.trackedLink}` : "";
+  const shareLink = draft.shareUrl || draft.trackedLink;
+  const linkLine = shareLink && !draft.facebookPost.includes(shareLink) ? `\n\n${shareLink}` : "";
   const hashtags = draft.hashtags?.length ? `\n\n${draft.hashtags.join(" ")}` : "";
   return `${draft.facebookPost}${linkLine}${hashtags}`.trim();
 }
@@ -271,6 +327,7 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
   const [adPhotoFileName, setAdPhotoFileName] = useState("");
   const [adPhotoPreview, setAdPhotoPreview] = useState("");
   const [adPhotoDataUrl, setAdPhotoDataUrl] = useState("");
+  const [adCreativeSource, setAdCreativeSource] = useState<MarketingCreativeSourceKind>("approved_photo");
   const [adDraft, setAdDraft] = useState<MarketingAdDraft | null>(null);
   const [adReward, setAdReward] = useState<MarketingAdReward | null>(null);
   const [walletChoiceOpen, setWalletChoiceOpen] = useState(false);
@@ -281,8 +338,13 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
   const { data: stakes = [] } = useQuery<Stake[]>({ queryKey: ["/api/staking/my-stakes"], retry: 1 });
   const { data: marketingReps = [] } = useQuery<MarketingRep[]>({ queryKey: ["/api/marketing-network/reps"], retry: 1 });
   const { data: crewPayouts = [] } = useQuery<CrewPayout[]>({ queryKey: ["/api/crew/payouts"], retry: 1 });
+  const { data: crewPayroll = [] } = useQuery<CrewPayrollPeriod[]>({ queryKey: ["/api/crew/payroll"], retry: 1 });
   const { data: myCampaignPerformance } = useQuery<MarketingCampaignPerformanceResponse>({
     queryKey: ["/api/crew/marketing/campaign-performance"],
+    retry: 1,
+  });
+  const { data: marketingCreativeOptions } = useQuery<MarketingCreativeOptions>({
+    queryKey: ["/api/crew/marketing/creative-options"],
     retry: 1,
   });
 
@@ -336,7 +398,7 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
       return referralLink;
     }
   }, [adArea, adFocus, marketingRep?.slug, referralLink, routeForAdArea]);
-  const adShareLink = adDraft?.trackedLink || trackedAdLink;
+  const adShareLink = adDraft?.shareUrl || adDraft?.trackedLink || trackedAdLink;
   const facebookShareHref = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(adShareLink)}`;
 
   useEffect(() => {
@@ -391,6 +453,11 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
         rawText: [adNotes, adPhotoFileName ? `Photo selected by crew: ${adPhotoFileName}` : ""].filter(Boolean).join("\n"),
         photoUrl: adPhotoUrl,
         photoDataUrl: adPhotoDataUrl || undefined,
+        creativeSource: {
+          kind: adCreativeSource,
+          approvedPhotoKey: "crew-ramp",
+          photoDataUrl: adCreativeSource === "uploaded_photo" ? adPhotoDataUrl || undefined : undefined,
+        },
         referralLink: trackedAdLink,
         promoCode: referralCode,
       });
@@ -403,15 +470,48 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
       queryClient.invalidateQueries({ queryKey: ["/api/admin/marketing/campaign-performance"] });
       const reward = data.marketingReward as MarketingAdReward | undefined;
       toast({
-        title: reward?.awarded ? "Ad draft ready + bonus issued" : "Ad draft ready",
+        title: reward?.awarded ? "Ad + image ready; bonus issued" : "Ad + image ready",
         description: reward?.awarded
           ? `+${Number(reward.bonusTokens || 0).toLocaleString()} JCMOVES for creating a tracked campaign.`
-          : data.draft?.fallbackUsed
-            ? "Template draft created. OpenAI fallback was used."
+          : data.draft?.creative?.fallbackUsed
+            ? data.draft.creative.reason || "Approved JC photo used as the creative fallback."
             : (reward?.reason || "ChatGPT-powered copy created."),
       });
     },
     onError: (e: Error) => toast({ title: "Ad draft failed", description: e.message, variant: "destructive" }),
+  });
+
+  const rerenderCreativeMutation = useMutation({
+    mutationFn: async () => {
+      if (!adDraft?.campaignId) throw new Error("Generate the campaign first.");
+      const response = await apiRequest("POST", `/api/crew/marketing/campaigns/${encodeURIComponent(adDraft.campaignId)}/creative`, {
+        source: {
+          kind: adCreativeSource,
+          approvedPhotoKey: "crew-ramp",
+          photoDataUrl: adCreativeSource === "uploaded_photo" ? adPhotoDataUrl || undefined : undefined,
+        },
+        refreshCaption: true,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setAdDraft((current) => current ? {
+        ...current,
+        facebookPost: data.facebookPost,
+        shareUrl: data.shareUrl,
+        trackedLink: data.trackedLink || current.trackedLink,
+        creative: data.creative,
+      } : current);
+      queryClient.invalidateQueries({ queryKey: ["/api/crew/marketing/campaign-performance"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/marketing/campaign-performance"] });
+      toast({
+        title: `Creative updated to revision ${data.creative?.revision || "new"}`,
+        description: data.creative?.fallbackUsed
+          ? data.creative.reason || "Approved JC photo used."
+          : "The same campaign and tracking attribution were preserved. No additional reward was issued.",
+      });
+    },
+    onError: (e: Error) => toast({ title: "Creative update failed", description: e.message, variant: "destructive" }),
   });
 
   const handleAdPhotoFile = async (file: File | undefined) => {
@@ -421,7 +521,8 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
       setAdPhotoFileName(file.name);
       setAdPhotoPreview(dataUrl);
       setAdPhotoDataUrl(dataUrl);
-      toast({ title: "Photo added", description: "The ad writer can use this photo context." });
+      setAdCreativeSource("uploaded_photo");
+      toast({ title: "Photo added", description: "Device upload selected as the creative source." });
     } catch (error) {
       setAdPhotoFileName("");
       setAdPhotoPreview("");
@@ -434,6 +535,56 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
     }
   };
 
+  const downloadCreativeImage = async (draft: MarketingAdDraft) => {
+    if (!draft.creative?.feedImageUrl) throw new Error("No generated image is available yet.");
+    const response = await fetch(draft.creative.feedImageUrl, { credentials: "include" });
+    if (!response.ok) throw new Error("Could not download the generated image.");
+    const blob = await response.blob();
+    const file = new File([blob], `jc-on-the-move-${draft.campaignId || "facebook-ad"}.jpg`, { type: "image/jpeg" });
+    return { blob, file };
+  };
+
+  const saveCreativeImage = (blob: Blob, draft: MarketingAdDraft) => {
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = `jc-on-the-move-${draft.campaignId || "facebook-ad"}.jpg`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  };
+
+  const prepareFacebookShare = async (draft: MarketingAdDraft) => {
+    const post = buildAdPostText(draft);
+    let creative: Awaited<ReturnType<typeof downloadCreativeImage>> | null = null;
+    try {
+      creative = await downloadCreativeImage(draft);
+      if (navigator.share && navigator.canShare?.({ files: [creative.file] })) {
+        await navigator.share({
+          files: [creative.file],
+          title: draft.headline,
+          text: post,
+          url: draft.shareUrl || draft.trackedLink,
+        });
+        toast({ title: "Share sheet opened", description: "Choose Facebook or another app to post the image and tracked caption." });
+        return;
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+    }
+
+    if (creative) saveCreativeImage(creative.blob, draft);
+    try {
+      await navigator.clipboard?.writeText(post);
+    } catch {}
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(draft.shareUrl || draft.trackedLink || trackedAdLink)}`, "_blank", "noopener,noreferrer");
+    toast({
+      title: creative ? "Image downloaded + caption copied" : "Caption copied",
+      description: "Facebook opened. Upload the downloaded image, then paste the caption.",
+    });
+  };
+
   const tokenBalance = parseFloat(wallet?.tokenBalance || wallet?.balance || "0");
   const totalEarned = parseFloat(wallet?.totalEarned || "0");
   const canClaim = !!miningStatus?.currentSession && parseFloat(miningStatus.accumulatedTokens || "0") > 0;
@@ -441,12 +592,8 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
   const history: RewardHistory[] = Array.isArray(rewardsHistory) ? rewardsHistory : [];
   const recentHistory = history.slice(0, 20);
   const cashPayouts = Array.isArray(crewPayouts) ? crewPayouts : [];
-  const pendingCashPay = cashPayouts
-    .filter((payout) => payout.payoutStatus === "manual_pending" || payout.payoutStatus === "stripe_pending")
-    .reduce((sum, payout) => sum + parseFloat(payout.totalPay || "0"), 0);
-  const paidCashPay = cashPayouts
-    .filter((payout) => payout.payoutStatus === "manual_paid" || payout.payoutStatus === "stripe_paid")
-    .reduce((sum, payout) => sum + parseFloat(payout.totalPay || "0"), 0);
+  const pendingCashPay = cashPayouts.reduce((sum, payout) => sum + parseFloat(payout.hourlyPay || "0") + parseFloat(payout.driverPremiumPay || "0") + parseFloat(payout.authorityBonusPay || "0"), 0);
+  const paidCashPay = crewPayroll.filter((group) => group.period.status === "recorded_paid").reduce((sum, group) => sum + Number(group.total || 0), 0);
   const myAdCampaigns = myCampaignPerformance?.campaigns || [];
   const myAdSummary = myCampaignPerformance?.summary || {
     totalCampaigns: 0,
@@ -553,7 +700,7 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
             <p className="text-xs font-black uppercase tracking-widest text-blue-300">1-2-3 ad builder</p>
             <h2 className="mt-1 text-lg font-black text-white">Create a local Facebook post</h2>
             <p className="mt-1 text-xs leading-relaxed text-slate-300">
-              Pick the area, pick the job focus, add a photo or note, then copy the post with your tracked booking link.
+              Pick the area and job focus, choose an image source, then generate a branded photo and tracked caption together.
             </p>
           </div>
           <Sparkles className="h-5 w-5 shrink-0 text-blue-300" />
@@ -608,12 +755,67 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="ad-photo" className="text-xs text-slate-300">Photo URL</Label>
+            <Label className="text-xs text-slate-300">Creative source</Label>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {([
+                {
+                  kind: "approved_photo" as const,
+                  label: "Approved JC photo",
+                  detail: "Real crew-ramp photo; always ready.",
+                  icon: ImageIcon,
+                },
+                {
+                  kind: "uploaded_photo" as const,
+                  label: "Device upload",
+                  detail: adPhotoFileName || "Choose your own job photo.",
+                  icon: Upload,
+                },
+                {
+                  kind: "ai_scene" as const,
+                  label: "Optional AI scene",
+                  detail: marketingCreativeOptions?.readiness.aiReady
+                    ? `Ready with ${marketingCreativeOptions.readiness.imageModel}.`
+                    : "Falls back to approved photo if unavailable.",
+                  icon: Sparkles,
+                },
+              ]).map((option) => {
+                const Icon = option.icon;
+                return (
+                  <button
+                    key={option.kind}
+                    type="button"
+                    onClick={() => setAdCreativeSource(option.kind)}
+                    className={`rounded-xl border p-3 text-left transition ${
+                      adCreativeSource === option.kind
+                        ? "border-blue-400 bg-blue-500/20"
+                        : "border-slate-700 bg-slate-950/40 hover:border-blue-500/60"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 text-xs font-black text-white"><Icon className="h-4 w-4 text-blue-300" />{option.label}</span>
+                    <span className="mt-1 block text-[10px] leading-relaxed text-slate-400">{option.detail}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {adCreativeSource === "approved_photo" && (
+              <div className="mt-2 flex items-center gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-2.5">
+                <img
+                  src={marketingCreativeOptions?.approvedPhotos?.[0]?.thumbnailUrl || "/marketing-sources/crew-ramp.jpg"}
+                  alt="Approved JC crew-ramp source"
+                  className="h-12 w-16 rounded-md border border-white/10 object-cover"
+                />
+                <p className="text-[11px] leading-relaxed text-emerald-100">Approved real JC photo. Branded text is added exactly after the image is selected.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="ad-photo" className="text-xs text-slate-300">Reference photo URL <span className="text-slate-500">(caption context only)</span></Label>
             <Input
               id="ad-photo"
               value={adPhotoUrl}
               onChange={(event) => setAdPhotoUrl(event.target.value)}
-              placeholder="Optional: paste a photo link"
+              placeholder="Optional: paste a reference photo link"
               className="border-slate-700 bg-slate-950/50 text-white"
             />
           </div>
@@ -671,16 +873,31 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
             className="bg-blue-600 text-white hover:bg-blue-500"
           >
             <Sparkles className="mr-2 h-4 w-4" />
-            {adDraftMutation.isPending ? "Writing..." : "Generate Ad"}
+            {adDraftMutation.isPending ? "Writing + designing..." : "Generate Ad + Image"}
           </Button>
         </div>
 
         {adDraft && (
           <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/50 p-3">
+            {adDraft.creative && (
+              <div className="overflow-hidden rounded-xl border border-blue-500/25 bg-slate-900">
+                <img
+                  src={adDraft.creative.feedImageUrl}
+                  alt={adDraft.creative.altText}
+                  className="aspect-[4/5] w-full object-cover"
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-3 py-2 text-[10px] text-slate-400">
+                  <span>1080 × 1350 Facebook feed creative</span>
+                  <span className="font-bold uppercase tracking-wider text-blue-200">
+                    Revision {adDraft.creative.revision} · {adDraft.creative.sourceKind.replace(/_/g, " ")}
+                  </span>
+                </div>
+              </div>
+            )}
             <div className="flex items-start gap-3">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-700 bg-slate-900">
-                {adPhotoUrl || adPhotoPreview ? (
-                  <img src={adPhotoUrl || adPhotoPreview} alt="" className="h-full w-full object-cover" />
+                {adDraft.creative?.feedImageUrl || adPhotoUrl || adPhotoPreview ? (
+                  <img src={adDraft.creative?.feedImageUrl || adPhotoUrl || adPhotoPreview} alt="" className="h-full w-full object-cover" />
                 ) : (
                   <ImageIcon className="h-5 w-5 text-slate-500" />
                 )}
@@ -733,7 +950,10 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
                   <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300">Campaign {adDraft.campaignId}</p>
                 )}
                 {adDraft.trackedLink && (
-                  <p className="mt-1 break-all font-mono text-[11px] text-emerald-100">{adDraft.trackedLink}</p>
+                  <p className="mt-1 break-all font-mono text-[11px] text-emerald-100">Destination: {adDraft.trackedLink}</p>
+                )}
+                {adDraft.shareUrl && (
+                  <p className="mt-1 break-all font-mono text-[11px] text-blue-100">Facebook preview: {adDraft.shareUrl}</p>
                 )}
                 {adReward && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
@@ -755,19 +975,27 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
               <button
                 type="button"
                 className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-emerald-400"
-                onClick={() => {
-                  const post = buildAdPostText(adDraft);
-                  window.open(facebookShareHref, "_blank", "noopener,noreferrer");
-                  if (!navigator.clipboard) {
-                    return;
-                  }
-                  navigator.clipboard.writeText(post)
-                    .then(() => toast({ title: "Ad copied", description: "Paste it into the Facebook tab." }))
-                    .catch(() => toast({ title: "Copy failed", description: "Long-press the post text to copy it.", variant: "destructive" }));
-                }}
+                onClick={() => prepareFacebookShare(adDraft)}
               >
-                <Share2 className="h-3.5 w-3.5" /> Copy + Facebook
+                <Share2 className="h-3.5 w-3.5" /> Share image + post
               </button>
+              {adDraft.creative && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-xs font-black text-blue-200 hover:bg-blue-500/20"
+                  onClick={async () => {
+                    try {
+                      const creative = await downloadCreativeImage(adDraft);
+                      saveCreativeImage(creative.blob, adDraft);
+                      toast({ title: "Feed image downloaded", description: "Upload this 1080 × 1350 JPEG to Facebook." });
+                    } catch (error) {
+                      toast({ title: "Download failed", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
+                    }
+                  }}
+                >
+                  <ImageIcon className="h-3.5 w-3.5" /> Download image
+                </button>
+              )}
               <button
                 type="button"
                 className="inline-flex items-center gap-2 rounded-lg bg-blue-500 px-3 py-2 text-xs font-black text-white hover:bg-blue-400"
@@ -778,7 +1006,7 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
                     .catch(() => toast({ title: "Copy failed", description: "Long-press the post text to copy it.", variant: "destructive" }));
                 }}
               >
-                <Copy className="h-3.5 w-3.5" /> Copy ad
+                <Copy className="h-3.5 w-3.5" /> Copy caption
               </button>
               <button
                 type="button"
@@ -823,9 +1051,23 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
                   <MessageCircle className="h-3.5 w-3.5" /> Copy follow-up
                 </button>
               )}
+              {adDraft.campaignId && (
+                <button
+                  type="button"
+                  disabled={rerenderCreativeMutation.isPending}
+                  className="inline-flex items-center gap-2 rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-2 text-xs font-black text-violet-200 hover:bg-violet-500/20 disabled:opacity-50"
+                  onClick={() => rerenderCreativeMutation.mutate()}
+                >
+                  {rerenderCreativeMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  Update same campaign
+                </button>
+              )}
             </div>
             {adDraft.fallbackUsed && (
               <p className="mt-2 text-[11px] text-amber-300">Template fallback used: {adDraft.reason || "AI unavailable"}</p>
+            )}
+            {adDraft.creative?.fallbackUsed && (
+              <p className="mt-2 text-[11px] text-amber-300">Image fallback: {adDraft.creative.reason || "Approved JC photo used."}</p>
             )}
           </div>
         )}
@@ -865,11 +1107,28 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
               return (
                 <div key={campaign.id} className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    {campaign.feed_image_url && (
+                      <img
+                        src={campaign.feed_image_url}
+                        alt=""
+                        className="h-14 w-12 shrink-0 rounded-md border border-white/10 object-cover"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-black text-white">{campaign.title || "Local ad"}</p>
                       <p className="mt-0.5 truncate text-xs text-slate-400">
                         {campaign.area || "Any area"} - {campaign.focus || "Any focus"}
                       </p>
+                      {campaign.share_url && (
+                        <a
+                          href={campaign.share_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 inline-flex text-[10px] font-bold text-blue-300 hover:text-blue-200"
+                        >
+                          Open preview · r{campaign.creative_revision || 1}
+                        </a>
+                      )}
                     </div>
                     <span className="shrink-0 rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] font-bold text-slate-300">
                       {new Date(campaign.last_activity_at || campaign.created_at).toLocaleDateString()}
@@ -1013,36 +1272,36 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
         </Link>
       </div>
 
-      {/* Cash payout visibility */}
+      {/* Employee earnings visibility */}
       <Card className="border-emerald-500/20 bg-emerald-950/20">
         <CardHeader className="pb-3">
           <CardTitle className="text-white flex items-center gap-2 text-base">
-            <Coins className="h-4 w-4 text-emerald-300" /> Cash Payouts
+            <Coins className="h-4 w-4 text-emerald-300" /> Employee Earnings
           </CardTitle>
           <CardDescription className="text-slate-400 text-xs">
-            Hourly pay, profit-share bonus, and manual payout status
+            Monthly classification pay, driver and authority bonuses, and customer tips; profit bonuses are paid quarterly
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Pending</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Finalized monthly earnings</p>
               <p className="mt-1 text-xl font-black text-white">{money(pendingCashPay)}</p>
             </div>
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">Paid</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">Ledgered paid periods</p>
               <p className="mt-1 text-xl font-black text-white">{money(paidCashPay)}</p>
             </div>
           </div>
 
           {cashPayouts.length === 0 ? (
             <p className="rounded-lg border border-slate-700/40 bg-slate-900/40 p-3 text-sm text-slate-400">
-              No finalized cash payout records yet.
+              No finalized employee earnings records yet.
             </p>
           ) : (
             <div className="space-y-2">
               {cashPayouts.slice(0, 8).map((payout) => {
-                const statusIsPaid = payout.payoutStatus === "manual_paid" || payout.payoutStatus === "stripe_paid";
+                const statusIsPaid = payout.payoutStatus === "payroll_recorded_paid";
                 const statusIsFailed = payout.payoutStatus === "failed";
                 const customer = [payout.firstName, payout.lastName].filter(Boolean).join(" ").trim() || "Job";
                 return (
@@ -1062,18 +1321,26 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
                         {payoutStatusLabel(payout.payoutStatus)}
                       </span>
                     </div>
-                    <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-center sm:grid-cols-6">
                       <div>
                         <p className="text-[10px] text-slate-500">Hours</p>
                         <p className="text-sm font-bold text-slate-200">{parseFloat(payout.hoursWorked || "0").toFixed(2)}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-slate-500">Hourly</p>
+                        <p className="text-[10px] text-slate-500">Classification</p>
                         <p className="text-sm font-bold text-blue-300">{money(payout.hourlyPay)}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-slate-500">Bonus</p>
-                        <p className="text-sm font-bold text-purple-300">{money(payout.bonusPay)}</p>
+                        <p className="text-[10px] text-slate-500">Driver</p>
+                        <p className="text-sm font-bold text-blue-300">{money(payout.driverPremiumPay)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-500">5% / 10%</p>
+                        <p className="text-sm font-bold text-purple-300">{money(payout.authorityBonusPay)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-500">Quarterly profit bonus</p>
+                        <p className="text-sm font-bold text-amber-300">{money(payout.crewBonusPay)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] text-slate-500">Total</p>
@@ -1081,8 +1348,7 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
                       </div>
                     </div>
                     <p className="mt-2 text-[10px] text-slate-500">
-                      JCMOVES reward estimate: {parseFloat(payout.jcmovesRewardAmount || "0").toFixed(0)}
-                      {payout.rewardsIssuedAt ? ` - rewards issued ${new Date(payout.rewardsIssuedAt).toLocaleDateString()}` : ""}
+                      {(payout.roleOnJob || "mover").replace(/_/g, " ")} · {(parseFloat(payout.jobRevenueSharePct || "0") * 100).toFixed(1)}% of job revenue · JCMOVES are tracked separately at paid job completion.
                     </p>
                   </div>
                 );

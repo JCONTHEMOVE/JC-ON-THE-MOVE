@@ -87,6 +87,10 @@ const OPTIONAL_HEALTH_ENV = [
   "SENDGRID_API_KEY",
   "COMPANY_EMAIL",
   "VITE_SOLANA_RPC_URL",
+  "OPENAI_API_KEY",
+  "OPENAI_IMAGE_MODEL",
+  "PUBLIC_OBJECT_SEARCH_PATHS",
+  "GOOGLE_CLOUD_PROJECT_ID",
 ] as const;
 
 function envPresence(names: readonly string[]) {
@@ -161,6 +165,13 @@ async function sendEarlyReadiness(_req: Request, res: Response) {
         port: process.env.PORT || "5000",
       },
       db: dbCheck,
+      marketingCreative: {
+        deterministicReady: true,
+        openAiConfigured: Boolean(process.env.OPENAI_API_KEY?.trim()),
+        objectStorageConfigured: Boolean(process.env.PUBLIC_OBJECT_SEARCH_PATHS?.trim()),
+        aiReady: Boolean(process.env.OPENAI_API_KEY?.trim() && process.env.PUBLIC_OBJECT_SEARCH_PATHS?.trim()),
+        imageModel: process.env.OPENAI_IMAGE_MODEL || "gpt-image-2",
+      },
       env: {
         status: envReady ? "ready" : "not_ready",
         missingRequired: missingRequiredEnv,
@@ -332,6 +343,7 @@ server.listen(port, '0.0.0.0', () => {
           ALTER TABLE leads
             ADD COLUMN IF NOT EXISTS payment_plan             TEXT,
             ADD COLUMN IF NOT EXISTS payment_paid_at          TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS jcmoves_reward_base      NUMERIC(10,2),
             ADD COLUMN IF NOT EXISTS dispatch_override_reason TEXT
         `);
         console.log('✅ Task #175 payment columns ready');
@@ -397,6 +409,9 @@ server.listen(port, '0.0.0.0', () => {
           UNIQUE (lead_id, recipient_type, recipient_user_id, reward_kind)
         );
         CREATE INDEX IF NOT EXISTS idx_job_jcmoves_ledger_lead ON job_jcmoves_ledger(lead_id, created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_job_jcmoves_ledger_pending_recipient
+          ON job_jcmoves_ledger(lead_id, recipient_type, reward_kind)
+          WHERE recipient_user_id IS NULL;
       `);
       console.log('Job rate-card and JCMOVES ledger fields ready');
     }

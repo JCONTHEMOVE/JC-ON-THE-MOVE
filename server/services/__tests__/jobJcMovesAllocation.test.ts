@@ -26,12 +26,13 @@ test("gives the selected lead the 15% bonus and any rounding remainder", () => {
     assert.equal(Object.values(allocation.amounts).reduce((sum, amount) => sum + amount, 0), 5_250);
 });
 
-test("deduplicates crew and falls back to the first selected member as lead", () => {
+test("deduplicates crew and splits evenly when no crew lead is selected", () => {
     const allocation = calculateCrewPoolAllocation(100, ["a", "a", "b"], "not-selected");
 
     assert.deepEqual(allocation.crewIds, ["a", "b"]);
-    assert.equal(allocation.crewLeadId, "a");
-    assert.deepEqual(allocation.amounts, { a: 58, b: 42 });
+    assert.equal(allocation.crewLeadId, null);
+    assert.equal(allocation.leadBonus, 0);
+    assert.deepEqual(allocation.amounts, { a: 50, b: 50 });
 });
 
 console.log(`${passed} tests passed.`);

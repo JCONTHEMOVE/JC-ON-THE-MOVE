@@ -7,7 +7,6 @@
 //   bash scripts/run-server-tests.sh
 
 import assert from "node:assert/strict";
-import { canFinalizeProfitSharePayout, shouldIssueJcmovesRewardForPayoutStatus } from "../../../shared/jobPayout";
 import type { ProfitShareJobInput, ProfitShareRole } from "../../../shared/jobPayout";
 import {
   calculateProfitSharingPayout,
@@ -48,7 +47,7 @@ function baseJob(overrides: Partial<ProfitShareJobInput> = {}): ProfitShareJobIn
         roleOnJob: "lead_mover",
         hourlyRate: 30,
         hoursWorked: 4,
-        bonusWeight: 60,
+        bonusWeight: 1.5,
       },
       {
         workerId: "mover_1",
@@ -56,7 +55,7 @@ function baseJob(overrides: Partial<ProfitShareJobInput> = {}): ProfitShareJobIn
         roleOnJob: "mover",
         hourlyRate: 25,
         hoursWorked: 4,
-        bonusWeight: 40,
+        bonusWeight: 1,
       },
     ],
     ...overrides,
@@ -87,7 +86,7 @@ test("matches the $1,000 launch-plan example with referral partner", () => {
   assert.equal(preview.workerPayouts[0].hourlyPay, 120);
   assert.equal(preview.workerPayouts[0].bonusPay, 75);
   assert.equal(preview.workerPayouts[0].totalPay, 195);
-  assert.equal(preview.workerPayouts[0].jcmovesRewardAmount, 195);
+  assert.equal(preview.workerPayouts[0].jcmovesRewardAmount, 0);
 
   assert.equal(preview.workerPayouts[1].hourlyPay, 100);
   assert.equal(preview.workerPayouts[1].bonusPay, 50);
@@ -158,32 +157,36 @@ test("negative-profit jobs preserve hourly pay but block bonus/referral/growth p
   assert.equal(preview.adminOverrideRequired, true);
 });
 
-test("default bonus weights match two-, three-, and four-person crew rules", () => {
+test("default quarterly profit-bonus weights follow worker classification", () => {
   const two: ProfitShareRole[] = ["lead_mover", "mover"];
   const three: ProfitShareRole[] = ["lead_mover", "mover", "helper"];
   const four: ProfitShareRole[] = ["lead_mover", "mover", "mover", "helper"];
 
-  assert.deepEqual(defaultBonusWeightsForCrew(two), [60, 40]);
-  assert.deepEqual(defaultBonusWeightsForCrew(three), [45, 35, 20]);
-  assert.deepEqual(defaultBonusWeightsForCrew(four), [40, 25, 20, 15]);
+  assert.deepEqual(defaultBonusWeightsForCrew(two), [1.5, 1]);
+  assert.deepEqual(defaultBonusWeightsForCrew(three), [1.5, 1, 0.75]);
+  assert.deepEqual(defaultBonusWeightsForCrew(four), [1.5, 1, 1, 0.75]);
 });
 
-test("payout finalization is blocked until status is Customer Approved", () => {
-  assert.equal(canFinalizeProfitSharePayout("customer_approved"), true);
-  assert.equal(canFinalizeProfitSharePayout("completed"), false);
-  assert.equal(canFinalizeProfitSharePayout("payout_calculated"), false);
-  assert.equal(canFinalizeProfitSharePayout("payout_sent"), false);
-  assert.equal(canFinalizeProfitSharePayout(null), false);
-});
-
-test("JCMOVES payout rewards issue only after worker cash payout is paid", () => {
-  assert.equal(shouldIssueJcmovesRewardForPayoutStatus("manual_paid"), true);
-  assert.equal(shouldIssueJcmovesRewardForPayoutStatus("stripe_paid"), true);
-  assert.equal(shouldIssueJcmovesRewardForPayoutStatus("manual_pending"), false);
-  assert.equal(shouldIssueJcmovesRewardForPayoutStatus("stripe_pending"), false);
-  assert.equal(shouldIssueJcmovesRewardForPayoutStatus("failed"), false);
-  assert.equal(shouldIssueJcmovesRewardForPayoutStatus("calculated"), false);
-  assert.equal(shouldIssueJcmovesRewardForPayoutStatus(null), false);
+test("adds a driver premium and snapshots a Silver 5% authority bonus", () => {
+  const preview = calculateProfitSharingPayout(baseJob({
+    workers: [{
+      workerId: "lead_1",
+      workerName: "Lead Driver",
+      roleOnJob: "lead_mover",
+      hourlyRate: 30,
+      hoursWorked: 4,
+      bonusWeight: 1.5,
+      isDriverForJob: true,
+      driverHourlyPremium: 5,
+      authorityTier: "silver",
+    }],
+  }));
+  const worker = preview.workerPayouts[0];
+  assert.equal(worker.classificationPay, 120);
+  assert.equal(worker.driverPremiumPay, 20);
+  assert.equal(worker.authorityBonusPct, 0.05);
+  assert.equal(worker.authorityBonusPay, 7);
+  assert.equal(worker.jcmovesRewardAmount, 0);
 });
 
 console.log(`\n${passed} profit-share payout test(s) passed.`);

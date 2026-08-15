@@ -31,6 +31,7 @@ import { BookingMenuIntelligenceCard } from "@/components/BookingMenuIntelligenc
 import { extractBookingMenuIntelligence } from "@/lib/booking-menu-intelligence";
 import type { MarketplaceActionPhase } from "@shared/marketplaceShapes";
 import type { JobFlow } from "@shared/job-flow";
+import { calculateBtcLightningOffer } from "@shared/btcLightningOffer";
 
 interface SquareInvoice {
   id: string;
@@ -216,6 +217,16 @@ interface DisbursementRecord {
   first_name?: string;
   username?: string;
   metadata?: Record<string, unknown>;
+}
+
+interface JcMovesPayoutStatus {
+  state: "full_payment_missing" | "completion_missing" | "ready_to_issue" | "pending_customer_claim" | "issued";
+  paidInFull: boolean;
+  completed: boolean;
+  rewardEligibleTotal: number;
+  customerPool: number;
+  crewPool: number;
+  records: Array<{ recipient_type: string; recipient_label: string | null; reward_kind: string; token_amount: string; created_at: string }>;
 }
 
 interface Employee {
@@ -453,8 +464,12 @@ export default function LeadDetailPage() {
   const [btcAmount, setBtcAmount] = useState("");
   const [btcPaymentLink, setBtcPaymentLink] = useState<string | null>(null);
   const [copiedBtcLink, setCopiedBtcLink] = useState(false);
+  const btcOfferPreview = useMemo(() => {
+    const amount = Number(btcAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    return calculateBtcLightningOffer(amount);
+  }, [btcAmount]);
   const [selectedCrewMembers, setSelectedCrewMembers] = useState<string[]>([]);
-  const [bonusMover, setBonusMover] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const { hasAdminAccess, isEmployee } = useAuth();
@@ -520,6 +535,16 @@ export default function LeadDetailPage() {
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
     enabled: hasAdminAccess,
+  });
+
+  const { data: jcmovesPayout } = useQuery<JcMovesPayoutStatus>({
+    queryKey: ["/api/leads", params?.id, "jcmoves-status"],
+    queryFn: async () => {
+      const res = await fetch(`/api/leads/${params?.id}/jcmoves-status`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch JCMOVES payout status");
+      return res.json();
+    },
+    enabled: !!params?.id && hasAdminAccess,
   });
 
   const { data: leadInvoices = [] } = useQuery<SquareInvoice[]>({
@@ -598,8 +623,6 @@ export default function LeadDetailPage() {
       });
       const members = lead.crewMembers || [];
       setSelectedCrewMembers(members);
-      const inferredBonus = members.length > 0 && (lead.crewSize ?? 0) > members.length;
-      setBonusMover(inferredBonus);
       // Sync plan state from lead
       setPlanCrewSize(lead.crewSize || packageDraft?.crew || 2);
       setPlanHours(Math.max(2, lead.confirmedHours || packageDraft?.hours || 2));
@@ -785,6 +808,7 @@ export default function LeadDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "jcmoves-status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
       const invoiceNote = data.squareInvoiceCreated ? " + invoice" : "";
       toast({
@@ -802,19 +826,6 @@ export default function LeadDetailPage() {
         }
       } catch (_) {}
       toast({ title: "Send failed", description: msg, variant: "destructive" });
-    },
-  });
-
-  const toggleBonusMover = useMutation({
-    mutationFn: async ({ memberId, isBonus }: { memberId: string; isBonus: boolean }) => {
-      if (!lead) throw new Error("Lead not loaded");
-      const current: Record<string, boolean> = lead.crewBonusFlags ?? {};
-      const updated = { ...current, [memberId]: isBonus };
-      return await apiRequest("PATCH", `/api/leads/${params?.id}`, { crewBonusFlags: updated });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      toast({ title: "Updated", description: "Bonus mover flag saved." });
     },
   });
 
@@ -875,25 +886,17 @@ export default function LeadDetailPage() {
       const amount = parseFloat(btcAmount);
       if (!amount || amount <= 0) throw new Error("Please enter a valid amount");
       if (!lead) throw new Error("Lead not found");
-      const response = await apiRequest("POST", "/api/btc/create-payment", {
-        customerName: `${lead.firstName} ${lead.lastName}`,
-        customerEmail: lead.email,
-        customerPhone: lead.phone,
-        usdAmount: amount,
-        referenceType: "job_payment",
-        referenceId: lead.id,
-        notes: `${lead.serviceType} - ${lead.firstName} ${lead.lastName}`,
-        items: [{ name: `${lead.serviceType}`, amount }],
+      const response = await apiRequest("POST", `/api/crypto/lightning/job-checkout/${lead.id}`, {
+        originalAmountUsd: amount,
       });
       return response.json();
     },
     onSuccess: (data) => {
-      const link = `${window.location.origin}/bitcoin-payment?id=${data.payment?.id || data.id}`;
-      setBtcPaymentLink(link);
-      toast({ title: "Bitcoin payment link created!", description: "Share this link with the customer to collect payment." });
+      setBtcPaymentLink(data.checkoutUrl);
+      toast({ title: "Bitcoin Lightning checkout created!", description: "Share the secure checkout link with the customer." });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create BTC payment", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to create Lightning checkout", description: error.message, variant: "destructive" });
     },
   });
 
@@ -959,6 +962,7 @@ export default function LeadDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "jcmoves-status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
       toast({ title: "Status updated", description: "Lead pipeline stage advanced." });
     },
@@ -983,11 +987,26 @@ export default function LeadDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "jcmoves-status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
       toast({ title: "Dispatched!", description: "Job marked as paid and crew SMS sent." });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message || "Failed to dispatch", variant: "destructive" });
+    },
+  });
+
+  const retryDisbursementMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/leads/${params?.id}/retry-disbursement`, {}),
+    onSuccess: async (response) => {
+      const data = await response.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "jcmoves-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rewards/lead", params?.id] });
+      toast({ title: "JCMOVES payout checked", description: data.note || "Missing eligible awards were issued safely." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not retry JCMOVES payout", description: error.message, variant: "destructive" });
     },
   });
 
@@ -1006,7 +1025,7 @@ export default function LeadDetailPage() {
     },
   });
 
-  const computeEffectiveCrewSize = () => selectedCrewMembers.length + (bonusMover ? 1 : 0);
+  const computeEffectiveCrewSize = () => Math.max(1, selectedCrewMembers.length);
 
   const handleJobSetupSaved = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
@@ -1427,13 +1446,23 @@ export default function LeadDetailPage() {
             : leadHasQuote
               ? "Quote ready"
               : "No quote yet";
-  const jcmovesState = lead.completionRewardedAt || creditedRewards.length > 0
+  const jcmovesState = jcmovesPayout?.state === "issued"
     ? "JCMOVES issued"
-    : pendingRewards.length > 0
-      ? "JCMOVES pending"
-      : statusKey === "completed"
-        ? "Payout review pending"
-        : "Not issued";
+    : jcmovesPayout?.state === "pending_customer_claim"
+      ? "Customer JCMOVES held for signup"
+      : jcmovesPayout?.state === "full_payment_missing"
+        ? "Waiting for full payment"
+        : jcmovesPayout?.state === "completion_missing"
+          ? "Waiting for job completion"
+          : jcmovesPayout?.state === "ready_to_issue"
+            ? "JCMOVES ready to issue"
+            : lead.completionRewardedAt || creditedRewards.length > 0
+              ? "JCMOVES issued"
+              : pendingRewards.length > 0
+                ? "JCMOVES pending"
+                : statusKey === "completed"
+                  ? "Payout review pending"
+                  : "Not issued";
 
   return (
     <div className="min-h-screen bg-background">
@@ -1722,10 +1751,32 @@ export default function LeadDetailPage() {
                 <div className="min-w-0">
                   <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">JCMOVES<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain JCMOVES"><CircleHelp className="h-3 w-3" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">Projections use the saved rate card. Permanent customer and crew ledger entries are created only after this job is paid and completed.</PopoverContent></Popover></p>
                   <p className="text-sm font-medium">{jcmovesState}</p>
+                  {jcmovesPayout && <p className="mt-0.5 text-xs text-amber-300">${jcmovesPayout.rewardEligibleTotal.toFixed(2)} reward base · {jcmovesPayout.customerPool.toLocaleString()} customer + {jcmovesPayout.crewPool.toLocaleString()} crew-pool JCMOVES</p>}
+                  {jcmovesPayout?.records.length ? (
+                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      {jcmovesPayout.records.map((record, index) => (
+                        <p key={`${record.recipient_type}-${record.recipient_label || "recipient"}-${index}`}>
+                          Receipt: {record.recipient_label || record.recipient_type} · {Number(record.token_amount).toLocaleString()} JCMOVES · {new Date(record.created_at).toLocaleString()}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
                   {hasAdminAccess && (
-                    <button type="button" onClick={() => { setShowAdvanced(true); setActiveTab("history"); }} className="mt-1 text-xs font-medium text-blue-400 hover:underline">
-                      Open reward and payout details
-                    </button>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                      <button type="button" onClick={() => { setShowAdvanced(true); setActiveTab("history"); }} className="text-xs font-medium text-blue-400 hover:underline">
+                        Open reward and payout details
+                      </button>
+                      {jcmovesPayout?.state === "ready_to_issue" && (
+                        <button
+                          type="button"
+                          onClick={() => retryDisbursementMutation.mutate()}
+                          disabled={retryDisbursementMutation.isPending}
+                          className="text-xs font-medium text-amber-300 hover:underline disabled:opacity-60"
+                        >
+                          {retryDisbursementMutation.isPending ? "Checking payout…" : "Retry safe payout check"}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -2261,7 +2312,7 @@ export default function LeadDetailPage() {
                   <CardTitle className="flex items-center justify-between text-base">
                     <span className="flex items-center gap-2"><Users className="h-4 w-4" />Crew Assignment</span>
                     <span className="text-sm font-normal text-muted-foreground">
-                      {selectedCrewMembers.length + (bonusMover ? 1 : 0)} mover{(selectedCrewMembers.length + (bonusMover ? 1 : 0)) !== 1 ? "s" : ""}
+                      {selectedCrewMembers.length} mover{selectedCrewMembers.length !== 1 ? "s" : ""}
                     </span>
                   </CardTitle>
                 </CardHeader>
@@ -2293,12 +2344,7 @@ export default function LeadDetailPage() {
                           })
                         )}
                       </div>
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="bonus-mover-toggle" className="flex items-center gap-2 cursor-pointer text-sm">
-                          Bonus Mover <span className="text-xs text-muted-foreground">(+1 crew, +25%)</span>
-                        </Label>
-                        <Switch id="bonus-mover-toggle" checked={bonusMover} onCheckedChange={setBonusMover} data-testid="toggle-bonus-mover" />
-                      </div>
+                      <p className="text-xs text-muted-foreground">Set payout classifications, the designated driver, and profit-bonus weights in Job Setup or Finance.</p>
                     </>
                   ) : selectedCrewMembers.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5" data-testid="crew-member-badges">
@@ -2311,29 +2357,11 @@ export default function LeadDetailPage() {
                           </Badge>
                         );
                       })}
-                      {bonusMover && <Badge className="text-xs bg-amber-600/20 text-amber-400 border-amber-500/30">+1 Bonus Mover</Badge>}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground italic">No crew assigned yet</p>
                   )}
 
-                  {/* Bonus mover flags (view-only) */}
-                  {!isEditing && lead.crewMembers && lead.crewMembers.length > 0 && (
-                    <div className="mt-3 pt-3 border-t space-y-1">
-                      <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">Bonus Mover (+25% payout)</p>
-                      {lead.crewMembers.map((mid: string) => {
-                        const isBonus = lead.crewBonusFlags?.[mid] === true;
-                        const emp = employees.find((e: Employee) => e.id === mid);
-                        const displayName = emp ? `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || emp.email : `Crew #${mid.slice(0, 6)}`;
-                        return (
-                          <div key={mid} className="flex items-center gap-2 text-xs">
-                            <Checkbox checked={isBonus} onCheckedChange={(v) => toggleBonusMover.mutate({ memberId: mid, isBonus: !!v })} disabled={toggleBonusMover.isPending} className="h-3.5 w-3.5" />
-                            <span className={isBonus ? "text-amber-400 font-medium" : "text-slate-400"}>{displayName} {isBonus ? "(+25%)" : ""}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             )}
@@ -2788,18 +2816,18 @@ export default function LeadDetailPage() {
               </Card>
             )}
 
-            {/* BTC Payment (Admin Only) */}
+            {/* Bitcoin Lightning Payment (Admin Only) */}
             {hasAdminAccess && (
               <Card className="border-orange-500/30">
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <Bitcoin className="h-4 w-4 text-orange-500" /> Bitcoin Payment
+                    <Bitcoin className="h-4 w-4 text-orange-500" /> Bitcoin Lightning Payment
                   </CardTitle>
-                  <CardDescription>Generate a BTC payment link (10% discount)</CardDescription>
+                  <CardDescription>5% discount + 5% of the discounted payment back in JCMOVES</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Button onClick={() => { const price = lead.totalPrice || lead.basePrice || ""; setBtcAmount(price ? parseFloat(price).toString() : ""); setBtcPaymentLink(null); setShowBtcDialog(true); }} className="w-full bg-orange-600 hover:bg-orange-700 text-white">
-                    <Bitcoin className="h-4 w-4 mr-2" /> Generate BTC Payment Link
+                    <Zap className="h-4 w-4 mr-2" /> Generate Lightning Checkout
                   </Button>
                 </CardContent>
               </Card>
@@ -3354,16 +3382,16 @@ export default function LeadDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Bitcoin Payment Dialog */}
+      {/* Bitcoin Lightning Payment Dialog */}
       <Dialog open={showBtcDialog} onOpenChange={(open) => { setShowBtcDialog(open); if (!open) setBtcPaymentLink(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Bitcoin className="h-5 w-5 text-orange-500" />
-              Generate Bitcoin Payment Link
+              Generate Bitcoin Lightning Checkout
             </DialogTitle>
             <DialogDescription>
-              Create a BTC payment link for {lead.firstName} {lead.lastName}. Customer gets a 10% discount for paying with Bitcoin.
+              Customer receives 5% off eligible job charges and 5% of the discounted payment back in JCMOVES. Tips are excluded.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -3376,17 +3404,20 @@ export default function LeadDetailPage() {
                     <Input type="number" step="0.01" min="0.01" className="pl-9" value={btcAmount} onChange={(e) => setBtcAmount(e.target.value)} placeholder="Enter amount in USD" />
                   </div>
                 </div>
-                {btcAmount && parseFloat(btcAmount) > 0 && (
+                {btcOfferPreview && (
                   <div className="p-3 bg-orange-950/30 border border-orange-500/30 rounded-lg text-sm space-y-1">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Original</span><span>${parseFloat(btcAmount).toFixed(2)}</span></div>
-                    <div className="flex justify-between text-orange-400 font-medium"><span>With 10% BTC Discount</span><span>${(parseFloat(btcAmount) * 0.9).toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Eligible job charges</span><span>${btcOfferPreview.originalAmountUsd.toFixed(2)}</span></div>
+                    <div className="flex justify-between text-green-400"><span>Lightning discount (5%)</span><span>-${btcOfferPreview.discountAmountUsd.toFixed(2)}</span></div>
+                    <div className="flex justify-between text-orange-400 font-medium"><span>Customer pays</span><span>${btcOfferPreview.amountDueUsd.toFixed(2)}</span></div>
+                    <div className="flex justify-between text-amber-300"><span>JCMOVES reward (5%)</span><span>{btcOfferPreview.rewardTokens.toLocaleString()} (${btcOfferPreview.rewardValueUsd.toFixed(2)})</span></div>
+                    <div className="pt-1 text-xs text-muted-foreground">Treasury policy: BTC remains BTC. USD is the receipt value for bookkeeping only; automatic conversion is disabled.</div>
                   </div>
                 )}
               </>
             ) : (
               <div className="space-y-3">
                 <div className="p-3 bg-orange-950/30 border border-orange-500/30 rounded-xl">
-                  <p className="text-xs text-muted-foreground mb-2 font-medium">Payment Link — share this with the customer:</p>
+                  <p className="text-xs text-muted-foreground mb-2 font-medium">Secure Lightning-enabled checkout — share with the customer:</p>
                   <p className="text-xs font-mono break-all text-orange-300 leading-relaxed">{btcPaymentLink}</p>
                 </div>
                 <div className="flex gap-2">
@@ -3406,7 +3437,7 @@ export default function LeadDetailPage() {
               <Button variant="outline" onClick={() => setShowBtcDialog(false)}>Cancel</Button>
               <Button onClick={() => createBtcPaymentMutation.mutate()} disabled={createBtcPaymentMutation.isPending || !btcAmount || parseFloat(btcAmount) <= 0} className="bg-orange-600 hover:bg-orange-700">
                 {createBtcPaymentMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Bitcoin className="h-4 w-4 mr-2" />}
-                {createBtcPaymentMutation.isPending ? "Generating..." : "Generate Link"}
+                {createBtcPaymentMutation.isPending ? "Generating..." : "Generate Checkout"}
               </Button>
             </DialogFooter>
           )}

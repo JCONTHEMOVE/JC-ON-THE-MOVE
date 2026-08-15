@@ -161,9 +161,9 @@ function leadIdToLockKey(leadId: string): number {
 
 /**
  * Produces whole-token crew awards for a finalized reward pool. The selected
- * lead receives 15% first; the remaining pool is divided evenly across every
- * selected crew member (including the lead). Any integer-rounding remainder
- * is deliberately awarded to the lead so the ledger always balances exactly.
+ * lead receives 15% first only when a lead is explicitly saved. Without a
+ * saved lead, every selected crew member receives an equal share (apart from
+ * an unavoidable whole-token remainder assigned to the first selected member).
  */
 export function calculateCrewPoolAllocation(
   poolTokens: number,
@@ -171,17 +171,103 @@ export function calculateCrewPoolAllocation(
   requestedCrewLeadId?: string | null,
 ) {
   const crewIds = Array.from(new Set(selectedCrewIds.filter((memberId): memberId is string => Boolean(memberId))));
-  const crewLeadId = crewIds.includes(requestedCrewLeadId || "") ? requestedCrewLeadId! : crewIds[0] || null;
+  const crewLeadId = crewIds.includes(requestedCrewLeadId || "") ? requestedCrewLeadId! : null;
   const leadBonus = crewLeadId ? Math.floor(poolTokens * 0.15) : 0;
   const remainingPool = poolTokens - leadBonus;
   const baseShare = crewIds.length ? Math.floor(remainingPool / crewIds.length) : 0;
   const roundingRemainder = crewIds.length ? remainingPool - (baseShare * crewIds.length) : 0;
+  const roundingRecipientId = crewLeadId || crewIds[0] || null;
   const amounts = Object.fromEntries(crewIds.map((memberId) => [
     memberId,
-    baseShare + (memberId === crewLeadId ? leadBonus + roundingRemainder : 0),
+    baseShare + (memberId === roundingRecipientId ? leadBonus + roundingRemainder : 0),
   ]));
 
   return { crewIds, crewLeadId, leadBonus, baseShare, roundingRemainder, amounts };
+}
+
+type JobLedgerRecipient = {
+  ledgerId: number;
+  leadId: string;
+  userId: string;
+  rewardType: "customer_paid_completed_pool" | "crew_paid_completed_pool";
+  amount: number;
+  quoteTotal: number;
+  ratePerDollar: number;
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Settles an already-recorded job ledger entry atomically. The durable ledger
+ * is written before this runs; the reward row, wallet balance, and settlement
+ * marker are committed together, so a retry cannot double-credit after a
+ * partial failure.
+ */
+async function settleJobLedgerRecipient(input: JobLedgerRecipient): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: ledgerRows } = await client.query<{ metadata: Record<string, unknown> | null }>(
+      "SELECT metadata FROM job_jcmoves_ledger WHERE id = $1 FOR UPDATE",
+      [input.ledgerId],
+    );
+    if (!ledgerRows.length) throw new Error(`JCMOVES ledger ${input.ledgerId} was not found`);
+    if (ledgerRows[0].metadata?.walletCreditedAt) {
+      await client.query("COMMIT");
+      return false;
+    }
+
+    const existingReward = await client.query(
+      `SELECT 1 FROM rewards
+        WHERE user_id = $1 AND reward_type = $2 AND reference_id = $3
+        LIMIT 1`,
+      [input.userId, input.rewardType, input.leadId],
+    );
+    if (existingReward.rowCount === 0) {
+      await client.query(
+        `INSERT INTO rewards (user_id, reward_type, token_amount, cash_value, status, earned_date, reference_id, metadata)
+         VALUES ($1,$2,$3,$4,'confirmed',NOW(),$5,$6::jsonb)`,
+        [
+          input.userId,
+          input.rewardType,
+          input.amount.toFixed(8),
+          (input.amount * TOKEN_PRICE).toFixed(6),
+          input.leadId,
+          JSON.stringify({
+            jobId: input.leadId,
+            ratePerDollar: input.ratePerDollar,
+            quoteTotal: input.quoteTotal,
+            ...(input.metadata ?? {}),
+          }),
+        ],
+      );
+    }
+
+    await client.query(
+      "INSERT INTO wallet_accounts (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING",
+      [input.userId],
+    );
+    await client.query(
+      `UPDATE wallet_accounts
+          SET token_balance = (COALESCE(token_balance, 0)::numeric + $2)::numeric(18,8),
+              total_earned = (COALESCE(total_earned, 0)::numeric + $2)::numeric(18,8),
+              last_activity = NOW()
+        WHERE user_id = $1`,
+      [input.userId, input.amount],
+    );
+    await client.query(
+      `UPDATE job_jcmoves_ledger
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('walletCreditedAt', NOW()::text)
+        WHERE id = $1`,
+      [input.ledgerId],
+    );
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -190,18 +276,22 @@ export function calculateCrewPoolAllocation(
  * a 15% bonus; the remaining 85% is split evenly among every selected member
  * (including the lead), with whole-token rounding remainder going to the lead.
  */
-async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUserId?: string | null }) {
-  const { rows: paymentRows } = await pool.query<{ deposit_paid: boolean | null; payment_paid_at: Date | null }>(
-    "SELECT deposit_paid, payment_paid_at FROM leads WHERE id = $1 LIMIT 1",
+async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUserId?: string | null; jcmovesRewardBase?: string | null }) {
+  const { rows: paymentRows } = await pool.query<{ payment_paid_at: Date | null; jcmoves_reward_base: string | null }>(
+    "SELECT payment_paid_at, jcmoves_reward_base FROM leads WHERE id = $1 LIMIT 1",
     [leadId],
   );
-  if (!paymentRows[0]?.deposit_paid && !paymentRows[0]?.payment_paid_at) {
-    console.warn(`[JCMOVES] ${leadId} completed but has no paid signal; ledger issuance deferred.`);
+  if (lead.status !== "completed") {
+    console.warn(`[JCMOVES] ${leadId} is not completed; ledger issuance deferred.`);
+    return null;
+  }
+  if (!paymentRows[0]?.payment_paid_at) {
+    console.warn(`[JCMOVES] ${leadId} is completed but not paid in full; ledger issuance deferred.`);
     return null;
   }
 
   const rateCard = await getJobRateCard();
-  const quoteTotal = Number(lead.totalPrice || lead.basePrice || 0);
+  const quoteTotal = Number(paymentRows[0]?.jcmoves_reward_base || lead.jcmovesRewardBase || lead.totalPrice || lead.basePrice || 0);
   if (!Number.isFinite(quoteTotal) || quoteTotal <= 0) {
     console.warn(`[JCMOVES] ${leadId} has no finalized quote; ledger issuance deferred.`);
     return null;
@@ -227,62 +317,73 @@ async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUs
     amount: number;
     metadata: Record<string, unknown>;
   }) {
-    const result = await pool.query(
+    const result = await pool.query<{ id: number }>(
       `INSERT INTO job_jcmoves_ledger
         (lead_id, recipient_type, recipient_user_id, recipient_label, reward_kind, token_amount, quote_total, rate_per_dollar, metadata)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
-       ON CONFLICT (lead_id, recipient_type, recipient_user_id, reward_kind) DO NOTHING
+       ON CONFLICT DO NOTHING
        RETURNING id`,
       [leadId, input.recipientType, input.recipientUserId, input.recipientLabel, input.rewardKind, input.amount, quoteTotal, rateCard.jcmovesPerDollar, JSON.stringify(input.metadata)],
     );
-    return result.rowCount === 1;
+    if (result.rows[0]) return result.rows[0];
+    const { rows } = await pool.query<{ id: number }>(
+      `SELECT id FROM job_jcmoves_ledger
+        WHERE lead_id = $1
+          AND recipient_type = $2
+          AND reward_kind = $3
+          AND (($4::varchar IS NULL AND recipient_user_id IS NULL) OR recipient_user_id = $4)
+        ORDER BY id ASC
+        LIMIT 1`,
+      [leadId, input.recipientType, input.rewardKind, input.recipientUserId],
+    );
+    if (!rows[0]) throw new Error(`Could not resolve JCMOVES ledger for ${input.recipientType}`);
+    return rows[0];
   }
 
-  if (await writeLedger({
+  const normalizedCustomerEmail = String(lead.email || "").trim().toLowerCase();
+  const customerRewardKind = customer ? "customer_paid_completed_pool" : "customer_paid_completed_pool_pending_claim";
+  const customerLedger = await writeLedger({
     recipientType: "customer",
     recipientUserId: customer?.id || null,
-    recipientLabel: customer?.email || lead.email || "Customer",
-    rewardKind: "customer_paid_completed_pool",
+    recipientLabel: customer?.email?.trim().toLowerCase() || normalizedCustomerEmail || "Customer",
+    rewardKind: customerRewardKind,
     amount: poolTokens,
-    metadata: { source: "rate_card", paid: true, completed: true },
-  })) {
-    if (customer) {
-      await db.insert(rewards).values({
-        userId: customer.id,
-        rewardType: "customer_paid_completed_pool",
-        tokenAmount: poolTokens.toFixed(8),
-        cashValue: (poolTokens * TOKEN_PRICE).toFixed(6),
-        status: "confirmed",
-        referenceId: leadId,
-        metadata: { jobId: leadId, ratePerDollar: rateCard.jcmovesPerDollar, quoteTotal },
-      });
-      await storage.creditWalletTokens(customer.id, poolTokens, { skipRewardLedger: true });
-    }
+    metadata: { source: "rate_card", paid: true, completed: true, pendingCustomerClaim: !customer },
+  });
+  if (customer) {
+    await settleJobLedgerRecipient({
+      ledgerId: customerLedger.id,
+      leadId,
+      userId: customer.id,
+      rewardType: "customer_paid_completed_pool",
+      amount: poolTokens,
+      quoteTotal,
+      ratePerDollar: rateCard.jcmovesPerDollar,
+    });
   }
 
   for (const memberId of crewIds) {
     const amount = crewAllocation.amounts[memberId];
     const crewMember = await storage.getUser(memberId).catch(() => null);
     if (!crewMember || amount <= 0) continue;
-    if (await writeLedger({
+    const crewLedger = await writeLedger({
       recipientType: "crew",
       recipientUserId: memberId,
       recipientLabel: crewMember.email || `${crewMember.firstName || ""} ${crewMember.lastName || ""}`.trim() || "Crew member",
       rewardKind: "crew_paid_completed_pool",
       amount,
       metadata: { source: "rate_card", paid: true, completed: true, crewLead: memberId === crewLeadId, leadBonus, baseShare, roundingRemainder },
-    })) {
-      await db.insert(rewards).values({
-        userId: memberId,
-        rewardType: "crew_paid_completed_pool",
-        tokenAmount: amount.toFixed(8),
-        cashValue: (amount * TOKEN_PRICE).toFixed(6),
-        status: "confirmed",
-        referenceId: leadId,
-        metadata: { jobId: leadId, ratePerDollar: rateCard.jcmovesPerDollar, quoteTotal, crewLead: memberId === crewLeadId },
-      });
-      await storage.creditWalletTokens(memberId, amount, { skipRewardLedger: true });
-    }
+    });
+    await settleJobLedgerRecipient({
+      ledgerId: crewLedger.id,
+      leadId,
+      userId: memberId,
+      rewardType: "crew_paid_completed_pool",
+      amount,
+      quoteTotal,
+      ratePerDollar: rateCard.jcmovesPerDollar,
+      metadata: { crewLead: memberId === crewLeadId },
+    });
   }
 
   await storage.updateLeadQuote(leadId, { completionRewardedAt: now, tokensDisbursedAt: now });
@@ -596,6 +697,94 @@ export async function disburseJobTokens(leadId: string): Promise<DisbursementSum
   } finally {
     await pool.query("SELECT pg_advisory_unlock($1)", [lockKey]).catch(() => {});
   }
+}
+
+/**
+ * Customer jobs can finish before the customer creates an account. Their
+ * customer-pool entry remains in the job ledger under the normalized email;
+ * this claims it exactly once when that email registers.
+ */
+export async function claimPendingCustomerJobJcMoves(args: { userId: string; email?: string | null }): Promise<number> {
+  const email = String(args.email || "").trim().toLowerCase();
+  if (!email) return 0;
+
+  await pool.query(
+    `UPDATE job_jcmoves_ledger
+        SET recipient_user_id = $1,
+            recipient_label = $2,
+            reward_kind = 'customer_paid_completed_pool',
+            metadata = metadata || jsonb_build_object('pendingCustomerClaim', false, 'claimedAt', NOW()::text)
+      WHERE recipient_type = 'customer'
+        AND recipient_user_id IS NULL
+        AND reward_kind = 'customer_paid_completed_pool_pending_claim'
+        AND LOWER(recipient_label) = $2`,
+    [args.userId, email],
+  );
+
+  const { rows } = await pool.query<{
+    id: number;
+    lead_id: string;
+    token_amount: number;
+    quote_total: string;
+    rate_per_dollar: string;
+  }>(
+    `SELECT id, lead_id, token_amount, quote_total, rate_per_dollar
+       FROM job_jcmoves_ledger
+      WHERE recipient_type = 'customer'
+        AND recipient_user_id = $1
+        AND reward_kind = 'customer_paid_completed_pool'
+        AND COALESCE(metadata->>'walletCreditedAt', '') = ''
+      ORDER BY id ASC`,
+    [args.userId],
+  );
+
+  let claimed = 0;
+  for (const row of rows) {
+    const credited = await settleJobLedgerRecipient({
+      ledgerId: row.id,
+      leadId: row.lead_id,
+      userId: args.userId,
+      rewardType: "customer_paid_completed_pool",
+      amount: Number(row.token_amount),
+      quoteTotal: Number(row.quote_total),
+      ratePerDollar: Number(row.rate_per_dollar),
+      metadata: { claimedAfterSignup: true },
+    });
+    if (credited) claimed += Number(row.token_amount);
+  }
+  return claimed;
+}
+
+/** Preview or repair completed, fully-paid jobs from before the durable
+ * JCMOVES ledger existed. The issuer itself remains the only writer, so a
+ * repair has the same advisory-lock and per-recipient protection as live jobs.
+ */
+export async function auditPaidCompletedJobJcMoves(repair = false) {
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT l.id
+       FROM leads l
+      WHERE l.status = 'completed'
+        AND l.payment_paid_at IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM job_jcmoves_ledger ledger WHERE ledger.lead_id = l.id
+        )
+      ORDER BY l.payment_paid_at ASC`,
+  );
+  const repaired: string[] = [];
+  const skipped: string[] = [];
+  if (repair) {
+    for (const row of rows) {
+      try {
+        const result = await disburseJobTokens(row.id);
+        if (result) repaired.push(row.id);
+        else skipped.push(row.id);
+      } catch (error) {
+        console.error(`[JCMOVES] audit repair failed for ${row.id}:`, error);
+        skipped.push(row.id);
+      }
+    }
+  }
+  return { eligibleLeadIds: rows.map((row) => row.id), repairedLeadIds: repaired, skippedLeadIds: skipped };
 }
 
 /**

@@ -36,6 +36,25 @@ export type JobOrderTicketData = {
     label?: string | null;
     stage?: string | null;
   } | null;
+  personalEarnings?: {
+    state: "estimated" | "finalized";
+    hoursSource: string;
+    roleOnJob: string;
+    hourlyRate: number;
+    hours: number;
+    classificationPay: number;
+    driverPremiumPay: number;
+    crewBonusPay: number;
+    authorityBonusPct: number;
+    authorityBonusPay: number;
+    totalPay: number;
+    jobRevenueSharePct: number;
+    authorityTier: string;
+    dailyCash: { targetPercent: number; paidAmount: number; eligibleEarnings: number; remainingPayroll: number };
+    tips: { cashPayroll: number; walletUsd: number; walletJcmoves: number };
+    payroll: { periodKey: string | null; status: string };
+    jcmoves: { status: string; amount: number };
+  } | null;
 };
 
 type JobOrderTicketProps = {
@@ -51,6 +70,11 @@ type JobOrderTicketProps = {
 function money(value: number | string | null | undefined) {
   const amount = Number(value ?? 0);
   return Number.isFinite(amount) && amount > 0 ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : "TBD";
+}
+
+function exactMoney(value: number | string | null | undefined) {
+  const amount = Number(value ?? 0);
+  return (Number.isFinite(amount) ? amount : 0).toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
 function displayService(value: string | null | undefined) {
@@ -75,7 +99,7 @@ function ticketStatus(order: JobOrderTicketData) {
 
 export function JobOrderTicket({ order, viewer = "admin", action, compact = false, className, onClick, onScheduleEdit }: JobOrderTicketProps) {
   const total = Number(order.totalPrice ?? order.basePrice ?? 0) || 0;
-  const credits = order.estimatedTokens ?? (total > 0 ? Math.round(total * 15) : null);
+  const credits = order.personalEarnings?.jcmoves.amount ?? order.estimatedTokens ?? (total > 0 ? Math.round(total * 15) : null);
   const scheduledDate = order.confirmedDate || order.moveDate;
   const address = order.confirmedFromAddress || order.fromAddress || order.confirmedToAddress || order.toAddress;
   const lines = order.lineItems || order.orderLineItems || [];
@@ -135,6 +159,8 @@ export function JobOrderTicket({ order, viewer = "admin", action, compact = fals
             </div>
           </div>
         ) : null}
+
+        {viewer === "crew" && order.personalEarnings ? <PersonalEarningsBreakdown earnings={order.personalEarnings} compact={compact} /> : null}
       </div>
 
       <div className="border-t border-slate-700/80 bg-black/20 px-4 py-3">
@@ -148,6 +174,28 @@ export function JobOrderTicket({ order, viewer = "admin", action, compact = fals
       </div>
     </article>
   );
+}
+
+function PersonalEarningsBreakdown({ earnings, compact }: { earnings: NonNullable<JobOrderTicketData["personalEarnings"]>; compact: boolean }) {
+  const role = earnings.roleOnJob.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return (
+    <div className="border-t border-slate-700/80 pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Your {earnings.state} payout</p><span className="rounded-full border border-cyan-400/30 px-2 py-0.5 text-[10px] capitalize text-cyan-200">{role} · {earnings.authorityTier}</span></div>
+      <p className="mt-1 text-xs text-slate-400">{earnings.hours.toFixed(2)} hours × {exactMoney(earnings.hourlyRate)} · {(earnings.jobRevenueSharePct * 100).toFixed(1)}% of job revenue</p>
+      <div className={cn("mt-2 grid gap-2 text-xs", compact ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-5")}>
+        <EarningLine label="Classification" value={exactMoney(earnings.classificationPay)} />
+        <EarningLine label="Driver bonus" value={exactMoney(earnings.driverPremiumPay)} />
+        <EarningLine label={`${(earnings.authorityBonusPct * 100).toFixed(0)}% bonus`} value={exactMoney(earnings.authorityBonusPay)} />
+        <EarningLine label="Customer tips (monthly)" value={exactMoney(earnings.tips.cashPayroll)} />
+        <EarningLine label="Quarterly profit bonus" value={exactMoney(earnings.crewBonusPay)} />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-950/60 px-3 py-2"><div><p className="text-[9px] uppercase tracking-wide text-slate-500">Calculated job earnings</p><p className="font-black text-emerald-300">{exactMoney(earnings.totalPay)}</p></div><div className="text-right"><p className="text-[9px] uppercase tracking-wide text-slate-500">Cash / monthly payroll</p><p className="text-xs font-semibold text-slate-200">{exactMoney(earnings.dailyCash.paidAmount)} / {exactMoney(earnings.dailyCash.remainingPayroll)}</p></div></div>
+    </div>
+  );
+}
+
+function EarningLine({ label, value }: { label: string; value: string }) {
+  return <div className="rounded bg-slate-950/60 px-2 py-1.5"><p className="text-[9px] uppercase tracking-wide text-slate-500">{label}</p><p className="font-semibold text-slate-100">{value}</p></div>;
 }
 
 function TicketDetail({ icon: Icon, label, value, onClick }: { icon: LucideIcon; label: string; value: string; onClick?: () => void }) {

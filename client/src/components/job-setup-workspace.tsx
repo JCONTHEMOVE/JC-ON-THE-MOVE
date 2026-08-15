@@ -35,6 +35,7 @@ export interface JobSetupLead {
   confirmedHours?: number;
   crewMembers?: string[];
   crewLeadUserId?: string | null;
+  driverUserId?: string | null;
   basePrice?: string;
   totalPrice?: string;
   quoteNotes?: string;
@@ -65,6 +66,9 @@ export interface JobSetupEmployee {
   lastName: string;
   isApproved: boolean;
   status: string;
+  isDriver?: boolean | null;
+  capabilities?: string[] | null;
+  payoutProfile?: { payoutClassification?: "lead_mover" | "mover" | "helper" | null } | null;
 }
 
 type SetupDraft = {
@@ -85,6 +89,8 @@ type SetupDraft = {
   confirmedHours: number;
   crewMembers: string[];
   crewLeadUserId: string;
+  driverUserId: string;
+  crewRoles: Record<string, "lead_mover" | "mover" | "helper">;
   accessCode: string;
   entryInstructions: string;
   stairsFlights: number;
@@ -117,7 +123,9 @@ function setupDraftFromLead(lead: JobSetupLead): SetupDraft {
     crewSize: lead.crewSize || 2,
     confirmedHours: lead.confirmedHours || 2,
     crewMembers: lead.crewMembers || [],
-    crewLeadUserId: lead.crewLeadUserId || "",
+    crewLeadUserId: lead.crewLeadUserId || lead.crewMembers?.[0] || "",
+    driverUserId: lead.driverUserId || "",
+    crewRoles: Object.fromEntries((lead.crewMembers || []).map((id) => [id, id === (lead.crewLeadUserId || lead.crewMembers?.[0]) ? "lead_mover" : "mover"])),
     accessCode: lead.jobAccess?.accessCode || "",
     entryInstructions: lead.jobAccess?.entryInstructions || "",
     stairsFlights: Math.max(0, Number(lead.jobPlanDetails?.stairsFlights || 0)),
@@ -231,6 +239,11 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
           confirmedHours: draft.confirmedHours,
           crewMembers: draft.crewMembers,
           crewLeadUserId: draft.crewLeadUserId || null,
+          driverUserId: draft.driverUserId || null,
+          crewAssignments: draft.crewMembers.map((workerId) => ({
+            workerId,
+            roleOnJob: workerId === draft.crewLeadUserId ? "lead_mover" : (draft.crewRoles[workerId] || "mover"),
+          })),
           jobPlanDetails: {
             accessCode: draft.accessCode,
             entryInstructions: draft.entryInstructions,
@@ -261,19 +274,25 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
     stairs: number;
     elevator: number;
     total: number;
+    rewardEligibleTotal: number;
+    preDiscountTotal?: number;
+    discountAmount?: number;
     projectedCustomerJcMoves: number;
     projectedCrewPoolJcMoves: number;
     packagePrice?: number;
     promotion?: {
       code: string;
       description: string;
-      fixedBasePrice: number;
-      requiredCrewSize: number;
-      requiredHours: number;
-      verifiedLocalMiles: number;
-      localMilesMax: number;
-      includesCompanyTruck: boolean;
-      includesTrailer: boolean;
+      kind: "percentage_discount" | "fixed_moving_package";
+      discountPercent?: number;
+      discountAmount?: number;
+      fixedBasePrice?: number;
+      requiredCrewSize?: number;
+      requiredHours?: number;
+      verifiedLocalMiles?: number;
+      localMilesMax?: number;
+      includesCompanyTruck?: boolean;
+      includesTrailer?: boolean;
     };
     promo?: { requestedCode: string; applied: boolean; reason?: string };
     reservedEquipment?: { truckConfig: string; trailerRequested: boolean };
@@ -314,7 +333,9 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
         crewSize: draft.crewSize,
         confirmedHours: draft.confirmedHours,
         quoteNotes: autoQuotePreview.promotion
-          ? `${autoQuotePreview.promotion.code} fixed moving package.`
+          ? autoQuotePreview.promotion.kind === "fixed_moving_package"
+            ? `${autoQuotePreview.promotion.code} fixed moving package.`
+            : `${autoQuotePreview.promotion.code} ${autoQuotePreview.promotion.discountPercent}% moving discount.`
           : "Automatic rate-card quote.",
         hasHotTub: current?.hasHotTub || false,
         hotTubFee: current?.hotTubFee || "0",
@@ -388,10 +409,11 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
           <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"><div><Label htmlFor="setup-promo-code">Promo / package code</Label><Input id="setup-promo-code" value={draft.promoCode} onChange={(event) => updateDraft("promoCode", event.target.value.toUpperCase())} placeholder="e.g. LOCAL4X4" autoCapitalize="characters" /></div>{draft.promoCode && <Button type="button" variant="ghost" size="sm" onClick={() => updateDraft("promoCode", "")}>Clear code</Button>}</div>
           {autoQuotePreview?.promo && !autoQuotePreview.promo.applied && <p className="text-xs text-amber-300">{autoQuotePreview.promo.reason}</p>}
           {autoQuotePreview && <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
-            {autoQuotePreview.promotion && <p className="mb-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: 4 movers x 4 hours local special. JC truck and trailer are reserved. Verified {autoQuotePreview.promotion.verifiedLocalMiles} of {autoQuotePreview.promotion.localMilesMax} local miles; package $${autoQuotePreview.packagePrice?.toFixed(2)}.</p>}
+            {autoQuotePreview.promotion?.kind === "fixed_moving_package" && <p className="mb-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: {autoQuotePreview.promotion.requiredCrewSize} movers x {autoQuotePreview.promotion.requiredHours} hours local special. JC truck and trailer are reserved. Verified {autoQuotePreview.promotion.verifiedLocalMiles} of {autoQuotePreview.promotion.localMilesMax} local miles; package $${autoQuotePreview.packagePrice?.toFixed(2)}.</p>}
+            {autoQuotePreview.promotion?.kind === "percentage_discount" && <p className="mb-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: {autoQuotePreview.promotion.discountPercent}% off the full automatic quote (save $${autoQuotePreview.promotion.discountAmount?.toFixed(2)}).</p>}
             <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="flex items-center gap-1 text-sm font-semibold text-emerald-300">Automatic rate-card quote<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain automatic quote"><CircleHelp className="h-3.5 w-3.5" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">The server applies the saved labor, equipment, stairs, and elevator rates. A manual adjustment never replaces this calculation in the audit history.</PopoverContent></Popover></p><p className="text-xs text-muted-foreground">Labor, equipment, and access fees are calculated by the server.</p><p className="mt-1 text-xs text-muted-foreground">Access: stairs ${autoQuotePreview.stairs.toFixed(2)} · elevator ${autoQuotePreview.elevator.toFixed(2)}</p><p className="mt-1 flex items-center gap-1 text-xs text-amber-300">JCMOVES projection<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain JCMOVES projection"><CircleHelp className="h-3 w-3" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">The customer and total crew pool each use this amount. The lead receives a 15% crew-pool bonus at paid completion; the rest splits evenly.</PopoverContent></Popover></p></div><p className="text-xl font-bold text-emerald-300">${autoQuotePreview.total.toFixed(2)}</p></div>
             <p className="mt-2 text-xs text-muted-foreground">Labor ${autoQuotePreview.labor.toFixed(2)} · Truck ${autoQuotePreview.truck.toFixed(2)} · Trailer ${autoQuotePreview.trailer.toFixed(2)}</p>
-            <p className="mt-1 text-xs text-amber-300">Projected: {autoQuotePreview.projectedCustomerJcMoves.toLocaleString()} customer JCMOVES and {autoQuotePreview.projectedCrewPoolJcMoves.toLocaleString()} crew-pool JCMOVES after paid completion.</p>
+            <p className="mt-1 text-xs text-amber-300">Projected from the $${autoQuotePreview.rewardEligibleTotal.toFixed(2)} pre-discount rate-card quote: {autoQuotePreview.projectedCustomerJcMoves.toLocaleString()} customer JCMOVES and {autoQuotePreview.projectedCrewPoolJcMoves.toLocaleString()} crew-pool JCMOVES after full payment and completion.</p>
             <Button type="button" size="sm" className="mt-3" onClick={() => { setQuoteDraft({ basePrice: autoQuotePreview.total.toFixed(2), totalPrice: autoQuotePreview.total.toFixed(2), crewSize: draft.crewSize, confirmedHours: draft.confirmedHours, quoteNotes: "Automatic rate-card quote.", hasHotTub: false, hotTubFee: "0", hasHeavySafe: false, heavySafeFee: "0", hasPoolTable: false, poolTableFee: "0", hasPiano: false, pianoFee: "0", totalSpecialItemsFee: "0", lineItems: [] } as JobQuoteDraft); setQuotePricingSource("rate_card_auto"); setQuoteDirty(true); setShowQuoteBuilder(false); }}>Use automatic quote</Button>
           </div>}
 
@@ -405,8 +427,10 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
               <div><Label htmlFor="setup-hours">Hours Estimate</Label><Select value={String(draft.confirmedHours)} onValueChange={(value) => updateDraft("confirmedHours", Number(value))}><SelectTrigger id="setup-hours"><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 24 }, (_, index) => index + 1).map((hour) => <SelectItem key={hour} value={String(hour)}>{hour} {hour === 1 ? "hour" : "hours"}</SelectItem>)}</SelectContent></Select></div>
             </div>
             <div><Label className="mb-2 block">Crew Size</Label><div className="flex flex-wrap gap-2">{[1, 2, 3, 4].map((size) => <Button key={size} type="button" variant={draft.crewSize === size ? "default" : "outline"} className="min-w-12" onClick={() => updateDraft("crewSize", size)}>{size} {size === 1 ? "mover" : "movers"}</Button>)}</div></div>
-            <div><Label className="mb-2 block">Named Crew</Label><div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">{approvedEmployees.length ? approvedEmployees.map((employee) => { const checked = draft.crewMembers.includes(employee.id); return <label key={employee.id} className="flex cursor-pointer items-center gap-2 text-sm"><Checkbox checked={checked} onCheckedChange={(value) => updateDraft("crewMembers", value ? [...draft.crewMembers, employee.id] : draft.crewMembers.filter((id) => id !== employee.id))} />{employee.firstName} {employee.lastName}</label>; }) : <p className="text-sm text-muted-foreground">No approved crew members found.</p>}</div></div>
+            <div><Label className="mb-2 block">Named Crew</Label><div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">{approvedEmployees.length ? approvedEmployees.map((employee) => { const checked = draft.crewMembers.includes(employee.id); return <label key={employee.id} className="flex cursor-pointer items-center gap-2 text-sm"><Checkbox checked={checked} onCheckedChange={(value) => setDraft((current) => { const crewMembers = value ? [...current.crewMembers, employee.id] : current.crewMembers.filter((id) => id !== employee.id); const crewLeadUserId = crewMembers.includes(current.crewLeadUserId) ? current.crewLeadUserId : crewMembers[0] || ""; const driverUserId = crewMembers.includes(current.driverUserId) ? current.driverUserId : ""; const crewRoles = { ...current.crewRoles }; if (value) crewRoles[employee.id] = employee.payoutProfile?.payoutClassification || "mover"; else delete crewRoles[employee.id]; return { ...current, crewMembers, crewLeadUserId, driverUserId, crewRoles }; })} />{employee.firstName} {employee.lastName}</label>; }) : <p className="text-sm text-muted-foreground">No approved crew members found.</p>}</div></div>
             <div><Label>Crew lead</Label><Select value={draft.crewLeadUserId || undefined} onValueChange={(value) => updateDraft("crewLeadUserId", value)}><SelectTrigger><SelectValue placeholder="Select the crew lead" /></SelectTrigger><SelectContent>{draft.crewMembers.length ? draft.crewMembers.map((id) => { const employee = approvedEmployees.find((entry) => entry.id === id); return <SelectItem key={id} value={id}>{employee ? `${employee.firstName} ${employee.lastName}` : "Selected crew member"}</SelectItem>; }) : <SelectItem value="__none" disabled>Select a crew member first</SelectItem>}</SelectContent></Select></div>
+            <div><Label>Driver bonus</Label><Select value={draft.driverUserId || "__none"} onValueChange={(value) => updateDraft("driverUserId", value === "__none" ? "" : value)}><SelectTrigger><SelectValue placeholder="No designated driver" /></SelectTrigger><SelectContent><SelectItem value="__none">No driver bonus</SelectItem>{draft.crewMembers.map((id) => approvedEmployees.find((employee) => employee.id === id)).filter((employee): employee is JobSetupEmployee => Boolean(employee && (employee.isDriver || employee.capabilities?.includes("driver")))).map((employee) => <SelectItem key={employee.id} value={employee.id}>{employee.firstName} {employee.lastName} (+$5/hour)</SelectItem>)}</SelectContent></Select></div>
+            {draft.crewMembers.length > 0 && <div><Label className="mb-2 block">Job classifications</Label><div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">{draft.crewMembers.map((id) => { const employee = approvedEmployees.find((entry) => entry.id === id); const isLead = id === draft.crewLeadUserId; return <div key={id} className="flex items-center justify-between gap-2"><span className="text-sm">{employee ? `${employee.firstName} ${employee.lastName}` : "Crew member"}</span><Select disabled={isLead} value={isLead ? "lead_mover" : (draft.crewRoles[id] || "mover")} onValueChange={(value) => setDraft((current) => ({ ...current, crewRoles: { ...current.crewRoles, [id]: value as "lead_mover" | "mover" | "helper" } }))}><SelectTrigger className="w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="lead_mover">Lead Mover</SelectItem><SelectItem value="mover">Mover</SelectItem><SelectItem value="helper">Helper</SelectItem></SelectContent></Select></div>; })}</div><p className="mt-1 text-xs text-muted-foreground">Per-job classifications override the employee default and feed the payout ledger.</p></div>}
           </section>
 
           <section className="space-y-4 border-t pt-5">

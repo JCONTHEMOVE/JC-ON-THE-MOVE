@@ -31,6 +31,7 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=build --chown=node:node /app/shared ./shared
+COPY --from=build --chown=node:node /app/attached_assets/google_movers/crew-ramp.jpg ./attached_assets/google_movers/crew-ramp.jpg
 
 USER node
 EXPOSE 5000

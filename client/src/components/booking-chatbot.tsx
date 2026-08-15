@@ -1329,9 +1329,9 @@ const STEPS: Step[] = [
   {
     id: "promoCode",
     question: "Got a promo code? Enter it here — or skip.",
-    subtext: "JC272 unlocks special pricing on qualifying small jobs. Leave blank to skip.",
+    subtext: "Enter an active promo or moving package code. The final price is verified by the server before checkout.",
     type: "text",
-    placeholder: "e.g. JC272",
+    placeholder: "e.g. JCMOVES",
     optional: true,
     show: (a) => {
       const svc = getServiceLabel(a.serviceType || "");
@@ -1795,7 +1795,7 @@ export function buildMovingRecommendations(
       hours: 8,
       totalMin: total,
       totalMax: total,
-      notes: `Load + unload � 26 ft � 2 movers � 8 hours � local $1000${perkNote}${oversizedNote}`,
+      notes: `Load + unload · 26 ft · 2 movers · 8 hours · local $1000${perkNote}${oversizedNote}`,
     }];
   }
 
@@ -1817,7 +1817,7 @@ export function buildMovingRecommendations(
       hours,
       totalMin: total,
       totalMax: total,
-      notes: `Load only � shrink-wrap/product handling factored � ${crew} movers � ${hours} hours � local $${loadBase}${perkNote}${oversizedNote}`,
+      notes: `Load only · shrink-wrap/product handling factored · ${crew} movers · ${hours} hours · local $${loadBase}${perkNote}${oversizedNote}`,
     }];
   }
 
@@ -1848,7 +1848,7 @@ export function buildMovingRecommendations(
         hours: opt.hours,
         totalMin: total,
         totalMax: total,
-        notes: `Out-of-town � stairs � load + unload � ${opt.crew} movers � ${opt.hours} hours � drive/gas $${travelCharge}${perkNote}${oversizedNote}`,
+        notes: `Out-of-town · stairs · load + unload · ${opt.crew} movers · ${opt.hours} hours · drive/gas $${travelCharge}${perkNote}${oversizedNote}`,
       };
     });
   }
@@ -1890,7 +1890,7 @@ export function buildMovingRecommendations(
 // ─────────────────────────────────────────────
 // Moving Quote Engine
 // ─────────────────────────────────────────────
-export function computeMovingQuote(a: Answers, ratePerMoverHour = 85, jc222FlatPrice = 272, distanceMiles = 0, stakingPerkPct = 0): MovingQuote {
+export function computeMovingQuote(a: Answers, ratePerMoverHour = 85, distanceMiles = 0, stakingPerkPct = 0): MovingQuote {
   const RATE = ratePerMoverHour;
   const round5 = (n: number) => Math.ceil(n / 5) * 5;
 
@@ -2067,30 +2067,18 @@ export function computeMovingQuote(a: Answers, ratePerMoverHour = 85, jc222FlatP
     ? calculateMovingTravelCharge(distanceMiles).fee
     : getMovingTravelFeeForBracket(getMovingDistanceBracket(distanceMiles, a.distanceReport));
 
-  // ── JC272 promo: Small-tier 2-crew flat-rate offer ───────────────────────
-  const promoCodeRaw = (a.promoCode || "").toUpperCase().trim();
-  const isJC222      = promoCodeRaw === "JC272" || promoCodeRaw === "JC222";
-  const promoApplied = isJC222 && tier === "small" && crew === 2;
-
-  // ── JCMOVES promo: 10% off or $20 off, whichever is greater ───────────────
-  // Applies to tiny and small tiers when JC272 isn't already active
-  const isJCMOVES      = promoCodeRaw === "JCMOVES";
-  const jcmovesBase    = promoApplied ? jc222FlatPrice : rawMin;
-  const jcmovesDiscount = isJCMOVES && !promoApplied
-    ? Math.max(Math.round(jcmovesBase * 0.10), 20)
-    : 0;
-  const jcmovesApplied = jcmovesDiscount > 0;
+  // Promo and package eligibility are determined from the active database
+  // record on the server. Chat estimates never invent a discount locally.
+  const promoApplied = false;
 
   // ── Staking perk discount: auto-applied when threshold is met ────────────
-  // Only applied if no promo code is active (JC272 or JCMOVES take priority)
-  const stakingDiscount = stakingPerkPct > 0 && !promoApplied && !isJCMOVES
+  const stakingDiscount = stakingPerkPct > 0
     ? Math.round(rawMin * stakingPerkPct / 100)
     : 0;
   const stakingPerkApplied = stakingDiscount > 0;
 
-  const totalDiscount = jcmovesDiscount || stakingDiscount;
-  const baseMin = promoApplied ? jc222FlatPrice : rawMin - totalDiscount;
-  const baseMax = promoApplied ? jc222FlatPrice : rawMax - totalDiscount;
+  const baseMin = rawMin - stakingDiscount;
+  const baseMax = rawMax - stakingDiscount;
   const minPrice = baseMin + travelCharge;
   const maxPrice = baseMax + travelCharge;
   const midPrice = (minPrice + maxPrice) / 2;
@@ -2107,11 +2095,11 @@ export function computeMovingQuote(a: Answers, ratePerMoverHour = 85, jc222FlatP
     tokensEstimate,
     specialSurcharge,
     promoApplied,
-    promoCode:          isJC222 ? "JC272" : isJCMOVES ? "JCMOVES" : undefined,
-    rawMinPrice:        promoApplied ? rawMin : undefined,
+    promoCode:          undefined,
+    rawMinPrice:        undefined,
     travelCharge:       travelCharge || undefined,
-    jcmovesApplied:     jcmovesApplied || undefined,
-    jcmovesDiscount:    jcmovesDiscount || undefined,
+    jcmovesApplied:     undefined,
+    jcmovesDiscount:    undefined,
     stakingPerkApplied: stakingPerkApplied || undefined,
     stakingPerkDiscount: stakingDiscount || undefined,
     stakingPerkPct:     stakingPerkApplied ? stakingPerkPct : undefined,
@@ -2172,33 +2160,24 @@ export function computeJunkQuote(a: Answers, ratePerMoverHour = 85, distanceMile
   const travelTiers = distanceMiles > 0 ? Math.floor(distanceMiles / JUNK_TRAVEL_TIER_MILES) : 0;
   const travelCharge = travelTiers * JUNK_TRAVEL_CHARGE_PER_TIER;
 
-  // ── JCMOVES promo: 10% off or $20 off, whichever is greater ───────────────
-  const promoCodeRaw = (a.promoCode || "").toUpperCase().trim();
-  const isJCMOVES = promoCodeRaw === "JCMOVES";
-  const jcmovesDiscount = isJCMOVES
-    ? Math.max(Math.round(rawMin * 0.10), 20)
-    : 0;
-  const jcmovesApplied = jcmovesDiscount > 0;
-
   // ── Staking perk discount: auto-applied when threshold is met ────────────
-  const stakingDiscount = stakingPerkPct > 0 && !isJCMOVES
+  const stakingDiscount = stakingPerkPct > 0
     ? Math.round(rawMin * stakingPerkPct / 100)
     : 0;
   const stakingPerkApplied = stakingDiscount > 0;
 
-  const totalDiscount = jcmovesDiscount || stakingDiscount;
   // Task #144 — enforce $170 junk minimum globally. Apply discounts/travel
   // first, then clamp the floor so promo paths can never quote below $170.
   const JUNK_MIN_FLOOR = 170;
-  const minPrice = Math.max(JUNK_MIN_FLOOR, rawMin - totalDiscount + travelCharge);
-  const maxPrice = Math.max(minPrice, rawMax - totalDiscount + travelCharge);
+  const minPrice = Math.max(JUNK_MIN_FLOOR, rawMin - stakingDiscount + travelCharge);
+  const maxPrice = Math.max(minPrice, rawMax - stakingDiscount + travelCharge);
   const tokensEstimate = Math.round(((minPrice + maxPrice) / 2) * 50);
 
   return {
     type: "junk", tier, crew, minHrs, maxHrs, minPrice, maxPrice, tokensEstimate, specialSurcharge,
     travelCharge:        travelCharge        || undefined,
-    jcmovesApplied:      jcmovesApplied      || undefined,
-    jcmovesDiscount:     jcmovesDiscount     || undefined,
+    jcmovesApplied:      undefined,
+    jcmovesDiscount:     undefined,
     stakingPerkApplied:  stakingPerkApplied  || undefined,
     stakingPerkDiscount: stakingDiscount     || undefined,
     stakingPerkPct:      stakingPerkApplied ? stakingPerkPct : undefined,
@@ -2208,7 +2187,7 @@ export function computeJunkQuote(a: Answers, ratePerMoverHour = 85, distanceMile
 // ─────────────────────────────────────────────
 // Compute Quote for Any Service
 // ─────────────────────────────────────────────
-function computeQuoteForAnswers(a: Answers, ratePerMoverHour = 85, jc222FlatPrice = 272, distanceMiles = 0, stakingPerkPct = 0): QuoteResult | null {
+function computeQuoteForAnswers(a: Answers, ratePerMoverHour = 85, distanceMiles = 0, stakingPerkPct = 0): QuoteResult | null {
   const svc = getServiceLabel(a.serviceType || "");
 
   if (QUOTE_ONLY_SERVICES.includes(svc)) {
@@ -2286,13 +2265,13 @@ function computeQuoteForAnswers(a: Answers, ratePerMoverHour = 85, jc222FlatPric
   }
 
   // Moving or Junk
-  return computeMovingQuote(a, ratePerMoverHour, jc222FlatPrice, distanceMiles, stakingPerkPct);
+  return computeMovingQuote(a, ratePerMoverHour, distanceMiles, stakingPerkPct);
 }
 
 // ─────────────────────────────────────────────
 // Build Crew Packages for priceable services
 // ─────────────────────────────────────────────
-export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMoverHour = 85, jc222FlatPrice = 272): CrewPackage[] {
+export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMoverHour = 85): CrewPackage[] {
   if (!q) return [];
 
   if (q.type === "junk") {
@@ -2463,8 +2442,6 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
           },
         ];
       }
-      // Standard 2-crew small: show base rate + JC272 promo variant side-by-side
-      const jc222Total = jc222FlatPrice + travel;
       return [
         {
           id: "pkg_small",
@@ -2476,16 +2453,6 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
           hours: 4,
           tag: "Fast book",
         },
-        {
-          id: "pkg_small_jc222",
-          label: "2 Movers × 2 hrs — JC272 Promo",
-          desc: `Same crew & time at the JC272 promo rate · limited availability`,
-          minPrice: jc222Total,
-          maxPrice: jc222Total,
-          crew: 2,
-          hours: 2,
-          tag: "JC272 Promo",
-        },
       ];
     }
 
@@ -2494,7 +2461,7 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
         ? {
             id: "pkg_med_16_load_only",
             label: "2 Movers x 2 hrs",
-            desc: `15 ft truck load-only minimum � local flat rate starts at ${travelNote}`,
+            desc: `15 ft truck load-only minimum · local flat rate starts at ${travelNote}`,
             minPrice: localPackage(300),
             maxPrice: localPackage(300),
             crew: 2,
@@ -2504,7 +2471,7 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
         : {
             id: "pkg_med_a",
             label: "2 Movers x 4 hrs",
-            desc: `Steady pace � $85/mover/hr � best for ground-floor or elevator access${travelNote}`,
+            desc: `Steady pace · $85/mover/hr · best for ground-floor or elevator access${travelNote}`,
             minPrice: localPackage(is26Truck ? 600 : 450),
             maxPrice: localPackage(is26Truck ? 600 : 450),
             crew: 2,
@@ -2741,7 +2708,6 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
     staleTime: 5 * 60 * 1000,
   });
   const liveRate      = pricingConfig?.ratePerMoverHour ?? 85;
-  const liveJc222     = pricingConfig?.jc222Price       ?? 272;
 
   // Fetch staking perk for auto-discount at quote time
   const { data: stakingPerk } = useQuery<{ stakedTotal: number; perkPercent: number; perkLabel: string }>({
@@ -2886,10 +2852,10 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
     if (!currentStep) return;
     if (currentStep.type !== "package_select") return;
     if (crewPackages.length > 0) return;
-    const q = computeQuoteForAnswers(answers, liveRate, liveJc222, distanceMiles, stakingPerkPct);
+    const q = computeQuoteForAnswers(answers, liveRate, distanceMiles, stakingPerkPct);
     if (!q) return;
     setPendingQuote(q);
-    const pkgs = buildCrewPackages(answers, q, liveRate, liveJc222);
+    const pkgs = buildCrewPackages(answers, q, liveRate);
     if (pkgs.length > 0) setCrewPackages(pkgs);
   }, [currentStep?.id, crewPackages.length]);
 
@@ -2914,18 +2880,6 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
       (newAnswers as any)[stepId] = value;
     } else {
       (newAnswers as any)[stepId] = value;
-    }
-
-    // When user selects the JC272 promo package, auto-inject promoCode so the
-    // quote engine sees it when computing the final quote after all steps.
-    if (stepId === "selectedPackage" && value === "pkg_small_jc222") {
-      newAnswers.promoCode = "JC272";
-    }
-
-    // Protect auto-injected JC272: if the user skips/clears the promo code step
-    // but JC272 was already set by package selection, keep it intact.
-    if (stepId === "promoCode" && (!value || value === "(none)") && answers.promoCode === "JC272") {
-      newAnswers.promoCode = "JC272";
     }
 
     if (stepId !== "contact") {
@@ -2957,18 +2911,12 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
       }
     }
 
-    // Special promo code responses
+    // Active promos and packages are evaluated server-side against current
+    // rate-card, distance, crew, and hours data before a booking is created.
     if (stepId === "promoCode") {
       const code = ((Array.isArray(value) ? value[0] : value) as string || "").toUpperCase().trim();
-      if (code === "JCMOVES") {
-        const q = computeQuoteForAnswers(newAnswers, liveRate, liveJc222, distanceMiles, stakingPerkPct);
-        const disc = (q as any)?.jcmovesDiscount;
-        setTimeout(() => botSay(disc
-          ? `✅ JCMOVES code applied! You're saving $${disc} — we appreciate your support.`
-          : `✅ JCMOVES perk noted! Discount will be reflected on your final invoice.`
-        ), 200);
-      } else if (code && code !== "JC272" && code !== "JC222" && code !== "(NONE)" && code !== "(none)") {
-        setTimeout(() => botSay("⚠️ That code didn't match any active promos — no worries, we'll proceed at the standard rate."), 200);
+      if (code && code !== "(NONE)") {
+        setTimeout(() => botSay(`We’ll verify ${code} against the current moving promos and packages before checkout.`), 200);
       }
     }
 
@@ -2998,9 +2946,9 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
 
       // When we reach the package select step, compute packages
       if (nextStep.id === "selectedPackage") {
-        const q = computeQuoteForAnswers(newAnswers, liveRate, liveJc222, distanceMiles, stakingPerkPct);
+        const q = computeQuoteForAnswers(newAnswers, liveRate, distanceMiles, stakingPerkPct);
         setPendingQuote(q);
-        const pkgs = buildCrewPackages(newAnswers, q, liveRate, liveJc222);
+        const pkgs = buildCrewPackages(newAnswers, q, liveRate);
         setCrewPackages(pkgs);
       }
 
@@ -3016,15 +2964,14 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
           botSay(nextStep.question + (nextStep.subtext ? `\n\n_${nextStep.subtext}_` : ""));
         }
         setStepIdx(nextIdx);
-        // Pre-fill promoCode input when JC272 was auto-injected via package selection
-        setTextInput(nextStep.id === "promoCode" && newAnswers.promoCode === "JC272" ? "JC272" : "");
+        setTextInput("");
         setAddressInput("");
         setMultiSel([]);
       }, 500);
     } else {
       // All done — compute final quote & show
       setTimeout(() => {
-        const q = computeQuoteForAnswers(newAnswers, liveRate, liveJc222, distanceMiles, stakingPerkPct);
+        const q = computeQuoteForAnswers(newAnswers, liveRate, distanceMiles, stakingPerkPct);
         setPendingQuote(q);
 
         const svc = getServiceLabel(newAnswers.serviceType || "");
@@ -3560,12 +3507,6 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
                   </p>
                   {pendingQuote.type === "moving" && (pendingQuote as MovingQuote).specialSurcharge > 0 && (
                     <p className="text-xs text-orange-400 mt-1">Includes ${(pendingQuote as MovingQuote).specialSurcharge} specialty item surcharge</p>
-                  )}
-                  {pendingQuote.type === "moving" && (pendingQuote as MovingQuote).promoApplied && (
-                    <div className="mt-2 inline-flex items-center gap-1 bg-green-900/50 border border-green-500/40 rounded-full px-3 py-1">
-                      <span className="text-[11px] font-bold text-green-400">🏷️ JC272 Applied</span>
-                      <span className="text-[10px] text-green-300/80">small-move flat rate</span>
-                    </div>
                   )}
                   {(pendingQuote.type === "moving" || pendingQuote.type === "junk") && (pendingQuote as MovingQuote | JunkQuote).stakingPerkApplied && (
                     <div className="mt-2 inline-flex items-center gap-1.5 bg-orange-900/40 border border-orange-500/40 rounded-full px-3 py-1">

@@ -87,7 +87,7 @@ export interface SelectedItem {
     priceMenuStatus?: "estimate" | "menu_price";
     // Task #141: Moving / Junk Removal package picker snapshot — mirrors the
     // data the booking chatbot captures so the cart line carries the chosen
-    // crew size, hours, tier, and JC222 promo when applicable.
+    // crew size, hours, tier, and any customer-entered promo code.
     packageId?: string;
     packageLabel?: string;
     packageTier?: string;
@@ -732,8 +732,8 @@ export function ServiceItemEditor({
 
 // ── MovingJunkPackagePicker ────────────────────────────────────────────────
 // Mirrors the chatbot's package-picker for Moving and Junk Removal so the
-// wizard sells those services as crew-size × hours packages (with JC222
-// promo eligibility on small-tier moves) instead of a flat $300/$100 line.
+// wizard sells those services as crew-size × hours packages instead of a
+// flat $300/$100 line. The server validates promos and packages at checkout.
 const PICKER_HOME_SIZES = [
   "1–2 Items (Tiny Job)",
   "Studio / Single Room",
@@ -1148,12 +1148,11 @@ export function MovingJunkPackagePicker({
   onServiceAddressChange?: (value: string) => void;
 }) {
   const isMoving = item.serviceCode === "moving";
-  const { data: pricingConfig } = useQuery<{ ratePerMoverHour: number; jc222Price: number }>({
+  const { data: pricingConfig } = useQuery<{ ratePerMoverHour: number }>({
     queryKey: ["/api/pricing"],
     staleTime: 5 * 60 * 1000,
   });
   const rate    = pricingConfig?.ratePerMoverHour ?? 85;
-  const jc222   = pricingConfig?.jc222Price       ?? 272;
   const trimmedPickupAddress = serviceAddress.trim();
   const needsDropoffAddress = isMoving && /both|load \+ unload/i.test(item.details.loadType || "");
   const trimmedDropoffAddress = needsDropoffAddress ? (item.details.dropoffAddress || "").trim() : "";
@@ -1204,12 +1203,12 @@ export function MovingJunkPackagePicker({
   const quote = useMemo(() => {
     if (!item.details.jobSize) return null;
     return isMoving
-      ? computeMovingQuote(answers, rate, jc222, verifiedDriveMiles)
+      ? computeMovingQuote(answers, rate, verifiedDriveMiles)
       : computeJunkQuote(answers, rate);
-  }, [answers, isMoving, rate, jc222, item.details.jobSize, verifiedDriveMiles]);
+  }, [answers, isMoving, rate, item.details.jobSize, verifiedDriveMiles]);
 
   const packages: CrewPackage[] = useMemo(() => {
-    const base = quote ? buildCrewPackages(answers, quote, rate, jc222) : [];
+    const base = quote ? buildCrewPackages(answers, quote, rate) : [];
     if (isMoving && quote) {
       const movingQuote = quote as any;
       const surcharge = Number(movingQuote.specialSurcharge || 0);
@@ -1296,7 +1295,6 @@ export function MovingJunkPackagePicker({
     quote,
     answers,
     rate,
-    jc222,
     isMoving,
     item.details.junkExtraFeeEstimate,
     item.details.junkConstructionReview,
@@ -1309,7 +1307,7 @@ export function MovingJunkPackagePicker({
   //  1. The selected id no longer exists (user changed job size, load type,
   //     etc.) → drop the selection so they have to pick again.
   //  2. The id still exists but its price band, crew or hours changed (e.g.
-  //     the user toggled a special item, JC222, or stairs after picking) →
+  //     the user toggled a special item or stairs after picking) →
   //     reapply the same package so unitPrice / details stay accurate. Without
   //     this the cart would submit stale pricing for the new inputs.
   const packageSig = packages
@@ -2328,7 +2326,7 @@ export function MovingJunkPackagePicker({
               <Input
                 value={item.details.promoCode || ""}
                 onChange={(e) => patch({ promoCode: e.target.value.toUpperCase() || undefined })}
-                placeholder="JC272"
+                placeholder="JCMOVES"
                 data-testid={`pkg-promo-${item.serviceCode}`}
                 className="uppercase"
               />

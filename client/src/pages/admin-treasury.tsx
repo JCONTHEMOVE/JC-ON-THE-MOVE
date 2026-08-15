@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
@@ -48,11 +49,65 @@ import {
   PieChart,
   Calculator,
   Zap,
-  FlameKindling
+  FlameKindling,
+  Bitcoin
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
+
+type BtcLightningLedger = {
+  readiness: {
+    ready: boolean;
+    blockers: string[];
+    receivedAsset: string;
+    settlementCurrency: string;
+    treasuryRetentionPercent: number;
+    valuationCurrency: string;
+    custodyPolicy: string;
+    conversionPolicy: string;
+    automaticConversionEnabled: boolean;
+    externalSettlementVerificationRequired: boolean;
+  };
+  totals: {
+    payment_count: number;
+    original_amount_usd: string;
+    discount_amount_usd: string;
+    gross_amount_paid_usd: string;
+    refunded_amount_usd: string;
+    amount_paid_usd: string;
+    reward_value_usd: string;
+    reward_tokens: string;
+    gross_btc_amount: string;
+    net_btc_amount: string;
+    retained_btc_amount: string;
+    pending_reconciliation_count: number;
+  };
+  entries: Array<{
+    id: number;
+    crypto_intent_id: number;
+    lead_id: string;
+    order_number: number | null;
+    first_name: string | null;
+    last_name: string | null;
+    original_amount_usd: string;
+    discount_amount_usd: string;
+    amount_paid_usd: string;
+    refunded_amount_usd: string;
+    reward_value_usd: string;
+    reward_tokens: string;
+    gross_btc_amount: string | null;
+    net_btc_amount: string | null;
+    retained_btc_amount: string | null;
+    retention_percent: string;
+    valuation_currency: string;
+    custody_policy: string;
+    conversion_status: string;
+    status: string;
+    reward_status: string | null;
+    created_at: string;
+  }>;
+};
 
 export default function AdminTreasuryPage() {
   const { toast } = useToast();
@@ -168,6 +223,11 @@ export default function AdminTreasuryPage() {
     staleTime: 60000,
   });
 
+  const { data: btcLightningLedger, refetch: refetchBtcLightningLedger } = useQuery<BtcLightningLedger>({
+    queryKey: ["/api/treasury/btc-lightning-ledger"],
+    staleTime: 30000,
+  });
+
   // Square config status
   const { data: squareConfig } = useQuery<{ configured: boolean; environment: string }>({
     queryKey: ["/api/invoices/config/status"],
@@ -195,11 +255,48 @@ export default function AdminTreasuryPage() {
     rewardTokens: string; referralRewardTokens: string;
     maxUses: number | null; usesCount: number;
     isActive: boolean; expiresAt: string | null; createdAt: string;
+    jobOffer?: {
+      kind: "fixed_moving_package";
+      fixedBasePrice: number;
+      requiredCrewSize: number;
+      requiredHours: number;
+      localMilesMax?: number;
+      requiresCompanyTruck?: boolean;
+      requiresTrailer?: boolean;
+    } | null;
   };
   const { data: promoCodes, refetch: refetchPromoCodes } = useQuery<PromoCode[]>({
     queryKey: ["/api/admin/promo-codes"],
   });
-  const blankPromo = { code: "", description: "", discountPercent: "0", discountPercentJewelry: "0", rewardTokens: "0", referralRewardTokens: "0", maxUses: "", expiresAt: "", isActive: true };
+  type JcMovesAudit = {
+    months: number;
+    generatedAt: string;
+    allJcMoves: { users: number; transactions: number; total_jcmoves: string };
+    paidCompletionLedger: { users: number; transactions: number; total_jcmoves: string; pending_customer_claims: number };
+    monthly: Array<{ month: string; users: number; transactions: number; total_jcmoves: string }>;
+  };
+  const { data: jcmovesAudit, refetch: refetchJcmovesAudit } = useQuery<JcMovesAudit>({
+    queryKey: ["/api/admin/jcmoves-audit", 6],
+  });
+  const repairJcmovesPayoutsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/admin/jcmoves-audit/repair", { confirm: true });
+      return response.json();
+    },
+    onSuccess: (data: { repairedLeadIds?: string[] }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/jcmoves-audit", 6] });
+      const repaired = data.repairedLeadIds?.length ?? 0;
+      toast({ title: "JCMOVES payout repair finished", description: `${repaired} eligible historical job${repaired === 1 ? " was" : "s were"} repaired.` });
+    },
+    onError: (error: Error) => toast({ title: "Payout repair failed", description: error.message, variant: "destructive" }),
+  });
+  const blankPromo = {
+    code: "", description: "", offerType: "percentage" as "percentage" | "fixed_package",
+    discountPercent: "0", discountPercentJewelry: "0", rewardTokens: "0", referralRewardTokens: "0",
+    fixedBasePrice: "", requiredCrewSize: "2", requiredHours: "2", localMilesMax: "10",
+    requiresCompanyTruck: false, requiresTrailer: false,
+    maxUses: "", expiresAt: "", isActive: true,
+  };
   const [showPromoForm, setShowPromoForm] = useState(false);
   const [editingPromo, setEditingPromo] = useState<PromoCode | null>(null);
   const [promoForm, setPromoForm] = useState(blankPromo);
@@ -221,16 +318,26 @@ export default function AdminTreasuryPage() {
   });
 
   function savePromo() {
+    const isPackage = promoForm.offerType === "fixed_package";
     const payload = {
       code: promoForm.code.toUpperCase().trim(),
       description: promoForm.description,
-      discountPercent: promoForm.discountPercent || "0",
+      discountPercent: isPackage ? "0" : (promoForm.discountPercent || "0"),
       discountPercentJewelry: promoForm.discountPercentJewelry || "0",
       rewardTokens: promoForm.rewardTokens || "0",
       referralRewardTokens: promoForm.referralRewardTokens || "0",
       maxUses: promoForm.maxUses ? parseInt(promoForm.maxUses as string) : null,
       expiresAt: promoForm.expiresAt || null,
       isActive: promoForm.isActive,
+      jobOffer: isPackage ? {
+        kind: "fixed_moving_package",
+        fixedBasePrice: Number(promoForm.fixedBasePrice),
+        requiredCrewSize: Number(promoForm.requiredCrewSize),
+        requiredHours: Number(promoForm.requiredHours),
+        localMilesMax: Number(promoForm.localMilesMax),
+        requiresCompanyTruck: promoForm.requiresCompanyTruck,
+        requiresTrailer: promoForm.requiresTrailer,
+      } : null,
     };
     if (editingPromo) { updatePromoMutation.mutate({ id: editingPromo.id, data: payload }); }
     else { createPromoMutation.mutate(payload); }
@@ -730,6 +837,10 @@ export default function AdminTreasuryPage() {
               <Wallet className="h-4 w-4 mr-2" />
               Treasury Wallet
             </TabsTrigger>
+            <TabsTrigger value="btc-lightning" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-300" data-testid="tab-btc-lightning">
+              <Bitcoin className="h-4 w-4 mr-2" />
+              BTC Lightning
+            </TabsTrigger>
             <TabsTrigger value="operations" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-300" data-testid="tab-operations">
               <Activity className="h-4 w-4 mr-2" />
               Operations
@@ -772,6 +883,10 @@ export default function AdminTreasuryPage() {
             <TabsTrigger value="ledger" className="data-[state=active]:bg-pink-500/20 data-[state=active]:text-pink-300" data-testid="tab-ledger">
               <History className="h-4 w-4 mr-2" />
               Token Ledger
+            </TabsTrigger>
+            <TabsTrigger value="jcmoves-audit" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-300" data-testid="tab-jcmoves-audit">
+              <Zap className="h-4 w-4 mr-2" />
+              JCMOVES Audit
             </TabsTrigger>
             <TabsTrigger value="reward-config" className="data-[state=active]:bg-teal-500/20 data-[state=active]:text-teal-300" data-testid="tab-reward-config">
               <Settings className="h-4 w-4 mr-2" />
@@ -863,6 +978,101 @@ export default function AdminTreasuryPage() {
                   Send Tokens
                 </Button>
               </div>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="btc-lightning" className="space-y-6">
+            <Card className="p-6 border border-orange-500/30 bg-gradient-to-br from-orange-950/40 to-slate-900/80">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-white flex items-center gap-2">
+                    <Bitcoin className="h-6 w-6 text-orange-400" /> Bitcoin Lightning Treasury
+                  </h2>
+                  <p className="text-sm text-slate-400 mt-1">BTC stays BTC · USD is accounting value only · conversion is manual and currently disabled</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => refetchBtcLightningLedger()} className="border-orange-500/40 text-orange-300">
+                  <RefreshCw className="h-4 w-4 mr-2" /> Refresh ledger
+                </Button>
+              </div>
+
+              <div className={`mt-5 rounded-xl border p-4 ${btcLightningLedger?.readiness.ready ? "border-green-500/30 bg-green-500/10" : "border-amber-500/30 bg-amber-500/10"}`}>
+                <div className="flex items-start gap-3">
+                  {btcLightningLedger?.readiness.ready
+                    ? <CheckCircle className="h-5 w-5 text-green-400 mt-0.5" />
+                    : <AlertTriangle className="h-5 w-5 text-amber-400 mt-0.5" />}
+                  <div>
+                    <p className="font-semibold text-white">{btcLightningLedger?.readiness.ready ? "Received-asset custody policy ready" : "Configuration required before checkout"}</p>
+                    <p className="text-xs text-slate-400 mt-1">The app requires 100% BTC custody with no automatic conversion. The USD figures below value each job for bookkeeping and payout math; they are not a USD settlement balance.</p>
+                    {btcLightningLedger?.readiness.blockers?.length ? (
+                      <ul className="mt-2 text-xs text-amber-200 space-y-1">
+                        {btcLightningLedger.readiness.blockers.map((blocker) => <li key={blocker}>• {blocker}</li>)}
+                      </ul>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mt-5">
+                <div className="rounded-xl bg-slate-900/60 border border-slate-700 p-3">
+                  <p className="text-xs text-slate-500">Payments</p>
+                  <p className="text-xl font-black text-white">{btcLightningLedger?.totals.payment_count ?? 0}</p>
+                </div>
+                <div className="rounded-xl bg-slate-900/60 border border-slate-700 p-3">
+                  <p className="text-xs text-slate-500">USD accounting value</p>
+                  <p className="text-xl font-black text-green-300">${Number(btcLightningLedger?.totals.amount_paid_usd || 0).toFixed(2)}</p>
+                </div>
+                <div className="rounded-xl bg-slate-900/60 border border-slate-700 p-3">
+                  <p className="text-xs text-slate-500">Refunded</p>
+                  <p className="text-xl font-black text-red-300">${Number(btcLightningLedger?.totals.refunded_amount_usd || 0).toFixed(2)}</p>
+                </div>
+                <div className="rounded-xl bg-slate-900/60 border border-slate-700 p-3">
+                  <p className="text-xs text-slate-500">Discounts</p>
+                  <p className="text-xl font-black text-orange-300">${Number(btcLightningLedger?.totals.discount_amount_usd || 0).toFixed(2)}</p>
+                </div>
+                <div className="rounded-xl bg-slate-900/60 border border-slate-700 p-3">
+                  <p className="text-xs text-slate-500">JCMOVES liability</p>
+                  <p className="text-xl font-black text-amber-300">${Number(btcLightningLedger?.totals.reward_value_usd || 0).toFixed(2)}</p>
+                </div>
+                <div className="rounded-xl bg-slate-900/60 border border-slate-700 p-3 col-span-2 lg:col-span-1">
+                  <p className="text-xs text-slate-500">BTC held in-kind</p>
+                  <p className="text-xl font-black text-orange-300">₿{Number(btcLightningLedger?.totals.retained_btc_amount || 0).toFixed(8)}</p>
+                  <p className="text-[10px] text-slate-500">{btcLightningLedger?.totals.pending_reconciliation_count ?? 0} awaiting BTC custody confirmation</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 border border-slate-700/60 bg-slate-900/70">
+              <h3 className="font-bold text-white mb-4">Payment and retention ledger</h3>
+              {btcLightningLedger?.entries?.length ? (
+                <div className="space-y-3">
+                  {btcLightningLedger.entries.map((entry) => (
+                    <div key={entry.id} className="rounded-xl border border-slate-700/60 bg-slate-950/50 p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-semibold text-white">JC-{entry.order_number || entry.lead_id.slice(0, 8)} · {[entry.first_name, entry.last_name].filter(Boolean).join(" ") || "Customer"}</p>
+                          <p className="text-xs text-slate-500">{new Date(entry.created_at).toLocaleString()} · intent #{entry.crypto_intent_id}</p>
+                        </div>
+                        <Badge variant="outline" className={entry.net_btc_amount ? "border-green-500/40 text-green-300" : "border-amber-500/40 text-amber-300"}>
+                          {entry.net_btc_amount ? "BTC held - not converted" : "BTC custody reconciliation pending"}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mt-3 text-sm">
+                        <div><p className="text-xs text-slate-500">Quote value (USD)</p><p>${Number(entry.original_amount_usd).toFixed(2)}</p></div>
+                        <div><p className="text-xs text-slate-500">Discount</p><p className="text-orange-300">-${Number(entry.discount_amount_usd).toFixed(2)}</p></div>
+                        <div><p className="text-xs text-slate-500">Paid value (USD)</p><p className="text-green-300">${Number(entry.amount_paid_usd).toFixed(2)}</p></div>
+                        <div><p className="text-xs text-slate-500">Refunded</p><p className="text-red-300">${Number(entry.refunded_amount_usd || 0).toFixed(2)}</p></div>
+                        <div><p className="text-xs text-slate-500">Reward</p><p className="text-amber-300">{Number(entry.reward_tokens).toLocaleString()} JC</p></div>
+                        <div><p className="text-xs text-slate-500">Retained</p><p className="text-orange-300">{entry.retained_btc_amount ? `₿${Number(entry.retained_btc_amount).toFixed(8)}` : "Pending"}</p></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-10 text-slate-500">
+                  <Bitcoin className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                  <p>No confirmed Lightning job payments yet.</p>
+                </div>
+              )}
             </Card>
           </TabsContent>
 
@@ -989,13 +1199,13 @@ export default function AdminTreasuryPage() {
               </Card>
             </Collapsible>
 
-            {/* Revenue Allocations — 40/30/20/10 split log */}
+            {/* Accounting allocations — no underlying funds are moved */}
             <Card className="p-6 border border-slate-700/50 bg-gradient-to-br from-slate-800/80 to-slate-900/80">
               <h3 className="text-lg font-bold mb-1 flex items-center gap-2 text-slate-100">
-                💰 Revenue Split Tracking
+                💰 Revenue Planning Allocation
               </h3>
               <p className="text-xs text-slate-400 mb-4">
-                Every confirmed payment is allocated: 40% Buyback · 30% Staking · 20% Jackpot · 10% Liquidity
+                Planning values only: 40% Buyback · 30% Staking · 20% Jackpot · 10% Liquidity. No cash or crypto is transferred, converted, or distributed by this ledger.
               </p>
               {revenueAllocData?.totals && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -2643,6 +2853,79 @@ export default function AdminTreasuryPage() {
             </Card>
           </TabsContent>
 
+          <TabsContent value="jcmoves-audit" className="space-y-6">
+            <Card className="p-6 border border-amber-500/30 bg-gradient-to-br from-amber-950/40 to-slate-900/80">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 className="flex items-center gap-2 text-xl font-bold text-white"><Zap className="h-5 w-5 text-amber-300" /> JCMOVES payout audit</h2>
+                  <p className="mt-1 text-sm text-slate-400">Confirmed reward activity for the rolling six months. Job paid-completion payouts are tracked separately so no other reward type is mistaken for a job payout.</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => refetchJcmovesAudit()} className="border-amber-500/50 text-amber-200 hover:bg-amber-500/10">
+                  <RefreshCw className="mr-2 h-4 w-4" />Refresh
+                </Button>
+              </div>
+
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
+                <div className="rounded-xl border border-amber-500/20 bg-slate-950/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Recipients</p>
+                  <p className="mt-1 text-3xl font-black text-amber-300">{jcmovesAudit?.allJcMoves.users ?? 0}</p>
+                  <p className="text-xs text-slate-500">unique users</p>
+                </div>
+                <div className="rounded-xl border border-amber-500/20 bg-slate-950/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Transactions</p>
+                  <p className="mt-1 text-3xl font-black text-amber-300">{(jcmovesAudit?.allJcMoves.transactions ?? 0).toLocaleString()}</p>
+                  <p className="text-xs text-slate-500">confirmed JCMOVES rewards</p>
+                </div>
+                <div className="rounded-xl border border-amber-500/20 bg-slate-950/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Distributed</p>
+                  <p className="mt-1 text-3xl font-black text-amber-300">{Number(jcmovesAudit?.allJcMoves.total_jcmoves || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                  <p className="text-xs text-slate-500">JCMOVES</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 border border-slate-700/50 bg-slate-900/70">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Paid-completion job ledger</h3>
+                  <p className="mt-1 text-sm text-slate-400">Only records released after both full payment and completion.</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-500/50 text-amber-200 hover:bg-amber-500/10"
+                  disabled={repairJcmovesPayoutsMutation.isPending}
+                  onClick={() => {
+                    if (window.confirm("Repair only missing JCMOVES awards for paid-and-completed jobs? Existing issued ledger entries will be preserved.")) {
+                      repairJcmovesPayoutsMutation.mutate();
+                    }
+                  }}
+                >
+                  {repairJcmovesPayoutsMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                  Repair missing awards
+                </Button>
+              </div>
+              <div className="mt-5 grid gap-4 sm:grid-cols-4">
+                <div><p className="text-xs text-slate-400">Recipients</p><p className="text-xl font-bold text-white">{jcmovesAudit?.paidCompletionLedger.users ?? 0}</p></div>
+                <div><p className="text-xs text-slate-400">Ledger transactions</p><p className="text-xl font-bold text-white">{jcmovesAudit?.paidCompletionLedger.transactions ?? 0}</p></div>
+                <div><p className="text-xs text-slate-400">JCMOVES issued</p><p className="text-xl font-bold text-white">{Number(jcmovesAudit?.paidCompletionLedger.total_jcmoves || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</p></div>
+                <div><p className="text-xs text-slate-400">Pending customer claims</p><p className="text-xl font-bold text-white">{jcmovesAudit?.paidCompletionLedger.pending_customer_claims ?? 0}</p></div>
+              </div>
+            </Card>
+
+            <Card className="p-6 border border-slate-700/50 bg-slate-900/70">
+              <h3 className="text-lg font-bold text-white">Monthly confirmed rewards</h3>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-slate-700 text-left text-slate-400"><th className="py-2">Month</th><th className="py-2 text-right">Users</th><th className="py-2 text-right">Transactions</th><th className="py-2 text-right">JCMOVES</th></tr></thead>
+                  <tbody>
+                    {jcmovesAudit?.monthly.map((row) => <tr key={row.month} className="border-b border-slate-800 text-slate-200"><td className="py-2">{row.month}</td><td className="py-2 text-right">{row.users}</td><td className="py-2 text-right">{row.transactions.toLocaleString()}</td><td className="py-2 text-right">{Number(row.total_jcmoves).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td></tr>)}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </TabsContent>
+
           {/* Reward Configuration Tab */}
           <TabsContent value="reward-config" className="space-y-6">
 
@@ -2750,10 +3033,26 @@ export default function AdminTreasuryPage() {
                       <Input value={promoForm.description} onChange={e => setPromoForm(f => ({...f, description: e.target.value}))} placeholder="Summer sale discount" className="bg-slate-800 border-slate-600 text-white mt-1" />
                     </div>
                     <div>
-                      <Label className="text-slate-300 text-xs">Service Discount %</Label>
-                      <Input type="number" min="0" max="100" value={promoForm.discountPercent} onChange={e => setPromoForm(f => ({...f, discountPercent: e.target.value}))} placeholder="0" className="bg-slate-800 border-slate-600 text-white mt-1" />
-                      <p className="text-xs text-slate-500 mt-0.5">Applied to moving/junk removal quotes</p>
+                      <Label className="text-slate-300 text-xs">Offer Type</Label>
+                      <select value={promoForm.offerType} onChange={e => setPromoForm(f => ({...f, offerType: e.target.value as "percentage" | "fixed_package"}))} className="mt-1 h-10 w-full rounded-md border border-slate-600 bg-slate-800 px-3 text-sm text-white">
+                        <option value="percentage">Percentage discount</option>
+                        <option value="fixed_package">Fixed moving package</option>
+                      </select>
                     </div>
+                    {promoForm.offerType === "percentage" ? (
+                      <div>
+                        <Label className="text-slate-300 text-xs">Service Discount %</Label>
+                        <Input type="number" min="0" max="100" value={promoForm.discountPercent} onChange={e => setPromoForm(f => ({...f, discountPercent: e.target.value}))} placeholder="0" className="bg-slate-800 border-slate-600 text-white mt-1" />
+                        <p className="text-xs text-slate-500 mt-0.5">Applied once to the full automatic moving quote</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div><Label className="text-slate-300 text-xs">Package Price $</Label><Input type="number" min="0" value={promoForm.fixedBasePrice} onChange={e => setPromoForm(f => ({...f, fixedBasePrice: e.target.value}))} className="bg-slate-800 border-slate-600 text-white mt-1" /></div>
+                        <div><Label className="text-slate-300 text-xs">Required Movers</Label><Input type="number" min="1" max="12" value={promoForm.requiredCrewSize} onChange={e => setPromoForm(f => ({...f, requiredCrewSize: e.target.value}))} className="bg-slate-800 border-slate-600 text-white mt-1" /></div>
+                        <div><Label className="text-slate-300 text-xs">Required Hours</Label><Input type="number" min="1" max="24" value={promoForm.requiredHours} onChange={e => setPromoForm(f => ({...f, requiredHours: e.target.value}))} className="bg-slate-800 border-slate-600 text-white mt-1" /></div>
+                        <div><Label className="text-slate-300 text-xs">Local Mile Limit</Label><Input type="number" min="1" max="500" value={promoForm.localMilesMax} onChange={e => setPromoForm(f => ({...f, localMilesMax: e.target.value}))} className="bg-slate-800 border-slate-600 text-white mt-1" /></div>
+                      </>
+                    )}
                     <div>
                       <Label className="text-slate-300 text-xs">Jewelry Discount %</Label>
                       <Input type="number" min="0" max="100" value={promoForm.discountPercentJewelry} onChange={e => setPromoForm(f => ({...f, discountPercentJewelry: e.target.value}))} placeholder="0" className="bg-slate-800 border-slate-600 text-white mt-1" />
@@ -2785,6 +3084,7 @@ export default function AdminTreasuryPage() {
                     <Switch checked={promoForm.isActive} onCheckedChange={v => setPromoForm(f => ({...f, isActive: v}))} />
                     <Label className="text-slate-300 text-sm">{promoForm.isActive ? "Active — customers can use this code" : "Inactive — code is disabled"}</Label>
                   </div>
+                  {promoForm.offerType === "fixed_package" && <div className="flex flex-wrap gap-5 text-sm text-slate-300"><label className="flex items-center gap-2"><Checkbox checked={promoForm.requiresCompanyTruck} onCheckedChange={v => setPromoForm(f => ({...f, requiresCompanyTruck: v === true}))} />JC truck included</label><label className="flex items-center gap-2"><Checkbox checked={promoForm.requiresTrailer} onCheckedChange={v => setPromoForm(f => ({...f, requiresTrailer: v === true}))} />Trailer included</label></div>}
                   <div className="flex gap-3 pt-2">
                     <Button onClick={savePromo} disabled={createPromoMutation.isPending || updatePromoMutation.isPending || !promoForm.code} className="bg-green-600 hover:bg-green-700">
                       {(createPromoMutation.isPending || updatePromoMutation.isPending) ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
@@ -2818,6 +3118,7 @@ export default function AdminTreasuryPage() {
                         {pc.description && <p className="text-sm text-slate-400 mt-1">{pc.description}</p>}
                         <div className="flex flex-wrap gap-3 mt-2 text-xs">
                           {parseFloat(pc.discountPercent) > 0 && <span className="text-blue-300">🏷 {pc.discountPercent}% off services</span>}
+                          {pc.jobOffer?.kind === "fixed_moving_package" && <span className="text-emerald-300">📦 Fixed package: ${pc.jobOffer.fixedBasePrice} · {pc.jobOffer.requiredCrewSize} movers · {pc.jobOffer.requiredHours} hrs · {pc.jobOffer.localMilesMax ?? 10} mi</span>}
                           {parseFloat(pc.discountPercentJewelry) > 0 && <span className="text-purple-300">💎 {pc.discountPercentJewelry}% off jewelry</span>}
                           {parseFloat(pc.rewardTokens) > 0 && <span className="text-teal-300">🪙 +{parseFloat(pc.rewardTokens).toLocaleString()} JCMOVES to customer</span>}
                           {parseFloat(pc.referralRewardTokens) > 0 && <span className="text-amber-300">⭐ +{parseFloat(pc.referralRewardTokens).toLocaleString()} JCMOVES to referrer</span>}
@@ -2825,7 +3126,7 @@ export default function AdminTreasuryPage() {
                         </div>
                       </div>
                       <div className="flex gap-2 shrink-0">
-                        <Button size="sm" variant="outline" onClick={() => { setEditingPromo(pc); setPromoForm({ code: pc.code, description: pc.description, discountPercent: pc.discountPercent, discountPercentJewelry: pc.discountPercentJewelry, rewardTokens: pc.rewardTokens, referralRewardTokens: pc.referralRewardTokens, maxUses: pc.maxUses?.toString() || "", expiresAt: pc.expiresAt ? pc.expiresAt.split('T')[0] : "", isActive: pc.isActive }); setShowPromoForm(false); }} className="border-slate-600 text-slate-300 h-8 w-8 p-0">
+                        <Button size="sm" variant="outline" onClick={() => { const offer = pc.jobOffer; setEditingPromo(pc); setPromoForm({ code: pc.code, description: pc.description, offerType: offer ? "fixed_package" : "percentage", discountPercent: pc.discountPercent, discountPercentJewelry: pc.discountPercentJewelry, rewardTokens: pc.rewardTokens, referralRewardTokens: pc.referralRewardTokens, fixedBasePrice: offer ? String(offer.fixedBasePrice) : "", requiredCrewSize: offer ? String(offer.requiredCrewSize) : "2", requiredHours: offer ? String(offer.requiredHours) : "2", localMilesMax: offer ? String(offer.localMilesMax ?? 10) : "10", requiresCompanyTruck: Boolean(offer?.requiresCompanyTruck), requiresTrailer: Boolean(offer?.requiresTrailer), maxUses: pc.maxUses?.toString() || "", expiresAt: pc.expiresAt ? pc.expiresAt.split('T')[0] : "", isActive: pc.isActive }); setShowPromoForm(false); }} className="border-slate-600 text-slate-300 h-8 w-8 p-0">
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => updatePromoMutation.mutate({ id: pc.id, data: { isActive: !pc.isActive } })} className={`h-8 w-8 p-0 ${pc.isActive ? "border-orange-500/50 text-orange-400" : "border-green-500/50 text-green-400"}`}>

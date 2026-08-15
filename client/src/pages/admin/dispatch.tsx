@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { User } from "@shared/schema";
 import type { JobPayoutPreview } from "@shared/jobPayout";
+import { UpcomingJobReadiness } from "@/components/upcoming-job-readiness";
 
 // Task #171 — Live Dispatch page. Polls jobs + crew every 3s so operators
 // can watch the feed and reassign with one click. Auto-dispatch logic is
@@ -451,6 +452,8 @@ export default function AdminDispatchPage() {
           demand intensity from the dispatch screen before manually reassigning. */}
       <DemandHeatmapStrip />
 
+      <UpcomingJobReadiness />
+
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-5">
         {/* Jobs feed */}
         <div>
@@ -527,7 +530,7 @@ export default function AdminDispatchPage() {
           <DialogHeader>
             <DialogTitle>Quick Payout Estimate</DialogTitle>
             <p className="text-sm text-slate-400">
-              Dispatch uses this for same-day crew planning. Final profit-share payouts are calculated in Admin Job Payouts and cannot be finalized until Customer Approved.
+              This uses the same canonical classification, driver, authority bonus, and quarterly profit-bonus rules as Finance.
             </p>
           </DialogHeader>
 
@@ -548,14 +551,14 @@ export default function AdminDispatchPage() {
               <div className="grid gap-3 md:grid-cols-2">
                 <Card className="border-slate-800 bg-slate-900/50">
                   <CardContent className="p-4 space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Dispatch Estimate Pools</p>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Canonical Earnings Pools</p>
                     {[
-                      ["Labor Pool", payoutPreview.pools.laborPool],
-                      ["Owner/Admin", payoutPreview.pools.ownerAdminPool],
+                      ["Monthly job earnings", payoutPreview.pools.laborPool],
+                      ["5% / 10% authority bonus", payoutPreview.pools.ownerAdminPool],
                       ["Company Profit", payoutPreview.pools.companyProfitPool],
                       ["Referral", payoutPreview.pools.referralPool],
                       ["Equipment", payoutPreview.pools.equipmentPool],
-                      ["Meal/Culture", payoutPreview.pools.mealCultureFund],
+                      ["Growth", payoutPreview.pools.mealCultureFund],
                       ["Reserve", payoutPreview.pools.reserveFund],
                     ].map(([label, value]) => (
                       <div key={String(label)} className="flex items-center justify-between text-sm">
@@ -568,7 +571,7 @@ export default function AdminDispatchPage() {
 
                 <Card className="border-slate-800 bg-slate-900/50">
                   <CardContent className="p-4 space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Minimum-Pay Protection</p>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Canonical Calculation</p>
                     <div className="flex items-center justify-between text-sm"><span className="text-slate-300">From company profit</span><span className="font-bold text-white">${payoutPreview.topUpFunding.fromCompanyProfit.toLocaleString()}</span></div>
                     <div className="flex items-center justify-between text-sm"><span className="text-slate-300">From owner/admin</span><span className="font-bold text-white">${payoutPreview.topUpFunding.fromOwnerAdmin.toLocaleString()}</span></div>
                     <div className="flex items-center justify-between text-sm"><span className="text-slate-300">From reserve</span><span className="font-bold text-white">${payoutPreview.topUpFunding.fromReserve.toLocaleString()}</span></div>
@@ -643,7 +646,7 @@ export default function AdminDispatchPage() {
               </Card>
 
               <div className="space-y-1 text-xs text-slate-400">
-                <p>Use Admin Job Payouts for gross revenue, reserves, guaranteed hourly pay, net profit, profit per labor hour, crew bonus, referral payout, and final payout status.</p>
+                <p>Use Finance for approved actual hours, monthly payroll and tips, quarterly profit bonuses, daily cash offsets, and final payout status.</p>
                 {payoutPreview.notes.map((note) => (
                   <p key={note}>{note}</p>
                 ))}

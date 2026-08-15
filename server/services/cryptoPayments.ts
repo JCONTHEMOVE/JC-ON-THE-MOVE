@@ -42,6 +42,10 @@ export type CryptoCheckoutIntentInput = {
     phone?: string | null;
   };
   metadata?: Record<string, unknown>;
+  /** Restrict the hosted invoice to explicitly allowed transaction currencies. */
+  paymentCurrencies?: string[];
+  /** Preselect the buyer currency; used by the BTC/Lightning-only job rail. */
+  forcedBuyerSelectedTransactionCurrency?: string;
 };
 
 export type CryptoCheckoutIntentResult = {
@@ -194,6 +198,8 @@ export async function createBitPayCheckoutIntent(
       autoRedirect: true,
       acceptanceWindow: 900000,
       transactionSpeed: "medium",
+      paymentCurrencies: input.paymentCurrencies,
+      forcedBuyerSelectedTransactionCurrency: input.forcedBuyerSelectedTransactionCurrency,
       buyer: Object.keys(buyer).length > 0 ? buyer : undefined,
     }),
   });

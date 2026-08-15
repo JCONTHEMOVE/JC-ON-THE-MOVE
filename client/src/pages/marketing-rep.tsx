@@ -5,6 +5,7 @@ import { ArrowLeft, CalendarCheck, CheckCircle2, Copy, Download, Phone, Printer,
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { apiRequest } from "@/lib/queryClient";
+import { MARKETING_ATTRIBUTION_PARAM_KEYS } from "@shared/marketingTracking";
 import heroImage from "@assets/google_movers/crew-ramp.jpg";
 
 type MarketingRep = {
@@ -53,8 +54,6 @@ const coreServiceLinks = [
   },
 ];
 
-const TRACKING_PARAM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "jc_campaign", "jc_area", "jc_focus", "fbclid"] as const;
-
 function formatPhone(raw: string) {
   const digits = raw.replace(/\D/g, "");
   if (digits.length === 11 && digits.startsWith("1")) {
@@ -75,7 +74,7 @@ export default function MarketingRepPage() {
     const params = new URLSearchParams();
     if (typeof window === "undefined") return params;
     const current = new URLSearchParams(window.location.search);
-    for (const key of TRACKING_PARAM_KEYS) {
+    for (const key of MARKETING_ATTRIBUTION_PARAM_KEYS) {
       const value = (current.get(key) || "").trim();
       if (value) params.set(key, value.slice(0, 500));
     }
@@ -104,7 +103,10 @@ export default function MarketingRepPage() {
       ? withTracking("/book", { mode: "quick", service, promo: rep.promoCode, rep: rep.slug })
       : `/book?mode=quick&service=${encodeURIComponent(service)}`;
   const shareUrl = rep ? `${window.location.origin}${withTracking(`/network/${rep.slug}`, {})}` : "";
-  const qrImageUrl = rep ? `/api/marketing-network/reps/${encodeURIComponent(rep.slug)}/qr.svg` : "";
+  const qrQuery = trackingParams.toString();
+  const qrImageUrl = rep
+    ? `/api/marketing-network/reps/${encodeURIComponent(rep.slug)}/qr.svg${qrQuery ? `?${qrQuery}` : ""}`
+    : "";
   const shareText = rep ? `${rep.displayName} with JC ON THE MOVE can help book moving, junk removal, delivery, cleanup, and labor work. Add photos, videos, or an album link so the crew can quote faster. Use code ${rep.promoCode}: ${shareUrl}` : "";
   const smsShareHref = rep ? `sms:?&body=${encodeURIComponent(shareText)}` : "#";
 
