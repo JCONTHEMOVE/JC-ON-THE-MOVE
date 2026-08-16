@@ -370,10 +370,26 @@ export function formatJobWebhookBody(url: string, payload: Record<string, unknow
 
   if (url.includes("discord.com/api/webhooks") || url.includes("discordapp.com/api/webhooks")) {
     const adminUrl = typeof payload.adminUrl === "string" ? payload.adminUrl : "";
+    // Discord webhooks can successfully post (HTTP 204) without creating a
+    // notification. Explicitly mention the shared crew channel for the event
+    // types that are intended to be alerts, while preventing mentions hidden
+    // in customer/admin-provided text from being parsed.
+    const alertTypes = new Set([
+      "crew_announcement",
+      "quote_requested",
+      "job_available",
+      "crew_assigned",
+      "job_completed",
+      "jcmoves_disbursed",
+    ]);
+    const notifyCrew = alertTypes.has(String(payload.type || ""));
+    const mentionPrefix = notifyCrew ? "@everyone\n" : "";
+    const allowed_mentions = { parse: notifyCrew ? ["everyone"] : [] };
     if (payload.type === "crew_announcement") {
       return JSON.stringify({
         username: "JC ON THE MOVE",
-        content: `**${title}**\n${message}`,
+        content: `${mentionPrefix}**${title}**\n${message}`,
+        allowed_mentions,
         embeds: [{
           title,
           description: message,
@@ -384,7 +400,8 @@ export function formatJobWebhookBody(url: string, payload: Record<string, unknow
     }
     return JSON.stringify({
       username: "JC Job Events",
-      content: `**${title}**\n${message}${adminUrl ? `\n${adminUrl}` : ""}`,
+      content: `${mentionPrefix}**${title}**\n${message}${adminUrl ? `\n${adminUrl}` : ""}`,
+      allowed_mentions,
       embeds: [{
         title,
         ...(adminUrl ? { url: adminUrl } : {}),
