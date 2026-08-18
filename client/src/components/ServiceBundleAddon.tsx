@@ -44,17 +44,6 @@ export default function ServiceBundleAddon({
   const shopCardSelected = selected.some(
     (id) => BUNDLE_ADDONS.find((s) => s.id === id)?.fulfillmentType === "shop_card",
   );
-  // The server-side `getBillableShopCardLine` rule: if the customer ticked
-  // any add-on but didn't pick a priced one (e.g. only companion services
-  // like Lawn Care), we still bill a default $100 Shop Card so they get
-  // the wallet credit. Disclose that here so the price isn't a surprise.
-  const willBillDefaultShopCard =
-    hasSelected &&
-    !shopCardSelected &&
-    !selected.some((id) => {
-      const a = BUNDLE_ADDONS.find((x) => x.id === id);
-      return !!(a?.priceUsd && a.priceUsd > 0);
-    });
 
   return (
     <div className={`rounded-2xl p-4 space-y-3 border transition-all ${cardBg}`}>
@@ -112,12 +101,7 @@ export default function ServiceBundleAddon({
           </p>
           {shopCardSelected && (
             <p className="text-[10px] text-pink-300">
-              🛍️ <span className="font-semibold">$100 Shop Card</span> billed alongside your service — pays out as <span className="font-semibold">$100 JCMOVES USD</span> in your wallet, redeemable on any future JC ON THE MOVE invoice.
-            </p>
-          )}
-          {willBillDefaultShopCard && (
-            <p className="text-[10px] text-pink-300">
-              🛍️ Heads up: bundling adds a <span className="font-semibold">$100 Shop Card</span> to today's invoice — it pays out as <span className="font-semibold">$100 JCMOVES USD</span> in your wallet, redeemable on any future JC ON THE MOVE service.
+              🛍️ The optional <span className="font-semibold">$100 Shop Card costs $90</span> and adds <span className="font-semibold">$100 JCMOVES USD</span> after verified payment. Companion services never add a card automatically.
             </p>
           )}
           <p className="text-[10px] text-zinc-500">

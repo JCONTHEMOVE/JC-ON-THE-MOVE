@@ -27,6 +27,7 @@ import { extractBookingMenuIntelligence, extractSmartBookingAnswersFromQuoteSnap
 import type { SmartBookingAnswers } from "@shared/smartBookingEngine";
 import type { JobFlow } from "@shared/job-flow";
 import { useAdminViewMode } from "@/hooks/useAdminViewMode";
+import { CrewCloseoutDialog } from "@/components/crew-closeout-dialog";
 
 const SERVICE_ICONS: Record<string, string> = {
   residential: "🚛", commercial: "🏢", junk: "🗑️", snow: "❄️",
@@ -1565,6 +1566,7 @@ export default function CrewJobsPage() {
   });
 
   const [statusPending, setStatusPending] = useState<string | null>(null);
+  const [closeoutLeadId, setCloseoutLeadId] = useState<string | null>(null);
   const statusMutation = useMutation({
     mutationFn: async ({ leadId, status }: { leadId: string; status: "en_route"|"on_site"|"completed" }) => {
       const res = await apiRequest("POST", `/api/crew/jobs/${leadId}/status`, { status });
@@ -1594,6 +1596,13 @@ export default function CrewJobsPage() {
       toast({ title: "Status update failed", description: e.message, variant: "destructive" });
     },
   });
+  const advanceJob = (leadId: string, status: "en_route" | "on_site" | "completed") => {
+    if (status === "completed") {
+      setCloseoutLeadId(leadId);
+      return;
+    }
+    statusMutation.mutate({ leadId, status });
+  };
 
   const [declinePending, setDeclinePending] = useState<string | null>(null);
   const declineMutation = useMutation({
@@ -1814,7 +1823,7 @@ export default function CrewJobsPage() {
                         crewNames={getCrewNames(lead.crewMembers)}
                         myTradeRequest={myTrade}
                         myId={user?.id || ""}
-                        onStatus={(leadId, status) => statusMutation.mutate({ leadId, status })}
+                        onStatus={advanceJob}
                         onAccept={(leadId) => acceptOfferMutation.mutate(leadId)}
                         onDecline={(leadId) => declineMutation.mutate(leadId)}
                         onArchive={isAdmin ? () => archiveLead(lead) : undefined}
@@ -1891,6 +1900,15 @@ export default function CrewJobsPage() {
         tradeRequests={myTradeRequests}
         onLeadUpdated={(updated) => {
           setSelectedJob(prev => prev?.id === updated.id ? { ...prev, ...updated } : updated);
+        }}
+      />
+      <CrewCloseoutDialog
+        leadId={closeoutLeadId}
+        onClose={() => setCloseoutLeadId(null)}
+        onSuccess={() => {
+          setCloseoutLeadId(null);
+          queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
         }}
       />
     </div>

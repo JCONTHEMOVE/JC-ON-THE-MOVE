@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useRoute } from "wouter";
 import {
   ArrowLeft,
@@ -52,6 +53,12 @@ const SMS_HREF = "sms:+19062859312";
 const PRIMARY_PACKAGE = ROUTE_DAY_PROMO_PACKAGES[1];
 const OUT_OF_TOWN_PERCENT = Math.round((ROUTE_DAY_OUT_OF_TOWN_MULTIPLIER - 1) * 100);
 const NON_ROUTE_DAY_PERCENT = Math.round((ROUTE_DAY_NON_DISCOUNT_DAY_MULTIPLIER - 1) * 100);
+const ROUTE_CAPABILITY_CODE: Record<string, string> = {
+  "minocqua-monday": "MINOCQUA_MONDAY",
+  "houghton-tuesday": "HOUGHTON_TUESDAY",
+  "iron-river-wednesday": "IRON_RIVER_WEDNESDAY",
+  "ashland-thursday": "ASHLAND_THURSDAY",
+};
 
 const ROUTE_MAP_POSITIONS: Record<string, { left: string; top: string; drive: string }> = {
   "ashland-thursday": { left: "14%", top: "47%", drive: "about 45-60 min from Ironwood" },
@@ -291,6 +298,11 @@ function RouteNotFound() {
 export default function RouteDaysPage() {
   const [, params] = useRoute("/route-days/:slug");
   const route = ROUTE_DAY_SCHEDULE.find((candidate) => candidate.key === params?.slug);
+  const capabilityQuery = useQuery<{ areas: Array<{ code: string; name: string; verificationStatus: string; autoBookEnabled: boolean; adsEnabled: boolean }> }>({
+    queryKey: ["/api/service-areas/capabilities"],
+    enabled: !!route,
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     if (!route) return;
@@ -329,6 +341,9 @@ export default function RouteDaysPage() {
     preserveInboundAttribution(routeDayBookingHref(route, service, PRIMARY_PACKAGE));
   const shareUrl = buildShareUrl(route);
   const campaignId = routeDayCampaignId(route, PRIMARY_PACKAGE);
+  const capability = capabilityQuery.data?.areas.find((area) => area.code === ROUTE_CAPABILITY_CODE[route.key]);
+  const autoBookEnabled = capability?.verificationStatus === "verified" && capability.autoBookEnabled;
+  const adsEnabled = capability?.adsEnabled !== false;
 
   const flowSteps = [
     {
@@ -390,12 +405,16 @@ export default function RouteDaysPage() {
                 <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-100 md:text-lg">
                   Book {route.day} when your service address is in {route.city}, {route.state} and the booking flow can apply 5% route-day savings. Surrounding areas can still request availability at full price with travel pricing.
                 </p>
+                <div className="mt-4 max-w-2xl rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm leading-relaxed text-amber-50">
+                  Scheduled regional service dispatched from our Ironwood operation — this page does not represent a storefront in {route.city}. {autoBookEnabled ? "Verified standard jobs may book automatically." : "Requests are reviewed for route capacity before any deposit is requested."}
+                  {!adsEnabled && " Advertising for this route is currently paused."}
+                </div>
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <Link
                     href={bookingHref(PRIMARY_PACKAGE)}
                     className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 text-sm font-black text-white shadow-lg shadow-blue-950/30 hover:bg-blue-500"
                   >
-                    Start {route.label} request <ArrowRight className="h-4 w-4" />
+                    {autoBookEnabled ? `Book ${route.label}` : `Request ${route.label} availability`} <ArrowRight className="h-4 w-4" />
                   </Link>
                   <a
                     href={buildSmsHref(route)}

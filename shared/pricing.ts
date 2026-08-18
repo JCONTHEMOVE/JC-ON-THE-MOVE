@@ -1,17 +1,19 @@
+import { CANONICAL_PRICING_2026_08, calculateMovingLabor } from "./canonicalPricing";
+
 export const PRICING_BASE = {
-  laborRatePerMoverHour: 85,
-  travelRatePerCrewHour: 100,
-  truckSmallAddOnFlat: 500,
-  truckLargeAddOnFlat: 1000,
-  localTruckMilesIncluded: 50,
-  longDistanceRatePerMile: 5,
-  longDistanceMinimumMiles: 100,
+  laborRatePerMoverHour: CANONICAL_PRICING_2026_08.labor.workerHourlyRate,
+  travelRatePerCrewHour: CANONICAL_PRICING_2026_08.travel.regionalCrewHourlyRate,
+  truckSmallAddOnFlat: CANONICAL_PRICING_2026_08.equipment.truck15Ft,
+  truckLargeAddOnFlat: CANONICAL_PRICING_2026_08.equipment.truck26Ft,
+  localTruckMilesIncluded: CANONICAL_PRICING_2026_08.travel.longDistanceThresholdLoadedMiles,
+  longDistanceRatePerMile: CANONICAL_PRICING_2026_08.travel.longDistanceRatePerLoadedMile,
+  longDistanceMinimumMiles: CANONICAL_PRICING_2026_08.travel.longDistanceMinimumMiles,
   stairFlightRatePerAssignment: 100,
   specialtyItemBaseFee: 250,
   hotTubFlatFee: 400,
   assemblyRatePerAssignment: 100,
   laborOnlyMinimumHours: 2,
-  truckMinimumHours: 3,
+  truckMinimumHours: 2,
   driveSpeedMph: 50,
   travelWarningHours: 4,
   origin: {
@@ -117,12 +119,9 @@ export function getTruckAddOnCost(addOns: PricingAddOns, truckSize?: TruckSize |
 }
 
 export function getDiscountRate(hours: number) {
-  if (hours >= 8) return 0.3;
-  if (hours >= 7) return 0.27;
-  if (hours >= 6) return 0.23;
-  if (hours >= 5) return 0.2;
-  if (hours >= 4) return 0.15;
-  if (hours >= 3) return 0.08;
+  if (hours >= 8) return 0.15;
+  if (hours >= 6) return 0.10;
+  if (hours >= 4) return 0.05;
   return 0;
 }
 
@@ -171,8 +170,7 @@ export function computeTravelMetrics(input: PricingInput) {
     totalMiles = pickupMiles + dropoffMiles + returnMiles;
   }
 
-  const travelHours = roundUpToHalfHour(totalMiles / PRICING_BASE.driveSpeedMph);
-  const travelCost = travelHours * PRICING_BASE.travelRatePerCrewHour;
+  const roundedTravelHours = roundUpToHalfHour(totalMiles / PRICING_BASE.driveSpeedMph);
   const isLongDistance = Boolean(
     input.addOns.truck &&
       route === "loadUnload" &&
@@ -182,6 +180,10 @@ export function computeTravelMetrics(input: PricingInput) {
     ? Math.max(Math.ceil(loadedMiles), PRICING_BASE.longDistanceMinimumMiles)
     : 0;
   const longDistanceCost = longDistanceMilesBilled * PRICING_BASE.longDistanceRatePerMile;
+  const travelHours = isLongDistance
+    ? 0
+    : Math.max(0, roundedTravelHours - CANONICAL_PRICING_2026_08.travel.includedCrewHours);
+  const travelCost = travelHours * PRICING_BASE.travelRatePerCrewHour;
 
   return {
     route,
@@ -238,8 +240,19 @@ export function calculatePromoDiscount(
         (1 - pricingBase.discountRate)
     );
   } else if ((promo.discountPercent || 0) > 0) {
-    promoDiscountAmount = roundMoney(subtotalBeforePromo * ((promo.discountPercent || 0) / 100));
+    const remainingPercent = Math.max(
+      0,
+      CANONICAL_PRICING_2026_08.offers.totalPercentageCap - pricingBase.discountRate * 100,
+    );
+    promoDiscountAmount = roundMoney(
+      subtotalBeforePromo * (Math.min(promo.discountPercent || 0, remainingPercent) / 100),
+    );
   }
+
+  const totalOfferCap = roundMoney(
+    subtotalBeforePromo * Math.max(0, CANONICAL_PRICING_2026_08.offers.totalPercentageCap / 100 - pricingBase.discountRate),
+  );
+  promoDiscountAmount = Math.min(promoDiscountAmount, totalOfferCap);
 
   return {
     promoCode: normalizedCode,
@@ -255,10 +268,11 @@ export function calculateMovingPrice(input: PricingInput): PricingResult {
   const billableMovers = Math.max(input.movers, getMinimumMovers(input.addOns, input.truckSize));
   const billableHours = Math.max(input.hours, getMinimumLaborHours(input.addOns));
   const truckAddOnCost = getTruckAddOnCost(input.addOns, input.truckSize);
-  const laborSubtotal = billableMovers * PRICING_BASE.laborRatePerMoverHour * billableHours;
-  const discountRate = getDiscountRate(billableHours);
-  const discountAmount = roundMoney(laborSubtotal * discountRate);
-  const discountedLaborTotal = roundMoney(laborSubtotal - discountAmount);
+  const laborQuote = calculateMovingLabor({ workers: billableMovers, hours: billableHours });
+  const laborSubtotal = laborQuote.beforeDiscount;
+  const discountRate = laborQuote.discountPercent / 100;
+  const discountAmount = laborQuote.discountAmount;
+  const discountedLaborTotal = laborQuote.total;
 
   const addOnTotal = roundMoney(
     truckAddOnCost +

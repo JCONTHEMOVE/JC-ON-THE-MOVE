@@ -11,9 +11,42 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import SmartBookingGuidanceCard from "@/components/SmartBookingGuidanceCard";
 import {
   CheckCircle2, XCircle, Clock, Users, Home, MapPin, Calendar,
-  Phone, Mail, MessageSquare, ChevronDown, ChevronUp, ArrowLeft, Sparkles
+  Phone, Mail, MessageSquare, ChevronDown, ChevronUp, ArrowLeft, Sparkles, Send, Save
 } from "lucide-react";
 import { Link } from "wouter";
+
+interface QuoteRevision {
+  id: string;
+  revision: number;
+  status: "draft" | "approved" | "sent" | "superseded" | "void";
+  pricingVersionCode?: string | null;
+  subtotal: number;
+  discountTotal: number;
+  finalPreTaxTotal: number;
+  customerTotal: number;
+  notes?: string | null;
+  pricingAdjustments?: {
+    insideBubble?: boolean | null;
+    farthestStopMiles?: number | null;
+    geographicMultiplier?: number;
+    geographicAmount?: number;
+    weekend?: boolean;
+    weekendMultiplier?: number;
+    weekendAmount?: number;
+    compoundedMultiplier?: number;
+  };
+  travelEligibility?: {
+    status?: string;
+    routeVerified?: boolean;
+    oneWayMinutes?: number | null;
+    oneWayMiles?: number | null;
+    minimumPreTax?: number;
+    minimumSatisfied?: boolean;
+    requiresOwner?: boolean;
+    reasons?: string[];
+  };
+  lineItems?: Array<{ id?: string; name: string; quantity: number; unitPrice: number; total: number }>;
+}
 
 interface ChatbotLead {
   id: string;
@@ -32,6 +65,8 @@ interface ChatbotLead {
   details?: string;
   createdAt: string;
   status: string;
+  currentQuote?: QuoteRevision | null;
+  quoteHistory?: QuoteRevision[];
 }
 
 interface ParsedDetails {
@@ -113,16 +148,18 @@ function confidenceClass(confidence?: string) {
   return "border-slate-600 text-slate-300 bg-slate-800/60";
 }
 
-function LeadCard({ lead, onApprove, onDismiss }: {
+function LeadCard({ lead, onSave, onApprove, onSend, onDismiss }: {
   lead: ChatbotLead;
+  onSave: (lead: ChatbotLead, data: { basePrice: string; totalPrice: string; quoteNotes: string }) => void;
   onApprove: (id: string, data: { basePrice: string; totalPrice: string; quoteNotes: string }) => void;
+  onSend: (id: string) => void;
   onDismiss: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
-  const [basePrice, setBasePrice] = useState(lead.basePrice || "");
-  const [totalPrice, setTotalPrice] = useState(lead.totalPrice || "");
-  const [quoteNotes, setQuoteNotes] = useState("");
+  const [basePrice, setBasePrice] = useState(String(lead.currentQuote?.subtotal ?? lead.basePrice ?? ""));
+  const [totalPrice, setTotalPrice] = useState(String(lead.currentQuote?.finalPreTaxTotal ?? lead.totalPrice ?? ""));
+  const [quoteNotes, setQuoteNotes] = useState(lead.currentQuote?.notes || "");
 
   const parsed = parseDetails(lead.details);
   const a = parsed?.answers || {};
@@ -142,6 +179,9 @@ function LeadCard({ lead, onApprove, onDismiss }: {
     phone: lead.phone,
     email: lead.email,
   };
+  const revision = lead.currentQuote;
+  const adjustment = revision?.pricingAdjustments;
+  const eligibility = revision?.travelEligibility;
 
   const createdAt = new Date(lead.createdAt);
   const hoursAgo = Math.round((Date.now() - createdAt.getTime()) / 3600000);
@@ -162,6 +202,11 @@ function LeadCard({ lead, onApprove, onDismiss }: {
               {engineQuote && (
                 <Badge variant="outline" className="text-[10px] border-blue-500/50 text-blue-300 bg-blue-950/30">
                   Booking engine {formatMoney(engineQuote.finalTotal)}
+                </Badge>
+              )}
+              {revision && (
+                <Badge variant="outline" className="text-[10px] border-violet-500/50 text-violet-300 bg-violet-950/30">
+                  Revision {revision.revision} · {revision.status}
                 </Badge>
               )}
               <span className="text-xs text-slate-500">{timeLabel}</span>
@@ -213,6 +258,37 @@ function LeadCard({ lead, onApprove, onDismiss }: {
           compact
           className="mt-3"
         />
+
+        {revision && (
+          <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/60 p-3">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <div>
+                <p className="text-xs font-semibold text-white">Authoritative quote calculation</p>
+                <p className="text-[11px] text-slate-400">Pricing {revision.pricingVersionCode || "legacy"} · {revision.lineItems?.length || 0} line item(s)</p>
+              </div>
+              <p className="text-lg font-bold text-white">{formatMoney(revision.finalPreTaxTotal)}</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <div><span className="text-slate-500 block">Bubble</span><span className="text-slate-200">{adjustment?.insideBubble == null ? "Unverified" : adjustment.insideBubble ? "Inside · 1.0×" : `Outside · ${adjustment.geographicMultiplier || 1.5}×`}</span></div>
+              <div><span className="text-slate-500 block">Weekend</span><span className="text-slate-200">{adjustment?.weekend ? `${adjustment.weekendMultiplier || 1.15}× premium` : "No premium"}</span></div>
+              <div><span className="text-slate-500 block">One-way route</span><span className="text-slate-200">{eligibility?.routeVerified ? `${eligibility.oneWayMinutes} min · ${eligibility.oneWayMiles} mi` : "Manual review"}</span></div>
+              <div><span className="text-slate-500 block">$2,000 rule</span><span className={eligibility?.minimumSatisfied === false ? "text-amber-300" : "text-slate-200"}>{eligibility?.minimumSatisfied == null ? "Local / unverified" : eligibility.minimumSatisfied ? "Met" : "Owner exception"}</span></div>
+            </div>
+            {(adjustment?.geographicAmount || adjustment?.weekendAmount || revision.discountTotal > 0) && (
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-300">
+                {!!adjustment?.geographicAmount && <span>Geographic: +{formatMoney(adjustment.geographicAmount)}</span>}
+                {!!adjustment?.weekendAmount && <span>Weekend: +{formatMoney(adjustment.weekendAmount)}</span>}
+                {revision.discountTotal > 0 && <span>Discounts: −{formatMoney(revision.discountTotal)}</span>}
+              </div>
+            )}
+            {eligibility?.reasons?.length ? (
+              <p className="mt-2 text-[11px] text-amber-200">{eligibility.reasons.join(" ")}</p>
+            ) : null}
+            {(lead.quoteHistory?.length || 0) > 1 && (
+              <p className="mt-2 text-[11px] text-slate-500">{lead.quoteHistory?.length} immutable revisions in history</p>
+            )}
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="px-4 pb-4">
@@ -298,15 +374,30 @@ function LeadCard({ lead, onApprove, onDismiss }: {
         )}
 
         {/* Action buttons */}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             onClick={() => setApproveOpen(true)}
             size="sm"
-            className="flex-1 bg-green-600 hover:bg-green-500 text-white font-semibold"
+            variant="outline"
+            className="flex-1 border-slate-600 text-slate-200"
           >
-            <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-            Approve & Set Price
+            <Save className="h-3.5 w-3.5 mr-1.5" />
+            {revision?.status === "approved" || revision?.status === "sent" ? "Edit as New Revision" : "Edit Draft"}
           </Button>
+          {revision?.status === "draft" && (
+            <Button
+              onClick={() => onApprove(lead.id, { basePrice, totalPrice, quoteNotes })}
+              size="sm"
+              className="flex-1 bg-green-600 hover:bg-green-500 text-white font-semibold"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />Approve
+            </Button>
+          )}
+          {(revision?.status === "approved" || revision?.status === "sent") && (
+            <Button onClick={() => onSend(lead.id)} size="sm" className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold">
+              <Send className="h-3.5 w-3.5 mr-1.5" />{revision.status === "sent" ? "Re-send" : "Send"}
+            </Button>
+          )}
           <Button
             onClick={() => onDismiss(lead.id)}
             size="sm"
@@ -323,7 +414,7 @@ function LeadCard({ lead, onApprove, onDismiss }: {
       <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
         <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
           <DialogHeader>
-            <DialogTitle>Approve Quote — {lead.firstName} {lead.lastName}</DialogTitle>
+            <DialogTitle>Edit Quote Draft — {lead.firstName} {lead.lastName}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             {q && (
@@ -333,7 +424,7 @@ function LeadCard({ lead, onApprove, onDismiss }: {
               </div>
             )}
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Min Price (Base)</label>
+              <label className="text-xs text-slate-400 block mb-1">Pre-adjustment service subtotal</label>
               <Input
                 value={basePrice}
                 onChange={(e) => setBasePrice(e.target.value)}
@@ -342,7 +433,7 @@ function LeadCard({ lead, onApprove, onDismiss }: {
               />
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Max Price (Total)</label>
+              <label className="text-xs text-slate-400 block mb-1">Final pre-tax target</label>
               <Input
                 value={totalPrice}
                 onChange={(e) => setTotalPrice(e.target.value)}
@@ -351,7 +442,7 @@ function LeadCard({ lead, onApprove, onDismiss }: {
               />
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Quote Notes (sent with approval)</label>
+              <label className="text-xs text-slate-400 block mb-1">Internal quote / override notes</label>
               <Textarea
                 value={quoteNotes}
                 onChange={(e) => setQuoteNotes(e.target.value)}
@@ -365,12 +456,12 @@ function LeadCard({ lead, onApprove, onDismiss }: {
             <Button variant="outline" onClick={() => setApproveOpen(false)} className="border-slate-600 text-slate-400">Cancel</Button>
             <Button
               onClick={() => {
-                onApprove(lead.id, { basePrice, totalPrice, quoteNotes });
+                onSave(lead, { basePrice, totalPrice, quoteNotes });
                 setApproveOpen(false);
               }}
-              className="bg-green-600 hover:bg-green-500 text-white"
+              className="bg-blue-600 hover:bg-blue-500 text-white"
             >
-              Approve & Send to Pipeline
+              Save Draft
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -397,6 +488,37 @@ export default function AdminQuoteReviewPage() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const saveMutation = useMutation({
+    mutationFn: async ({ lead, data }: { lead: ChatbotLead; data: { basePrice: string; totalPrice: string; quoteNotes: string } }) => {
+      const base = Math.max(0, Number(data.basePrice) || 0);
+      const target = Math.max(0, Number(data.totalPrice) || base);
+      const multiplier = Number(lead.currentQuote?.pricingAdjustments?.compoundedMultiplier || 1);
+      const payload = {
+        lineItems: [{ name: lead.serviceType || "Service", quantity: 1, unitPrice: base, total: base, discountEligible: true }],
+        discountTotal: Math.max(0, base * multiplier - target),
+        notes: data.quoteNotes || null,
+        serviceDate: lead.moveDate || null,
+      };
+      return lead.currentQuote
+        ? apiRequest("PATCH", `/api/quotes/${lead.currentQuote.id}`, payload)
+        : apiRequest("POST", `/api/leads/${lead.id}/quotes/draft`, payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/chatbot-quotes"] });
+      toast({ title: "Draft saved", description: "The server recalculated pricing and travel eligibility." });
+    },
+    onError: (e: any) => toast({ title: "Unable to save draft", description: e.message, variant: "destructive" }),
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("POST", `/api/leads/${id}/send-quote`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/chatbot-quotes"] });
+      toast({ title: "Quote sent", description: "The approved revision and refreshed payment link were sent to the customer." });
+    },
+    onError: (e: any) => toast({ title: "Unable to send quote", description: e.message, variant: "destructive" }),
+  });
+
   const dismissMutation = useMutation({
     mutationFn: async (id: string) =>
       apiRequest("PATCH", `/api/admin/chatbot-quotes/${id}/dismiss`, {}),
@@ -407,7 +529,8 @@ export default function AdminQuoteReviewPage() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const pendingLeads = leads.filter(l => l.status === "chatbot_pending");
+  const reviewLeads = leads.filter((lead) => lead.currentQuote && ["draft", "approved", "sent"].includes(lead.currentQuote.status));
+  const pendingLeads = reviewLeads.filter((lead) => lead.currentQuote?.status !== "sent");
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -449,7 +572,7 @@ export default function AdminQuoteReviewPage() {
               <div key={i} className="h-32 bg-slate-800/40 rounded-xl animate-pulse" />
             ))}
           </div>
-        ) : pendingLeads.length === 0 ? (
+        ) : reviewLeads.length === 0 ? (
           <div className="text-center py-20">
             <div className="w-16 h-16 rounded-full bg-teal-500/10 flex items-center justify-center mx-auto mb-4">
               <Sparkles className="h-8 w-8 text-teal-400" />
@@ -466,11 +589,13 @@ export default function AdminQuoteReviewPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {pendingLeads.map(lead => (
+            {reviewLeads.map(lead => (
               <LeadCard
                 key={lead.id}
                 lead={lead}
+                onSave={(selectedLead, data) => saveMutation.mutate({ lead: selectedLead, data })}
                 onApprove={(id, data) => approveMutation.mutate({ id, data })}
+                onSend={(id) => sendMutation.mutate(id)}
                 onDismiss={(id) => dismissMutation.mutate(id)}
               />
             ))}

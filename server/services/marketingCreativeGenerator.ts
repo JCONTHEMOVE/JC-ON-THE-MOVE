@@ -24,6 +24,8 @@ export type MarketingCreativeOverlay = {
   area: string;
   focus: string;
   promoCode: string;
+  offerLine?: string;
+  secondaryLine?: string;
 };
 
 type CreateMarketingCreativeInput = MarketingCreativeOverlay & {
@@ -90,6 +92,8 @@ export function buildMarketingOverlaySvg(
   const { width, height } = MARKETING_CREATIVE_DIMENSIONS[variant];
   const titleLines = normalizeTitleLines(overlay);
   const promoCode = cleanText(overlay.promoCode, "BOOK NOW", 32).toUpperCase();
+  const offerLine = cleanText(overlay.offerLine, "SAVE 5% ON YOUR AREA'S ROUTE DAY", 52).toUpperCase();
+  const secondaryLine = cleanText(overlay.secondaryLine, "IRONWOOD SAVES 5% EVERY DAY", 52).toUpperCase();
 
   if (variant === "og") {
     const title = titleLines.length === 1
@@ -110,8 +114,8 @@ export function buildMarketingOverlaySvg(
         <rect x="58" y="130" width="112" height="9" rx="4.5" fill="#f97316"/>
         ${title}
         <rect x="58" y="333" width="575" height="68" rx="14" fill="#f97316" fill-opacity="0.96"/>
-        ${svgTextLine("SAVE 5% ON YOUR AREA'S ROUTE DAY", 82, 379, 27)}
-        ${svgTextLine("IRONWOOD SAVES 5% EVERY DAY", 60, 448, 24, { fill: "#dbeafe" })}
+        ${svgTextLine(offerLine, 82, 379, 27)}
+        ${svgTextLine(secondaryLine, 60, 448, 24, { fill: "#dbeafe" })}
         ${svgTextLine(`JCONTHEMOVE.COM • CODE ${promoCode}`, 60, 545, 25, { letterSpacing: 0.45 })}
       </svg>
     `);
@@ -140,9 +144,9 @@ export function buildMarketingOverlaySvg(
       <rect x="62" y="642" width="132" height="10" rx="5" fill="#f97316"/>
       ${title}
       <rect x="54" y="850" width="972" height="112" rx="22" fill="#f97316" fill-opacity="0.96"/>
-      ${svgTextLine("SAVE 5% ON YOUR AREA'S ROUTE DAY", 91, 922, 43)}
+      ${svgTextLine(offerLine, 91, 922, 43)}
       <rect x="54" y="986" width="972" height="86" rx="18" fill="#1d4ed8" fill-opacity="0.92"/>
-      ${svgTextLine("IRONWOOD SAVES 5% EVERY DAY", 91, 1043, 35)}
+      ${svgTextLine(secondaryLine, 91, 1043, 35)}
       ${svgTextLine(`JCONTHEMOVE.COM • CODE ${promoCode}`, 62, 1260, 35, { letterSpacing: 0.6 })}
     </svg>
   `);
@@ -348,7 +352,13 @@ async function prepareMarketingSource(input: CreateMarketingCreativeInput): Prom
 
 export async function createMarketingCreative(input: CreateMarketingCreativeInput): Promise<MarketingCreativeResult> {
   const source = await prepareMarketingSource(input);
-  const overlay = { area: input.area, focus: input.focus, promoCode: input.promoCode };
+  const overlay = {
+    area: input.area,
+    focus: input.focus,
+    promoCode: input.promoCode,
+    offerLine: input.offerLine,
+    secondaryLine: input.secondaryLine,
+  };
   const feedBuffer = await renderMarketingCreativeBuffer({ sourceBuffer: source.buffer, variant: "feed", overlay });
   const ogBuffer = await renderMarketingCreativeBuffer({ sourceBuffer: source.buffer, variant: "og", overlay });
 
@@ -390,5 +400,9 @@ export async function createMarketingCreative(input: CreateMarketingCreativeInpu
     generatedAt: new Date().toISOString(),
     feedAssetUrl,
     ogAssetUrl,
+    overlay: {
+      offerLine: input.offerLine,
+      secondaryLine: input.secondaryLine,
+    },
   };
 }

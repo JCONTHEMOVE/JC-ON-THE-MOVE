@@ -16,6 +16,7 @@ export interface LoadedJob {
   lng: number | null;
   urgency: "low" | "normal" | "high";
   totalPrice: number;
+  serviceDate: string | null;
   crewSize: number;
   crewMembers: string[];
   status: string;
@@ -34,6 +35,7 @@ type LeadRow = {
   lng: string | number | null;
   urgency: string;
   price: string | number;
+  service_date: string | null;
   crew_size: string | number;
   crew_members: string[] | null;
   status: string;
@@ -49,11 +51,24 @@ function asUrgency(v: string | null | undefined): UrgencyLevel {
   return URGENCY_VALUES.includes(v as UrgencyLevel) ? (v as UrgencyLevel) : "normal";
 }
 
+function normalizeDispatchService(value: string): string {
+  const service = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (/residential|commercial|moving|move/.test(service)) return "moving";
+  if (/junk|cleanout|haul/.test(service)) return "junk";
+  if (/labor|helping_hands|load_unload/.test(service)) return "labor";
+  if (/snow/.test(service)) return "snow";
+  if (/handyman|assembly/.test(service)) return "handyman";
+  if (/demolition|demo/.test(service)) return "demolition";
+  if (/clean/.test(service)) return "cleaning";
+  return service;
+}
+
 export async function loadJob(id: string): Promise<LoadedJob | null> {
   const { rows } = await pool.query<LeadRow>(
     `SELECT id, first_name, last_name, service_type,
             lat, lng, COALESCE(urgency, 'normal') AS urgency,
             COALESCE(total_price, base_price, '0') AS price,
+            COALESCE(confirmed_date, move_date) AS service_date,
             COALESCE(crew_size, 2) AS crew_size,
             COALESCE(crew_members, '{}') AS crew_members,
             status,
@@ -70,11 +85,12 @@ export async function loadJob(id: string): Promise<LoadedJob | null> {
   return {
     id: r.id,
     customerName: `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || "Customer",
-    serviceType: r.service_type,
+    serviceType: normalizeDispatchService(r.service_type),
     lat: r.lat != null ? Number(r.lat) : null,
     lng: r.lng != null ? Number(r.lng) : null,
     urgency: asUrgency(r.urgency),
     totalPrice: Number(r.price) || 0,
+    serviceDate: r.service_date ? String(r.service_date).slice(0, 10) : null,
     crewSize: Number(r.crew_size) || 2,
     crewMembers: Array.isArray(r.crew_members) ? r.crew_members : [],
     status: r.status,

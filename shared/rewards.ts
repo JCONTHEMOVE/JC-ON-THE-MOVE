@@ -6,6 +6,8 @@
  * serve as defaults when no DB override is found.
  */
 
+import { CANONICAL_PRICING_2026_08, serviceRewardTokenCost } from "./canonicalPricing";
+
 // ── Earn rate ────────────────────────────────────────────────────────────────
 /** Default JCMOVES tokens awarded per dollar spent on a job. */
 export const EARN_RATE_PER_DOLLAR = 15;
@@ -48,6 +50,15 @@ export interface RedemptionCatalogEntry {
   cashValue: string;
 }
 
+function pricedReward(code: string, label: string, cashValue: number): RedemptionCatalogEntry {
+  return {
+    code,
+    label,
+    tokenCost: serviceRewardTokenCost(cashValue),
+    cashValue: cashValue.toFixed(2),
+  };
+}
+
 export const REDEMPTION_CATALOG: RedemptionCatalogEntry[] = [
   { code: "spin_x1",          label: "Bonus Spin × 1",                   tokenCost: 500,   cashValue: "0.00" },
   { code: "spin_x3",          label: "Bonus Spin × 3",                   tokenCost: 1200,  cashValue: "0.00" },
@@ -55,10 +66,10 @@ export const REDEMPTION_CATALOG: RedemptionCatalogEntry[] = [
   { code: "coupon_25",        label: "$25 Service Coupon",                tokenCost: 12500, cashValue: "25.00" },
   { code: "coupon_50",        label: "$50 Service Coupon",                tokenCost: 25000, cashValue: "50.00" },
   { code: "mystery_box",      label: "Mystery Prize Box",                 tokenCost: 8000,  cashValue: "0.00" },
-  { code: "window_session",   label: "10-Window Wash — Free Session",     tokenCost: 50000, cashValue: "150.00" },
-  { code: "trash_month",      label: "1 Month of Trash Valet — Free",     tokenCost: 30000, cashValue: "79.99" },
-  { code: "handyman_deposit", label: "Handyman Deposit ($150 Credit)",    tokenCost: 50000, cashValue: "150.00" },
-  { code: "junk_tiny",        label: "Tiny Junk Removal ≤ 300 lbs",      tokenCost: 60000, cashValue: "200.00" },
-  { code: "movers_1hr",       label: "2 Movers · 1 Hour (Local)",         tokenCost: 60000, cashValue: "170.00" },
-  { code: "movers_2hr",       label: "2 Movers · 2 Hours (Local)",        tokenCost: 100000, cashValue: "290.00" },
+  pricedReward("window_session", "Window Cleaning Credit ($125)", CANONICAL_PRICING_2026_08.services.windows.minimumInvoice),
+  pricedReward("trash_month", "1 Month Trash Valet Credit (1 Can)", CANONICAL_PRICING_2026_08.services.trashValet.monthlyByCans.one),
+  pricedReward("handyman_deposit", "Handyman Service Credit ($190)", CANONICAL_PRICING_2026_08.services.handyman.minimumInvoice),
+  pricedReward("junk_tiny", "Tiny Junk Removal Credit", CANONICAL_PRICING_2026_08.services.junkRemoval.tiers.tiny),
+  pricedReward("movers_1hr", "$300 Moving/Labor Service Credit", CANONICAL_PRICING_2026_08.labor.minimumInvoice),
+  pricedReward("movers_2hr", "$380 Moving/Labor Service Credit", 2 * 2 * CANONICAL_PRICING_2026_08.labor.workerHourlyRate),
 ];

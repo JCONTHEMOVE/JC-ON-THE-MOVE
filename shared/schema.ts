@@ -62,6 +62,10 @@ export const leads = pgTable("leads", {
   jcmovesRewardBase: decimal("jcmoves_reward_base", { precision: 10, scale: 2 }),
   paymentPlan: text("payment_plan"),
   paymentPaidAt: timestamp("payment_paid_at"),
+  financialStatus: text("financial_status").notNull().default("quote"),
+  finalBalanceAmount: decimal("final_balance_amount", { precision: 10, scale: 2 }),
+  finalInvoiceUrl: text("final_invoice_url"),
+  closeoutStatus: text("closeout_status"),
   crewMembers: text("crew_members").array(), // Array of assigned employee IDs
   crewLeadUserId: varchar("crew_lead_user_id").references(() => users.id),
   driverUserId: varchar("driver_user_id").references(() => users.id),
@@ -287,10 +291,47 @@ export const workerProfiles = pgTable("worker_profiles", {
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 
+export const quoteRevisions = pgTable("quote_revisions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  // Kept FK-free because the bookings table is declared later in this file.
+  bookingId: varchar("booking_id"),
+  revision: integer("revision").notNull(),
+  status: text("status").notNull().default("draft"), // draft | approved | sent | superseded | void
+  pricingVersionId: varchar("pricing_version_id"),
+  pricingVersionCode: text("pricing_version_code"),
+  currency: text("currency").notNull().default("USD"),
+  lineItems: jsonb("line_items").notNull().default("[]"),
+  pricingAdjustments: jsonb("pricing_adjustments").notNull().default("{}"),
+  travelEligibility: jsonb("travel_eligibility").notNull().default("{}"),
+  routeEvidence: jsonb("route_evidence").notNull().default("{}"),
+  subtotal: decimal("subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
+  discountTotal: decimal("discount_total", { precision: 12, scale: 2 }).notNull().default("0"),
+  finalPreTaxTotal: decimal("final_pre_tax_total", { precision: 12, scale: 2 }).notNull().default("0"),
+  customerTotal: decimal("customer_total", { precision: 12, scale: 2 }).notNull().default("0"),
+  notes: text("notes"),
+  ownerOverrideReason: text("owner_override_reason"),
+  ownerOverrideByUserId: varchar("owner_override_by_user_id").references(() => users.id),
+  ownerOverrideAt: timestamp("owner_override_at"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  approvedByUserId: varchar("approved_by_user_id").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  sentByUserId: varchar("sent_by_user_id").references(() => users.id),
+  sentAt: timestamp("sent_at"),
+  supersededByQuoteId: varchar("superseded_by_quote_id"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  uniqueIndex("idx_quote_revisions_lead_revision").on(table.leadId, table.revision),
+  index("idx_quote_revisions_lead_status").on(table.leadId, table.status),
+  index("idx_quote_revisions_booking").on(table.bookingId),
+]);
+
 export const quoteApprovals = pgTable("quote_approvals", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   leadId: varchar("lead_id").references(() => leads.id),
   bookingId: varchar("booking_id"),
+  quoteRevisionId: varchar("quote_revision_id").references(() => quoteRevisions.id),
   submittedByUserId: varchar("submitted_by_user_id").references(() => users.id),
   approvedByUserId: varchar("approved_by_user_id").references(() => users.id),
   approvalRole: text("approval_role").notNull().default("gold_vote"),
@@ -1059,6 +1100,10 @@ export const insertLeadSchema = createInsertSchema(leads).omit({
   id: true,
   orderNumber: true,
   status: true,
+  financialStatus: true,
+  finalBalanceAmount: true,
+  finalInvoiceUrl: true,
+  closeoutStatus: true,
   assignedToUserId: true, // Assigned internally when employee accepts job
   createdAt: true,
 }).extend({
@@ -1860,6 +1905,9 @@ export const squareInvoices = pgTable("square_invoices", {
   status: text("status").notNull().default("draft"), // 'draft', 'sent', 'paid', 'canceled', 'failed'
   invoiceUrl: text("invoice_url"), // Square-hosted payment URL
   dueDate: text("due_date"),
+  purpose: text("purpose").notNull().default("legacy_unknown"),
+  quoteRevisionId: varchar("quote_revision_id").references(() => quoteRevisions.id),
+  closeoutId: varchar("closeout_id"),
   paidAt: timestamp("paid_at"),
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
@@ -1880,6 +1928,157 @@ export const insertSquareInvoiceSchema = createInsertSchema(squareInvoices).omit
 
 export type SquareInvoice = typeof squareInvoices.$inferSelect;
 export type InsertSquareInvoice = z.infer<typeof insertSquareInvoiceSchema>;
+
+// Regional automation policy and audit records. These tables deliberately
+// reference the existing pricing/route identifiers instead of duplicating
+// pricing geometry or demand-zone state.
+export const serviceAreaCapabilities = pgTable("service_area_capabilities", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  stateCode: text("state_code").notNull(),
+  locality: text("locality"),
+  routeDayCode: text("route_day_code"),
+  pricingZoneCode: text("pricing_zone_code"),
+  serviceTypes: text("service_types").array().notNull().default(sql`ARRAY['moving','labor','junk']::text[]`),
+  truckModes: text("truck_modes").array().notNull().default(sql`ARRAY['jc_on_the_move','customer','rental','none']::text[]`),
+  verificationStatus: text("verification_status").notNull().default("pending"),
+  autoBookEnabled: boolean("auto_book_enabled").notNull().default(false),
+  adsEnabled: boolean("ads_enabled").notNull().default(false),
+  verifiedAt: timestamp("verified_at"),
+  verifiedByUserId: varchar("verified_by_user_id").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_service_area_capabilities_lookup").on(table.stateCode, table.locality, table.verificationStatus),
+]);
+
+export const jobAgreements = pgTable("job_agreements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").notNull().references(() => leads.id),
+  quoteRevisionId: varchar("quote_revision_id").references(() => quoteRevisions.id),
+  termsVersion: text("terms_version").notNull(),
+  termsHash: text("terms_hash").notNull(),
+  acceptanceMethod: text("acceptance_method").notNull().default("web_checkbox"),
+  acceptedByUserId: varchar("accepted_by_user_id").references(() => users.id),
+  acceptanceTokenId: text("acceptance_token_id"),
+  acceptedAt: timestamp("accepted_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_job_agreement_quote_hash").on(table.leadId, table.quoteRevisionId, table.termsHash),
+  index("idx_job_agreements_lead").on(table.leadId),
+]);
+
+export const dispatchOffers = pgTable("dispatch_offers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").notNull().references(() => leads.id),
+  slotKey: text("slot_key").notNull(),
+  roleOnJob: text("role_on_job").notNull(),
+  requiresDriver: boolean("requires_driver").notNull().default(false),
+  workerId: varchar("worker_id").notNull().references(() => users.id),
+  status: text("status").notNull().default("offered"),
+  score: integer("score").notNull().default(0),
+  distanceMiles: decimal("distance_miles", { precision: 10, scale: 2 }),
+  reasons: jsonb("reasons").notNull().default("[]"),
+  expiresAt: timestamp("expires_at").notNull(),
+  respondedAt: timestamp("responded_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_dispatch_offer_worker_slot").on(table.leadId, table.slotKey, table.workerId),
+  index("idx_dispatch_offers_active").on(table.leadId, table.status, table.expiresAt),
+  index("idx_dispatch_offers_worker").on(table.workerId, table.status, table.expiresAt),
+]);
+
+export const jobCloseouts = pgTable("job_closeouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").notNull().unique().references(() => leads.id),
+  status: text("status").notNull().default("draft"),
+  submittedByUserId: varchar("submitted_by_user_id").references(() => users.id),
+  actualStartAt: timestamp("actual_start_at"),
+  actualEndAt: timestamp("actual_end_at"),
+  breakMinutes: integer("break_minutes").notNull().default(0),
+  actualHours: decimal("actual_hours", { precision: 10, scale: 2 }).notNull().default("0"),
+  proofPhotos: jsonb("proof_photos").notNull().default("[]"),
+  exceptionFlags: jsonb("exception_flags").notNull().default("[]"),
+  crewNotes: text("crew_notes"),
+  pricingSnapshot: jsonb("pricing_snapshot").notNull().default("{}"),
+  quotedTotal: decimal("quoted_total", { precision: 10, scale: 2 }).notNull().default("0"),
+  calculatedFinalTotal: decimal("calculated_final_total", { precision: 10, scale: 2 }).notNull().default("0"),
+  depositApplied: decimal("deposit_applied", { precision: 10, scale: 2 }).notNull().default("0"),
+  creditsApplied: decimal("credits_applied", { precision: 10, scale: 2 }).notNull().default("0"),
+  balanceDue: decimal("balance_due", { precision: 10, scale: 2 }).notNull().default("0"),
+  customerTokenHash: text("customer_token_hash"),
+  customerTokenExpiresAt: timestamp("customer_token_expires_at"),
+  customerApprovedAt: timestamp("customer_approved_at"),
+  customerRejectedAt: timestamp("customer_rejected_at"),
+  reviewedByUserId: varchar("reviewed_by_user_id").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  squareInvoiceId: varchar("square_invoice_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_job_closeouts_status").on(table.status, table.updatedAt),
+]);
+
+export const jobChangeOrders = pgTable("job_change_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  closeoutId: varchar("closeout_id").notNull().references(() => jobCloseouts.id),
+  leadId: varchar("lead_id").notNull().references(() => leads.id),
+  code: text("code").notNull(),
+  description: text("description").notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull().default("1"),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull().default("0"),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull().default("0"),
+  catalogBacked: boolean("catalog_backed").notNull().default(true),
+  customerAcknowledgedAt: timestamp("customer_acknowledged_at"),
+  status: text("status").notNull().default("submitted"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [index("idx_job_change_orders_closeout").on(table.closeoutId)]);
+
+export const customerJobEvents = pgTable("customer_job_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").notNull().references(() => leads.id),
+  eventType: text("event_type").notNull(),
+  eventKey: text("event_key").notNull().unique(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  payload: jsonb("payload").notNull().default("{}"),
+  occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [index("idx_customer_job_events_lead").on(table.leadId, table.occurredAt)]);
+
+export const customerNotificationDeliveries = pgTable("customer_notification_deliveries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventId: varchar("event_id").notNull().references(() => customerJobEvents.id),
+  channel: text("channel").notNull(),
+  destinationHash: text("destination_hash").notNull(),
+  status: text("status").notNull(),
+  providerReference: text("provider_reference"),
+  error: text("error"),
+  attempts: integer("attempts").notNull().default(1),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [uniqueIndex("uq_customer_delivery_destination").on(table.eventId, table.channel, table.destinationHash)]);
+
+export const squareWebhookEvents = pgTable("square_webhook_events", {
+  eventId: text("event_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  squareObjectId: text("square_object_id"),
+  payloadHash: text("payload_hash").notNull(),
+  status: text("status").notNull().default("processing"),
+  lastError: text("last_error"),
+  receivedAt: timestamp("received_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"),
+});
+
+export type ServiceAreaCapability = typeof serviceAreaCapabilities.$inferSelect;
+export type JobAgreement = typeof jobAgreements.$inferSelect;
+export type DispatchOffer = typeof dispatchOffers.$inferSelect;
+export type JobCloseout = typeof jobCloseouts.$inferSelect;
+export type JobChangeOrder = typeof jobChangeOrders.$inferSelect;
+export type CustomerJobEvent = typeof customerJobEvents.$inferSelect;
 
 // Transfer fees - Track platform fees collected on token transfers
 export const transferFees = pgTable("transfer_fees", {
@@ -3092,6 +3291,53 @@ export type InsertBundleDiscountApplication = z.infer<typeof insertBundleDiscoun
 // by `leads`, `bundleDiscountApplications` etc.) so we never need to migrate
 // id types later.
 
+// Pricing versions are immutable once published. `pricing_rules` stores one
+// typed JSON rule-group per version (labor, travel, service tiers, offers,
+// rewards, etc.), while the publication audit provides an operator-visible
+// history of every activation or rollback.
+export const pricingVersions = pgTable("pricing_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: text("code").notNull().unique(),
+  status: text("status").notNull().default("draft"), // draft | active | archived
+  currency: text("currency").notNull().default("USD"),
+  effectiveAt: timestamp("effective_at"),
+  notes: text("notes"),
+  createdByUserId: varchar("created_by_user_id"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  publishedAt: timestamp("published_at"),
+}, (table) => [
+  index("idx_pricing_versions_status").on(table.status, table.createdAt),
+]);
+
+export type QuoteRevision = typeof quoteRevisions.$inferSelect;
+
+export const pricingRules = pgTable("pricing_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  pricingVersionId: varchar("pricing_version_id").notNull().references(() => pricingVersions.id, { onDelete: "cascade" }),
+  ruleKey: text("rule_key").notNull(),
+  serviceCode: text("service_code"),
+  payload: jsonb("payload").notNull(),
+  discountEligible: boolean("discount_eligible").notNull().default(true),
+  isPassThrough: boolean("is_pass_through").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  uniqueIndex("idx_pricing_rules_version_key").on(table.pricingVersionId, table.ruleKey),
+  index("idx_pricing_rules_service").on(table.serviceCode),
+]);
+
+export const pricingPublicationAudit = pgTable("pricing_publication_audit", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  pricingVersionId: varchar("pricing_version_id").notNull().references(() => pricingVersions.id),
+  action: text("action").notNull(), // seed | publish | rollback
+  previousVersionCode: text("previous_version_code"),
+  actorUserId: varchar("actor_user_id"),
+  actorEmail: text("actor_email"),
+  metadata: jsonb("metadata").notNull().default("{}"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_pricing_publication_audit_created").on(table.createdAt),
+]);
+
 export const bookings = pgTable("bookings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   customerName: text("customer_name").notNull(),
@@ -3113,6 +3359,9 @@ export const bookings = pgTable("bookings", {
   rewardFlatBonusSnapshot: integer("reward_flat_bonus_snapshot"),
   rewardEarnRateSnapshot: decimal("reward_earn_rate_snapshot", { precision: 10, scale: 4 }),
   rewardBonusMultiplierSnapshot: decimal("reward_bonus_multiplier_snapshot", { precision: 4, scale: 2 }),
+  pricingVersionId: varchar("pricing_version_id").references(() => pricingVersions.id),
+  pricingVersionCode: text("pricing_version_code"),
+  pricingSnapshot: jsonb("pricing_snapshot"),
   status: text("status").notNull().default("quote"), // 'quote' | 'booked' | 'in_progress' | 'completed' | 'cancelled'
   source: text("source"), // e.g. 'web_multi_book' — for analytics later
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
@@ -3257,6 +3506,9 @@ export type BookingDiscountAuditEntry = typeof bookingDiscountAuditLog.$inferSel
 export type ServiceCatalogEntry = typeof serviceCatalog.$inferSelect;
 export type BundleDefinition = typeof bundleDefinitions.$inferSelect;
 export type CrewRequirement = typeof crewRequirements.$inferSelect;
+export type PricingVersion = typeof pricingVersions.$inferSelect;
+export type PricingRule = typeof pricingRules.$inferSelect;
+export type PricingPublicationAuditEntry = typeof pricingPublicationAudit.$inferSelect;
 
 export const insertBookingSchema = createInsertSchema(bookings).omit({
   id: true,
@@ -3275,12 +3527,16 @@ export const insertBookingServiceItemSchema = createInsertSchema(bookingServiceI
 export const insertServiceCatalogSchema = createInsertSchema(serviceCatalog).omit({ id: true, createdAt: true });
 export const insertBundleDefinitionSchema = createInsertSchema(bundleDefinitions).omit({ id: true, createdAt: true });
 export const insertCrewRequirementSchema = createInsertSchema(crewRequirements).omit({ id: true, createdAt: true });
+export const insertPricingVersionSchema = createInsertSchema(pricingVersions).omit({ id: true, createdAt: true, publishedAt: true });
+export const insertPricingRuleSchema = createInsertSchema(pricingRules).omit({ id: true, createdAt: true });
 
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
 export type InsertBookingServiceItem = z.infer<typeof insertBookingServiceItemSchema>;
 export type InsertServiceCatalogEntry = z.infer<typeof insertServiceCatalogSchema>;
 export type InsertBundleDefinition = z.infer<typeof insertBundleDefinitionSchema>;
 export type InsertCrewRequirement = z.infer<typeof insertCrewRequirementSchema>;
+export type InsertPricingVersion = z.infer<typeof insertPricingVersionSchema>;
+export type InsertPricingRule = z.infer<typeof insertPricingRuleSchema>;
 
 // Quote/persist request shapes used by /api/bookings/quote and /api/bookings.
 // Declared in shared/ so the upcoming frontend can import the same types and
@@ -3299,6 +3555,8 @@ export const bookingQuoteRequestSchema = z.object({
   items: z.array(bookingQuoteItemInputSchema).min(1),
   source: z.string().optional(),
   serviceAddress: z.string().trim().max(500).optional(),
+  serviceStops: z.array(z.string().trim().min(4).max(500)).max(10).optional(),
+  requestedDate: z.string().trim().max(50).optional(),
   promoCode: z.string().trim().max(50).optional(),
   referralSlug: z.string().trim().max(80).optional(),
   // Task #175 — JCMOVES tokens the customer wants to redeem against this

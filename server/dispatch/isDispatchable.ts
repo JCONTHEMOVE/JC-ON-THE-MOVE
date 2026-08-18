@@ -6,6 +6,7 @@
 // never offered to a crew, so movers don't drive out for an unpaid job.
 
 import { pool } from "../db";
+import { ensureQuoteRevisionInfrastructure } from "../services/quoteRevisions";
 
 export interface DispatchabilityCheck {
   ok: boolean;
@@ -14,14 +15,26 @@ export interface DispatchabilityCheck {
 
 export async function isDispatchable(leadId: string): Promise<DispatchabilityCheck> {
   try {
+    await ensureQuoteRevisionInfrastructure();
     const { rows } = await pool.query<{
       deposit_required: boolean | null;
       deposit_paid: boolean | null;
       dispatch_override_reason: string | null;
+      status: string;
+      service_date: string | null;
+      has_approved_quote: boolean;
     }>(
-      `SELECT deposit_required, deposit_paid, dispatch_override_reason
-         FROM leads
-        WHERE id = $1
+      `SELECT l.deposit_required,
+              l.deposit_paid,
+              l.dispatch_override_reason,
+              l.status,
+              COALESCE(l.confirmed_date, l.move_date) AS service_date,
+              EXISTS (
+                SELECT 1 FROM quote_revisions qr
+                 WHERE qr.lead_id = l.id AND qr.status IN ('approved','sent')
+              ) AS has_approved_quote
+         FROM leads l
+        WHERE l.id = $1
         LIMIT 1`,
       [leadId],
     );
@@ -32,6 +45,13 @@ export async function isDispatchable(leadId: string): Promise<DispatchabilityChe
         return { ok: true, reason: `admin override: ${r.dispatch_override_reason}` };
       }
       return { ok: false, reason: "deposit not paid" };
+    }
+    if (["quote_requested", "chatbot_pending", "pending_quote_approval", "quoted", "confirmed", "paid"].includes(r.status)
+        && !r.has_approved_quote) {
+      return { ok: false, reason: "latest quote revision is not approved" };
+    }
+    if (!r.service_date) {
+      return { ok: false, reason: "service date is not confirmed" };
     }
     return { ok: true };
   } catch (e) {

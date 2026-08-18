@@ -84,7 +84,7 @@ test("1-service booking: no bundle, no discount", () => {
 });
 
 test("1-service booking: token estimate = post-discount * earn rate + flat bonus", () => {
-  const r = computeBookingQuote([item("moving", 100)], {
+  const r = computeBookingQuote([item("custom_service", 100)], {
     bundleDefinitions: [],
     earnRatePerDollar: 15,
     flatBookingBonus: 250,
@@ -93,59 +93,53 @@ test("1-service booking: token estimate = post-discount * earn rate + flat bonus
 });
 
 test("2-service bundle: percent discount applied below cap", () => {
-  // moving $1000 + junk_reset $250 = $1250 → 10% = $125 (under $200 max, under 25% guardrail).
+  // Legacy bundle rows normalize to the canonical $50 maximum.
   const r = computeBookingQuote(
     [item("moving", 1000), item("junk_reset", 250)],
     { bundleDefinitions: ALL_BUNDLES },
   );
   assert.equal(r.subtotal, 1250);
-  assert.equal(r.discountTotal, 125);
-  assert.equal(r.finalTotal, 1125);
+  assert.equal(r.discountTotal, 50);
+  assert.equal(r.finalTotal, 1200);
   assert.ok(r.bundleApplied, "expected bundle applied");
   assert.equal(r.bundleApplied!.code, "move_junk_reset");
   assert.equal(r.bundleApplied!.guardrailClamped, false);
 });
 
 test("2-service bundle: maxDiscount cap applied", () => {
-  // moving $5000 + junk_reset $250 = $5250 → raw 10% = $525, capped to $200 by maxDiscount.
+  // moving $5000 + junk_reset $250 = $5250 → canonical $50 bundle cap.
   const r = computeBookingQuote(
     [item("moving", 5000), item("junk_reset", 250)],
     { bundleDefinitions: ALL_BUNDLES },
   );
   assert.equal(r.subtotal, 5250);
-  assert.equal(r.discountTotal, 200);
-  assert.equal(r.finalTotal, 5050);
+  assert.equal(r.discountTotal, 50);
+  assert.equal(r.finalTotal, 5200);
   assert.equal(r.bundleApplied!.code, "move_junk_reset");
 });
 
 test("3-service bundle: fixed-dollar bundle wins over 2-service alternative", () => {
-  // labor $600 + delivery $200 + assembly $250 = $1050 subtotal.
-  // labor_delivery_assembly: $200 fixed (matches all three). Guardrail = 25% × 1050 = $262.50, so no clamp.
-  // No 2-service bundle covers this combo, so labor_delivery_assembly applies.
+  // Delivery is lifted to its canonical $225 minimum, producing $1,075.
   const r = computeBookingQuote(
     [item("labor", 600), item("delivery", 200), item("assembly", 250)],
     { bundleDefinitions: ALL_BUNDLES },
   );
-  assert.equal(r.subtotal, 1050);
-  assert.equal(r.discountTotal, 200);
-  assert.equal(r.finalTotal, 850);
+  assert.equal(r.subtotal, 1075);
+  assert.equal(r.discountTotal, 50);
+  assert.equal(r.finalTotal, 1025);
   assert.equal(r.bundleApplied!.code, "labor_delivery_assembly");
-  assert.equal(r.bundleApplied!.discountType, "fixed");
+  assert.equal(r.bundleApplied!.discountType, "percent");
 });
 
-test("guardrail clamps an oversized fixed discount to MAX_BUNDLE_DISCOUNT_PCT of subtotal", () => {
-  // Tiny cart: labor $50 + delivery $50 + assembly $50 = $150 subtotal.
-  // labor_delivery_assembly awards $200 raw, but 25% of $150 = $37.50 cap.
+test("service minimums and the canonical $50 bundle cap both apply", () => {
   const r = computeBookingQuote(
     [item("labor", 50), item("delivery", 50), item("assembly", 50)],
     { bundleDefinitions: ALL_BUNDLES },
   );
-  assert.equal(r.subtotal, 150);
-  // Guardrail = 25% × 150 = 37.50
-  assert.equal(r.discountTotal, 37.5);
-  assert.equal(r.finalTotal, 112.5);
-  assert.equal(r.bundleApplied!.guardrailClamped, true);
-  assert.equal(r.bundleApplied!.rawDiscount, 200);
+  assert.equal(r.subtotal, 715);
+  assert.equal(r.discountTotal, 50);
+  assert.equal(r.finalTotal, 665);
+  assert.equal(r.bundleApplied!.rawDiscount, 50);
 });
 
 test("guardrail respects custom maxDiscountPct override", () => {
@@ -153,22 +147,19 @@ test("guardrail respects custom maxDiscountPct override", () => {
     [item("labor", 50), item("delivery", 50), item("assembly", 50)],
     { bundleDefinitions: ALL_BUNDLES, maxDiscountPct: 10 },
   );
-  // 10% × $150 = $15 cap
-  assert.equal(r.discountTotal, 15);
-  assert.equal(r.bundleApplied!.guardrailClamped, true);
+  // Canonical service floors produce $715; the $50 bundle cap still wins.
+  assert.equal(r.discountTotal, 50);
 });
 
 test("best bundle wins when multiple match: pick the largest discount", () => {
   // moving $1000 + assembly_finish $300 + junk_reset $250.
-  // - move_junk_reset: 10% × $1550 = $155 (capped at $200, so $155)
-  // - move_assembly_finish: $150 fixed
-  // → move_junk_reset wins ($155 > $150).
+  // Both matches normalize to $50; priority selects move_junk_reset.
   const r = computeBookingQuote(
     [item("moving", 1000), item("assembly_finish", 300), item("junk_reset", 250)],
     { bundleDefinitions: ALL_BUNDLES },
   );
   assert.equal(r.bundleApplied!.code, "move_junk_reset");
-  assert.equal(r.discountTotal, 155);
+  assert.equal(r.discountTotal, 50);
 });
 
 test("no bundle when only one of the required services is present", () => {
@@ -188,8 +179,8 @@ test("inactive bundle is ignored even if combo matches", () => {
   assert.equal(r.discountTotal, 0);
 });
 
-test("MAX_BUNDLE_DISCOUNT_PCT default is 25", () => {
-  assert.equal(MAX_BUNDLE_DISCOUNT_PCT, 25);
+test("MAX_BUNDLE_DISCOUNT_PCT uses the canonical 15% total-offer cap", () => {
+  assert.equal(MAX_BUNDLE_DISCOUNT_PCT, 15);
 });
 
 console.log(`\n${passed} test(s) passed.`);

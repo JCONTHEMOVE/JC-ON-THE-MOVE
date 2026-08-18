@@ -38,7 +38,7 @@ export default function Footer() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-8">
-          <div className="col-span-2">
+          <div className="md:col-span-2">
             <h3 className="text-2xl font-bold mb-4">JC ON THE MOVE</h3>
             <p className="text-slate-300 mb-4 max-w-xl">
               Fast local help for moving, junk removal, delivery, cleanup, and labor work. Licensed, insured, and built around quick customer booking.
@@ -63,6 +63,7 @@ export default function Footer() {
               <li><a href="/book?mode=quick&service=junk_removal" className="hover:text-white transition-colors" data-testid="link-junk">Junk Removal</a></li>
               <li><a href="/book?mode=quick&service=delivery" className="hover:text-white transition-colors" data-testid="link-delivery">Delivery</a></li>
               <li><a href="/book?mode=quick&service=cleaning" className="hover:text-white transition-colors" data-testid="link-cleanup">Cleanup / Labor</a></li>
+              <li><a href="/gift-cards" className="font-semibold text-amber-200 transition-colors hover:text-amber-100" data-testid="link-gift-cards">Gift Cards</a></li>
               <li><a href="/gallery" className="hover:text-white transition-colors" data-testid="link-work-photos">Work Photos</a></li>
             </ul>
           </div>

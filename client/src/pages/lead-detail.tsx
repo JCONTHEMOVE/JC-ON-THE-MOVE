@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Users, DollarSign, Award, TrendingUp, CheckCircle, Clock, Star, ExternalLink, Sparkles, Send, FileText, Loader2, Bitcoin, Copy, Check, Zap, ShoppingBag, AlertTriangle, UserCheck, Camera, Image, ChevronRight, PlayCircle, ChevronDown, ChevronUp, MessageSquare, Minus, Plus, RefreshCw, Hash, Archive, Trash2, X, Truck, CircleHelp } from "lucide-react";
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Users, DollarSign, Award, TrendingUp, CheckCircle, Clock, Star, ExternalLink, Sparkles, Send, FileText, Loader2, Bitcoin, Copy, Check, Zap, ShoppingBag, AlertTriangle, UserCheck, Camera, Image, ChevronRight, PlayCircle, ChevronDown, ChevronUp, MessageSquare, Minus, Plus, RefreshCw, Hash, Archive, Trash2, X, Truck, CircleHelp, LockKeyhole } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -189,6 +189,18 @@ interface Lead {
   squarePaymentUrl?: string;
   depositRequired?: boolean;
   depositAmount?: string | number | null;
+  workerVisibility?: {
+    tier: string;
+    context: "board" | "claimed" | "assigned" | "task" | "admin";
+    customerIdentity: boolean;
+    customerContact: boolean;
+    exactLocation: boolean;
+    jobScope: boolean;
+    pricing: boolean;
+    payment: boolean;
+    privateOperations: boolean;
+    locked: Array<{ key: string; label: string; unlockAt: string }>;
+  };
   depositPaid?: boolean;
   isQuoteOnly?: boolean;
   selectedPackageId?: string;
@@ -1515,7 +1527,9 @@ export default function LeadDetailPage() {
           
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold text-foreground">
-              {lead.firstName} {lead.lastName}
+              {lead.workerVisibility?.customerIdentity === false
+                ? "Customer details protected"
+                : `${lead.firstName || ""} ${lead.lastName || ""}`.trim()}
             </h1>
             {lead.orderNumber != null && (
               <button
@@ -1538,6 +1552,18 @@ export default function LeadDetailPage() {
               {lead.status === "paid" ? "Paid (Confirmed)" : lead.status.charAt(0).toUpperCase() + lead.status.slice(1).replace(/_/g, " ")}
             </Badge>
           </div>
+
+          {lead.workerVisibility && lead.workerVisibility.locked.length > 0 && (
+            <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3" data-testid="worker-order-visibility-notice">
+              <p className="flex items-center gap-2 text-sm font-semibold text-amber-200">
+                <LockKeyhole className="h-4 w-4" />
+                Order details are limited for your {lead.workerVisibility.tier} authority level
+              </p>
+              <p className="mt-1 text-xs text-amber-100/80">
+                {lead.workerVisibility.locked.slice(0, 3).map((item) => `${item.label}: ${item.unlockAt}`).join(" · ")}
+              </p>
+            </div>
+          )}
 
           {/* Reward Credit Banner */}
           {lead.appliedCreditNote && (
@@ -2226,6 +2252,11 @@ export default function LeadDetailPage() {
                   </div>
                 ) : (
                   <>
+                    {lead.workerVisibility?.customerContact === false ? (
+                      <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+                        <LockKeyhole className="h-4 w-4" /> Customer phone and email unlock at Silver authority.
+                      </div>
+                    ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="flex items-center gap-3">
                         <Mail className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -2242,6 +2273,7 @@ export default function LeadDetailPage() {
                         </div>
                       </div>
                     </div>
+                    )}
                     <Separator />
                     <div className="space-y-3">
                       <div className="flex items-start gap-3">

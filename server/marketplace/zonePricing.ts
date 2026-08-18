@@ -1,5 +1,8 @@
 import { pool } from "../db";
 import { calculateLaborBooking, type LaborWorkScope } from "@shared/laborBooking";
+import { applyGeographicQuotePolicy, calculateRateCardLine, type MarketplaceHourlyServiceCode } from "@shared/canonicalPricing";
+import { getActivePricingSnapshot } from "../services/pricingVersions";
+import { resolveQuoteRouteEvidence } from "../services/quoteGeography";
 
 export type LngLat = [number, number];
 
@@ -159,13 +162,15 @@ export async function ensureMarketplaceZonePricing() {
   const zoneId = rows[0]?.id;
   if (zoneId) {
     const defaults = [
-      ["load_unload", "Load/Unload", 1, 150, 2, 5, 125],
-      ["load_unload", "Load/Unload", 2, 135, 2, 3, 125],
-      ["load_unload", "Load/Unload", 3, 170, 2, 3, 155],
-      ["load_unload", "Load/Unload", 4, 300, 2, 3, 270],
-      ["pack_unpack", "Pack/Unpack", 2, 200, 2, 4, 160],
+      ["load_unload", "Load/Unload", 1, 150, 1, 5, 125],
+      ["load_unload", "Load/Unload", 2, 250, 1, 4, 225],
+      ["load_unload", "Load/Unload", 3, 325, 1, 4, 275],
+      ["load_unload", "Load/Unload", 4, 400, 1, 4, 350],
+      ["pack_unpack", "Pack/Unpack", 1, 150, 1, 4, 100],
+      ["pack_unpack", "Pack/Unpack", 2, 250, 1, 5, 200],
+      ["cleaning", "Cleaning Help/Maid Services", 1, 200, 1, 8, 150],
+      ["cleaning", "Cleaning Help/Maid Services", 2, 300, 1, 5, 200],
       ["delivery", "Delivery", 2, 200, 2, 3, 175],
-      ["ubox", "U-Box Load/Unload", 2, 225, 2, 3, 200],
     ] as const;
     for (const dayOfWeek of MARKETPLACE_RATE_DAYS.keys()) {
       for (const r of defaults) {
@@ -177,18 +182,6 @@ export async function ensureMarketplaceZonePricing() {
         `, [zoneId, ...r.slice(0, 3), dayOfWeek, ...r.slice(3)]);
       }
     }
-    await pool.query(`
-      UPDATE marketplace_zone_rates
-      SET hourly_rate = 135, discounted_hourly_rate = 125
-      WHERE zone_id = $1 AND service_code = 'load_unload' AND crew_size = 2
-        AND hourly_rate = 200 AND discounted_hourly_rate = 175
-    `, [zoneId]);
-    await pool.query(`
-      UPDATE marketplace_zone_rates
-      SET hourly_rate = 170, discounted_hourly_rate = 155
-      WHERE zone_id = $1 AND service_code = 'load_unload' AND crew_size = 3
-        AND hourly_rate = 250 AND discounted_hourly_rate = 225
-    `, [zoneId]);
   }
   initialized = true;
 }
@@ -297,7 +290,7 @@ export async function upsertZoneRate(input: Partial<MarketplaceZoneRate>) {
     input.crewSize,
     Math.max(0, Math.min(6, Math.round(toNumber(input.dayOfWeek, 0)))),
     toNumber(input.hourlyRate, 0),
-    Math.max(2, toNumber(input.minimumHours, 2)),
+    Math.max(0.25, toNumber(input.minimumHours, 1)),
     input.discountAfterHours == null ? null : toNumber(input.discountAfterHours),
     input.discountedHourlyRate == null ? null : toNumber(input.discountedHourlyRate),
     input.active !== false,
@@ -380,6 +373,64 @@ export async function previewZoneQuote(input: {
     ? input.moveDate
     : null;
   const dayOfWeek = moveDate ? new Date(`${moveDate}T12:00:00Z`).getUTCDay() : null;
+  const activePricing = await getActivePricingSnapshot();
+  const canonicalService = (["load_unload", "pack_unpack", "cleaning"] as string[]).includes(serviceCode)
+    ? serviceCode as MarketplaceHourlyServiceCode
+    : null;
+  const canonicalLine = canonicalService ? calculateRateCardLine({
+    serviceCode: canonicalService,
+    crewSize,
+    hours,
+    snapshot: activePricing.snapshot,
+  }) : null;
+  if (canonicalLine) {
+    const routeEvidence = input.zip
+      ? await resolveQuoteRouteEvidence({ addresses: [`${input.zip}, USA`], snapshot: activePricing.snapshot })
+      : {
+          verified: false as const,
+          provider: "unavailable" as const,
+          addresses: [] as string[],
+          stopCoordinates: lat != null && lng != null ? [{ lat, lng }] : [],
+          oneWayMiles: null,
+          oneWayMinutes: null,
+          reason: "A service address is required to verify routed drive time.",
+        };
+    const policy = applyGeographicQuotePolicy({
+      baseSubtotal: canonicalLine.subtotal,
+      automaticDiscountTotal: 0,
+      serviceDate: moveDate || undefined,
+      stopCoordinates: routeEvidence.stopCoordinates,
+      routeVerified: routeEvidence.verified,
+      oneWayMiles: routeEvidence.oneWayMiles,
+      oneWayMinutes: routeEvidence.oneWayMinutes,
+      snapshot: activePricing.snapshot,
+    });
+    const total = policy?.finalPreTaxTotal ?? canonicalLine.subtotal;
+    const canonicalQuote = {
+      zone: null,
+      rate: canonicalLine,
+      booking: null,
+      labor: canonicalLine.subtotal,
+      travel: 0,
+      subtotal: total,
+      minEstimate: total,
+      maxEstimate: total,
+      pricingAdjustments: policy?.pricingAdjustments ?? null,
+      travelEligibility: policy?.travelEligibility ?? null,
+      routeEvidence,
+      pricingVersion: activePricing.snapshot.version,
+    };
+    return {
+      matched: policy?.pricingAdjustments.insideBubble === true,
+      quote: canonicalQuote,
+      candidates: [canonicalQuote],
+      moveDate,
+      dayOfWeek,
+      dayName: dayOfWeek == null ? null : MARKETPLACE_RATE_DAYS[dayOfWeek],
+      coordinates: lat != null && lng != null ? { lat, lng } : null,
+      pricingVersion: activePricing.snapshot.version,
+    };
+  }
   const zones = await listPricingZones();
   const matched = lat != null && lng != null
     ? zones.filter((zone) => zone.active && pointInPolygon(lng!, lat!, zone.polygon))

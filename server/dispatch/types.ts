@@ -21,8 +21,10 @@ export const NON_DISPATCHABLE_STATES: DispatchState[] =
 
 export interface DispatchCandidate {
   crewId: string;
+  isDriver: boolean;
   score: number;
   distanceMi: number;
+  locationFresh: boolean;
   jobsToday: number;
   reasons: string[];
 }

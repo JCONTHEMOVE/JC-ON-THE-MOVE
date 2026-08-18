@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import {
   Radio, Briefcase, Users, Wallet, Sliders, ChevronRight, LogOut,
   Menu, X, CalendarDays, FileBarChart, Rocket, AlertTriangle,
-  ClipboardList, Megaphone, Lightbulb, Store, GraduationCap,
+  ClipboardList, Megaphone, Lightbulb, Store, GraduationCap, MapPinned,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, clearTokens, queryClient } from "@/lib/queryClient";
@@ -67,7 +67,8 @@ const OPTIONS = [
   { label: "People", icon: Users, path: "/admin/people" },
   { label: "Finance", icon: Wallet, path: "/admin/finance" },
   { label: "Funnel", icon: FileBarChart, path: "/admin/booking-analytics" },
-  { label: "Marketing", icon: Megaphone, path: "/admin/marketing-webhooks" },
+  { label: "Regional", icon: MapPinned, path: "/admin/regional-automation" },
+  { label: "Marketing", icon: Megaphone, path: "/admin/marketing" },
   { label: "Marketplace", icon: Store, path: "/admin/marketplace" },
   { label: "Playbook", icon: Lightbulb, path: "/admin/marketplace-playbook" },
   { label: "Tutorials", icon: GraduationCap, path: "/admin/tutorials" },

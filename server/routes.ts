@@ -62,7 +62,7 @@ import { ObjectStorageService } from "./objectStorage";
 import { solanaTransferService } from "./services/solana-transfer";
 import { jupiterSwapService, SUPPORTED_TOKENS } from "./services/jupiter-swap";
 import { ensureMomsAccount } from "./services/generosityFund";
-import { dispatchGenericJob } from "./services/dispatchGeneric";
+import { classifyJobInvoicePayment } from "./services/jobPaymentClassification";
 import { grantLotteryTicketsForActivity } from "./services/disburse-job-tokens";
 import { getDepositInfo, extractZip } from "@shared/depositRules";
 import { MIN_REDEMPTION_TOKENS, REDEMPTION_INCREMENT, roundToIncrement, validateRedemption, tokensToDollars } from "@shared/tokenRedemptionRules";
@@ -70,6 +70,7 @@ import { calculateBtcLightningOffer } from "@shared/btcLightningOffer";
 import { emitJobEvent, eventTypeForStatus, deliverCrewAnnouncementToWebhooks, getJobEventWebhookReadiness } from "./services/jobEventBus";
 import { notificationService } from "./services/notification";
 import { buildJobFlowRecords, jobBelongsToCrew, toCrewBoardFlow } from "./services/jobFlow";
+import { projectWorkerOrder, type WorkerOrderContext } from "./services/workerOrderVisibility";
 import { calculateLaborBooking, normalizeLaborWorkScope } from "@shared/laborBooking";
 import { calculateProfitSharingPayout, defaultBonusWeightForRole, defaultBonusWeightsForCrew, defaultHourlyRateForRole, normalizeProfitShareSettings } from "./services/profitSharingPayoutEngine";
 import { type ProfitShareRole, type ProfitShareWorkerInput } from "@shared/jobPayout";
@@ -102,11 +103,26 @@ import lawnCareRouter from "./routes/lawnCare";
 import serviceRebookRouter from "./routes/serviceRebookReminders";
 import serviceRebookPublicRouter from "./routes/serviceRebookPublic";
 import marketingWebhookRemindersRouter from "./routes/marketingWebhookReminders";
+import marketingBotRouter from "./routes/marketingBot";
 import { createMarketingExecutionRouter } from "./routes/marketingExecution";
 import bookingsRouter from "./routes/bookings";
+import quotesRouter from "./routes/quotes";
+import pricingV2Router from "./routes/pricingV2";
+import regionalAutomationRouter from "./routes/regionalAutomation";
 import pipelineRouter from "./routes/pipeline";
 import aiBookingRouter from "./routes/aiBooking";
 import { ensureBookingCatalogSeeded } from "./services/bookingCatalogSeed";
+import { getActivePricingSnapshot } from "./services/pricingVersions";
+import {
+  approveQuoteRevision,
+  getLatestApprovedQuote,
+  getLatestQuoteRevision,
+  getLatestSentQuote,
+  listQuoteRevisions,
+  markQuoteRevisionSent,
+  saveQuoteDraft,
+} from "./services/quoteRevisions";
+import { toLegacyPricingConfig } from "@shared/canonicalPricing";
 import { getWeeklyCrewRuleForDate, normalizeCrewName } from "@shared/weeklyCrewSchedule";
 import { getAppUrl } from "./appUrl";
 import { buildMarketingRepQrDestination } from "@shared/marketingTracking";
@@ -1467,6 +1483,12 @@ async function findOrCreateGoogleUser(profile: {
 }
 
 export async function registerRoutes(app: Express, httpServer: Server = createServer(app)): Promise<Server> {
+  try {
+    const { ensureRegionalAutomationSchema } = await import("./services/regionalAutomationMigration");
+    await ensureRegionalAutomationSchema();
+  } catch (error) {
+    console.error("regional automation migration error (non-fatal):", error);
+  }
   // Additive migration for existing deployments. The offer stays in the promo
   // row, keeping the promo toggle as the single source of activation state.
   try {
@@ -4306,12 +4328,15 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       }
       
       let jobs;
+      let workerAuthorityTier: WorkerTier = "worker";
       if (userRole === 'admin' || userRole === 'business_owner') {
         // Admins see all jobs
         jobs = await storage.getLeads();
       } else if (userRole === 'employee') {
         // Employees see their assigned jobs
         jobs = await storage.getAssignedLeads(userId);
+        const user = req.user || req.currentUser || await storage.getUser(userId);
+        workerAuthorityTier = (await getWorkerAuthority(user)).authorityTier;
       } else {
         // Customers see their own requests
         const user = await storage.getUser(userId);
@@ -4319,9 +4344,14 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       }
       
       // Format for calendar display
-      const calendarJobs = jobs.map((job: any) => ({
+      const visibleJobs = userRole === "employee"
+        ? jobs.map((job: any) => projectWorkerOrder(job, workerAuthorityTier, "assigned"))
+        : jobs;
+      const calendarJobs = visibleJobs.map((job: any) => ({
         id: job.id,
-        title: job.name || `${job.serviceType} - ${job.firstName} ${job.lastName}`,
+        title: job.name || ([job.firstName, job.lastName].filter(Boolean).length > 0
+          ? `${job.serviceType} - ${[job.firstName, job.lastName].filter(Boolean).join(" ")}`
+          : `${job.serviceType} order`),
         date: job.confirmedDate || job.moveDate,
         serviceType: job.serviceType,
         status: job.status,
@@ -4330,6 +4360,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         phone: job.phone,
         email: job.email,
         notes: job.notes,
+        workerVisibility: job.workerVisibility,
       }));
       
       res.json(calendarJobs);
@@ -4974,7 +5005,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         serviceType: "moving",
         fromAddress: address.trim(),
         toAddress: typeof toAddress === "string" ? toAddress.trim() : "",
-        status: "new",
+        status: "quote_requested",
+        depositRequired: true,
         crewSize: laborBooking.crewSize,
         confirmedHours: laborBooking.billableHours,
         basePrice: String(totalPrice),
@@ -4985,7 +5017,12 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         createdByUserId: (req.session as any).userId || req.user?.id || null,
       }).returning();
 
-      const assignedCrew = await dispatchGenericJob({ leadId: lead.id, kind: "moving", crewSize: laborBooking.crewSize });
+      const draft = await saveQuoteDraft({
+        leadId: lead.id,
+        actorUserId: (req.session as any).userId || req.user?.id || null,
+        discountTotal: promoQuote.discountAmount || 0,
+        notes: typeof notes === "string" ? notes : null,
+      });
 
       // Notify admin
       const companyEmail = process.env.COMPANY_EMAIL || "michigankid906@gmail.com";
@@ -5001,21 +5038,20 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         await notifyAdminNewQuote({ customerName: `${firstName} ${lastName}`, serviceType: "moving", phone: customerPhone || undefined, email: customerEmail || undefined });
       } catch (e) { console.error('Admin email notification failed:', e); }
 
-      const dispatched = assignedCrew.length >= moverCount;
-      const dispatchedLead = (await storage.getLead(lead.id)) || lead;
-      await emitJobEvent(assignedCrew.length > 0 ? "crew_assigned" : "job_available", dispatchedLead, {
+      const quotedLead = (await storage.getLead(lead.id)) || lead;
+      await emitJobEvent("quote_requested", quotedLead, {
         eventId: `moving-booking:${lead.id}`,
         source: "moving_booking",
-        status: dispatched ? "available" : "new",
+        status: "quote_requested",
+        extra: { quoteRevisionId: draft.id },
       });
       res.json({
         jobId: lead.id,
-        status: dispatched ? "available" : "new",
-        crewCount: assignedCrew.length,
-        totalPrice,
-        message: dispatched
-          ? "Crew assigned! They'll be in touch shortly."
-          : "We'll reach you shortly — our team will confirm your booking.",
+        status: "quote_requested",
+        crewCount: 0,
+        totalPrice: draft.customerTotal,
+        quoteRevisionId: draft.id,
+        message: "Your draft quote is ready for staff review. Crew offers begin only after approval, scheduling, and any required deposit.",
       });
     } catch (err) {
       console.error("Error creating moving booking:", err);
@@ -5053,7 +5089,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         phone: customerPhone,
         serviceType: "labor",
         fromAddress: address.trim(),
-        status: "new",
+        status: "quote_requested",
+        depositRequired: true,
         crewSize: laborBooking.crewSize,
         confirmedHours: laborBooking.billableHours,
         basePrice: String(totalPrice),
@@ -5062,7 +5099,11 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         createdByUserId: (req.session as any).userId || req.user?.id || null,
       }).returning();
 
-      const assignedCrew = await dispatchGenericJob({ leadId: lead.id, kind: "labor", crewSize: laborBooking.crewSize });
+      const draft = await saveQuoteDraft({
+        leadId: lead.id,
+        actorUserId: (req.session as any).userId || req.user?.id || null,
+        notes: typeof notes === "string" ? notes : null,
+      });
 
       // Notify admin
       const companyEmail = process.env.COMPANY_EMAIL || "michigankid906@gmail.com";
@@ -5078,21 +5119,20 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         await notifyAdminNewQuote({ customerName: `${firstName} ${lastName}`, serviceType: "labor", phone: customerPhone || undefined, email: customerEmail || undefined });
       } catch (e) { console.error('Admin email notification failed:', e); }
 
-      const dispatched = assignedCrew.length >= moverCount;
-      const dispatchedLead = (await storage.getLead(lead.id)) || lead;
-      await emitJobEvent(assignedCrew.length > 0 ? "crew_assigned" : "job_available", dispatchedLead, {
+      const quotedLead = (await storage.getLead(lead.id)) || lead;
+      await emitJobEvent("quote_requested", quotedLead, {
         eventId: `labor-booking:${lead.id}`,
         source: "labor_booking",
-        status: dispatched ? "available" : "new",
+        status: "quote_requested",
+        extra: { quoteRevisionId: draft.id },
       });
       res.json({
         jobId: lead.id,
-        status: dispatched ? "available" : "new",
-        crewCount: assignedCrew.length,
-        totalPrice,
-        message: dispatched
-          ? "Crew assigned! They'll be in touch shortly."
-          : "We'll reach you shortly — our team will confirm your booking.",
+        status: "quote_requested",
+        crewCount: 0,
+        totalPrice: draft.customerTotal,
+        quoteRevisionId: draft.id,
+        message: "Your draft quote is ready for staff review. Crew offers begin only after approval, scheduling, and any required deposit.",
       });
     } catch (err) {
       console.error("Error creating labor booking:", err);
@@ -5864,8 +5904,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       let shopCardAdminHtml = "";
       if (pendingShopCardGrants.length > 0) {
         shopCardAdminNote = `\n\n=== BUNDLED ADD-ONS (BILLABLE ON QUOTE-SEND) ===\n` +
-          pendingShopCardGrants.map(g => `• ${g.name} — $${g.unitPriceUsd.toFixed(2)} → mints $${g.unitPriceUsd.toFixed(2)} JCMOVES USD on payment`).join("\n");
-        shopCardAdminHtml = `<br><br><div style="background:#fef3c7;border:1px solid #f59e0b;padding:10px 14px;border-radius:8px"><b style="color:#b45309">🛍️ Bundled Add-ons (billable on this invoice)</b><ul style="margin:6px 0 0 18px;padding:0;color:#78350f">${pendingShopCardGrants.map(g => `<li><b>${g.name}</b> — $${g.unitPriceUsd.toFixed(2)} → mints $${g.unitPriceUsd.toFixed(2)} JCMOVES USD on payment</li>`).join("")}</ul></div>`;
+          pendingShopCardGrants.map(g => `• ${g.name} — $${g.unitPriceUsd.toFixed(2)} → grants $${g.walletCreditUsd.toFixed(2)} JCMOVES USD after verified payment`).join("\n");
+        shopCardAdminHtml = `<br><br><div style="background:#fef3c7;border:1px solid #f59e0b;padding:10px 14px;border-radius:8px"><b style="color:#b45309">🛍️ Bundled Add-ons (billable on this invoice)</b><ul style="margin:6px 0 0 18px;padding:0;color:#78350f">${pendingShopCardGrants.map(g => `<li><b>${g.name}</b> — $${g.unitPriceUsd.toFixed(2)} → grants $${g.walletCreditUsd.toFixed(2)} JCMOVES USD after verified payment</li>`).join("")}</ul></div>`;
       }
       try {
         await sendEmail({
@@ -6568,6 +6608,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           area: row.area || "Northwoods",
           focus: row.focus || "U-Haul load/unload",
           promoCode: row.promo_code || "BOOK NOW",
+          offerLine: creative?.overlay?.offerLine,
+          secondaryLine: creative?.overlay?.secondaryLine,
         },
       });
       res.set({
@@ -7104,7 +7146,9 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       topChoiceLabel: top?.choiceLabel || null,
       topVotes: top?.votes || 0,
       softApproved: Boolean(top && top.votes >= 2),
-      autoApproved: Boolean(top && top.votes >= 3),
+      // Consensus is useful quote insight, but it never substitutes for the
+      // named Gold+/owner approval recorded on an immutable revision.
+      autoApproved: false,
       myVote,
     };
   };
@@ -7118,9 +7162,9 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       ? lead.quoteSnapshot
       : {};
     const currentStatus = String(lead.status || "quote_requested");
-    const nextStatus = consensus.topVotes >= 3 && ["new", "contacted", "quote_requested", "chatbot_pending", "pending_quote_approval"].includes(currentStatus)
-      ? "quoted"
-      : (currentStatus === "new" || currentStatus === "contacted" ? "quote_requested" : currentStatus);
+    const nextStatus = ["new", "contacted", "quote_requested", "chatbot_pending"].includes(currentStatus)
+      ? "pending_quote_approval"
+      : currentStatus;
     const updateData: Record<string, any> = {
       quoteSnapshot: {
         ...currentSnapshot,
@@ -7154,28 +7198,30 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           currentStatus,
           nextStatus,
           user?.id ?? null,
-          `Quote consensus ${consensus.topVotes >= 3 ? "auto-approved" : "recommended"}: ${choice.label}`,
+          `Quote consensus ready for authorized review: ${choice.label}`,
         );
       } catch (historyError) {
         console.error("[lead_history] quote consensus history failed:", historyError);
       }
     }
 
-    if (updatedLead && consensus.topVotes >= 3) {
-      const existingAuto = await db.select({ id: quoteApprovals.id })
-        .from(quoteApprovals)
-        .where(and(eq(quoteApprovals.leadId, lead.id), eq(quoteApprovals.approvalRole, "consensus_auto"), eq(quoteApprovals.status, "approved")))
-        .limit(1);
-      if (existingAuto.length === 0) {
-        await db.insert(quoteApprovals).values({
-          leadId: lead.id,
-          submittedByUserId: lead.createdByUserId || null,
-          approvedByUserId: user?.id || null,
-          approvalRole: "consensus_auto",
-          status: "approved",
-          notes: `Auto-approved by ${consensus.topVotes} matching quote picks: ${choice.label}`,
-        });
-      }
+    if (updatedLead) {
+      await saveQuoteDraft({
+        leadId: lead.id,
+        actorUserId: user?.id || null,
+        lineItems: choice.basePrice != null ? [{
+          name: lead.serviceType || "Service",
+          quantity: 1,
+          unitPrice: choice.basePrice,
+          total: choice.basePrice,
+          discountEligible: true,
+          metadata: { consensusChoice: choice.key, matchingVotes: consensus.topVotes },
+        }] : undefined,
+        discountTotal: choice.basePrice != null && choice.totalPrice != null
+          ? Math.max(0, choice.basePrice - choice.totalPrice)
+          : undefined,
+        notes: `Consensus recommendation: ${choice.label} (${consensus.topVotes} matching picks). Authorized approval is still required.`,
+      });
     }
 
     return { applied: true, updatedLead: updatedLead || lead };
@@ -7642,18 +7688,24 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       return { status: 409 as const, body: { error: evidence.reason, evidence: evidence.metadata } };
     }
 
+    let approvedQuoteRevisionId: string | null = null;
     if (taskKey === "quote_approve") {
-      const approvalRole = user.role === "admin" || user.role === "business_owner" || user.email === "upmichiganstatemovers@gmail.com"
-        ? "owner_approval"
-        : "gold_vote";
-      await db.insert(quoteApprovals).values({
-        leadId: lead.id,
-        submittedByUserId: lead.createdByUserId || null,
-        approvedByUserId: user.id,
-        approvalRole,
-        status: "approved",
-        notes: notes || "Approved from authority task board",
-      }).onConflictDoNothing();
+      const isOwner = user.role === "business_owner" || user.email === "upmichiganstatemovers@gmail.com";
+      let revision = await getLatestQuoteRevision(lead.id);
+      if (!revision || revision.status !== "draft") {
+        revision = await saveQuoteDraft({ leadId: lead.id, actorUserId: user.id, notes });
+      }
+      const approved = await approveQuoteRevision({
+        quoteId: revision.id,
+        actor: {
+          userId: user.id,
+          email: user.email,
+          isOwner,
+          canApproveStandard: isOwner || user.role === "admin" || authority.rank >= tierRank.gold,
+        },
+        overrideReason: notes || null,
+      });
+      approvedQuoteRevisionId = approved.id;
     }
 
     const award = await awardOpsTaskBonus({
@@ -7662,9 +7714,9 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       taskKey,
       lead,
       notes,
-      metadata: evidence.metadata,
+      metadata: { ...evidence.metadata, ...(approvedQuoteRevisionId ? { quoteRevisionId: approvedQuoteRevisionId } : {}) },
     });
-    return { status: 200 as const, body: { success: true, taskKey, leadId, ...award } };
+    return { status: 200 as const, body: { success: true, taskKey, leadId, quoteRevisionId: approvedQuoteRevisionId, ...award } };
   }
 
   app.get("/api/workers/me/authority", isAuthenticated, requireEmployee, async (req: any, res) => {
@@ -8095,7 +8147,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         consensus = await summarizeQuoteConsensus(lead.id, user.id);
         applyResult = await applyQuoteConsensusIfReady(lead, choice, consensus, user);
       } catch (applyError: any) {
-        // The vote is durable even if an optional automatic application needs
+        // The vote is durable even if applying the draft recommendation needs
         // review. Do not make a crew member retry and create a duplicate vote.
         console.error("[quote-consensus] vote saved but application failed:", {
           leadId: lead.id,
@@ -8116,7 +8168,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         await db.insert(quoteAttributions).values({
           leadId: lead.id,
           userId: user.id,
-          attributionType: consensus.autoApproved && consensus.topChoiceKey === choice.key ? "quote_consensus_auto" : "quote_consensus_vote",
+          attributionType: "quote_consensus_vote",
           metadata: {
             choiceKey: choice.key,
             choiceLabel: choice.label,
@@ -8184,7 +8236,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         .where(inArray(leads.status, ["pending_quote_approval", "chatbot_pending", "quote_requested"]))
         .orderBy(desc(leads.createdAt))
         .limit(100);
-      res.json({ leads: rows });
+      const authority = await getWorkerAuthority(user);
+      res.json({ leads: rows.map((lead) => projectWorkerOrder(lead, authority.authorityTier, "task")) });
     } catch (error) {
       console.error("worker quote approvals load error:", error);
       res.status(500).json({ message: "Failed to load quote approvals" });
@@ -8200,44 +8253,39 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       const [lead] = await db.select().from(leads).where(eq(leads.id, req.params.id)).limit(1);
       if (!lead) return res.status(404).json({ message: "Lead not found" });
 
-      const approvalRole = user.role === "admin" || user.role === "business_owner" || user.email === "upmichiganstatemovers@gmail.com"
-        ? "owner_approval"
-        : "gold_vote";
-      await db.insert(quoteApprovals).values({
-        leadId: lead.id,
-        submittedByUserId: lead.createdByUserId || null,
-        approvedByUserId: user.id,
-        approvalRole,
-        status: "approved",
-        notes,
+      const authority = await getWorkerAuthority(user);
+      const isOwner = user.role === "business_owner" || user.email === "upmichiganstatemovers@gmail.com";
+      let revision = await getLatestQuoteRevision(lead.id);
+      if (!revision || revision.status !== "draft") {
+        revision = await saveQuoteDraft({ leadId: lead.id, actorUserId: user.id, notes });
+      }
+      const approvedRevision = await approveQuoteRevision({
+        quoteId: revision.id,
+        actor: {
+          userId: user.id,
+          email: user.email,
+          isOwner,
+          canApproveStandard: authority.rank >= tierRank.gold,
+        },
+        overrideReason: notes,
       });
-
-      const [voteRow] = await db.select({ count: sql<number>`count(distinct ${quoteApprovals.approvedByUserId})::int` })
-        .from(quoteApprovals)
-        .where(and(eq(quoteApprovals.leadId, lead.id), eq(quoteApprovals.status, "approved"), eq(quoteApprovals.approvalRole, "gold_vote")));
-      const goldVotes = Number(voteRow?.count || 0);
-      const approved = approvalRole === "owner_approval" || goldVotes >= 2;
-
-      if (approved) {
-        await db.update(leads)
-          .set({ status: "quote_requested" as any, lastQuoteUpdatedAt: new Date() })
-          .where(eq(leads.id, lead.id));
-        try {
-          await writeLeadHistory(lead.id, lead.status, "quote_requested", user.id, "Quote approved by worker authority");
-        } catch (histErr) {
-          console.error("[lead_history] worker quote approval history failed:", histErr);
-        }
+      await db.update(leads)
+        .set({ status: "quote_requested" as any, lastQuoteUpdatedAt: new Date() })
+        .where(eq(leads.id, lead.id));
+      try {
+        await writeLeadHistory(lead.id, lead.status, "quote_requested", user.id, "Quote revision approved by worker authority");
+      } catch (histErr) {
+        console.error("[lead_history] worker quote approval history failed:", histErr);
       }
 
       await db.insert(quoteAttributions).values({
         leadId: lead.id,
         userId: user.id,
-        attributionType: approved ? "quote_approver" : "gold_vote",
-        metadata: { approved, notes },
+        attributionType: "quote_approver",
+        metadata: { quoteRevisionId: approvedRevision.id, notes },
       });
 
       try {
-        const authority = await getWorkerAuthority(user);
         if (authority.rank >= tierRank.gold) {
           const evidence = await evaluateOpsTaskCompletion("quote_approve", lead);
           if (evidence.ok) {
@@ -8247,7 +8295,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
               taskKey: "quote_approve",
               lead,
               notes: notes || "Quote approved from worker approval flow.",
-              metadata: { approved, goldVotes, approvalRole, ...evidence.metadata },
+              metadata: { approved: true, quoteRevisionId: approvedRevision.id, ...evidence.metadata },
             });
           }
         }
@@ -8255,10 +8303,10 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         console.error("quote approval authority task bonus failed:", bonusError);
       }
 
-      res.json({ success: true, approved, goldVotes });
+      res.json({ success: true, approved: true, quote: approvedRevision });
     } catch (error) {
       console.error("worker quote approval error:", error);
-      res.status(500).json({ message: "Failed to approve quote" });
+      res.status(/owner|required|cannot|exceeds/i.test(error instanceof Error ? error.message : "") ? 403 : 500).json({ message: error instanceof Error ? error.message : "Failed to approve quote" });
     }
   });
 
@@ -8379,7 +8427,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           inArray(leads.status, ["assigned", "open"]),
         ))
         .orderBy(desc(leads.createdAt));
-      res.json(assignedJobs);
+      const authority = await getWorkerAuthority(req.currentUser);
+      res.json(assignedJobs.map((job) => projectWorkerOrder(job, authority.authorityTier, "assigned")));
     } catch (err) {
       console.error("Error fetching pending jobs:", err);
       res.status(500).json({ error: "Failed to fetch pending jobs" });
@@ -9800,6 +9849,26 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         .from(leads)
         .where(or(eq(leads.email, user.email), eq(leads.createdByUserId, userId)))
         .orderBy(desc(leads.createdAt));
+      const leadIds = customerLeads.map((lead) => lead.id);
+      const { listCustomerJobEvents } = await import("./services/customerLifecycle");
+      const lifecycleEvents = await listCustomerJobEvents(leadIds);
+      const closeoutRows = leadIds.length
+        ? await pool.query(
+            `SELECT id, lead_id, status, actual_hours, calculated_final_total,
+                    deposit_applied, balance_due, square_invoice_id, updated_at
+               FROM job_closeouts WHERE lead_id = ANY($1::varchar[])`,
+            [leadIds],
+          ).then((result) => result.rows).catch(() => [])
+        : [];
+      const closeoutByLead = new Map(closeoutRows.map((row) => [row.lead_id, row]));
+      const crewIds = Array.from(new Set(customerLeads.flatMap((lead) => Array.isArray(lead.crewMembers) ? lead.crewMembers : [])));
+      const crewRows = crewIds.length
+        ? await pool.query<{ id: string; first_name: string | null; last_name: string | null }>(
+            `SELECT id, first_name, last_name FROM users WHERE id = ANY($1::varchar[])`,
+            [crewIds],
+          ).then((result) => result.rows).catch(() => [])
+        : [];
+      const crewNameById = new Map(crewRows.map((row) => [row.id, `${row.first_name || ""} ${row.last_name || ""}`.trim() || "JC crew member"]));
       const transformedLeads = customerLeads.map(lead => ({
         id: lead.id,
         orderNumber: lead.orderNumber ?? null,
@@ -9821,6 +9890,18 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         depositRequired: lead.depositRequired || false,
         depositAmount: lead.depositAmount ? parseFloat(lead.depositAmount) : null,
         depositPaid: lead.depositPaid || false,
+        operationalStatus: lead.dispatchState || lead.status,
+        paymentStatus: lead.financialStatus || (lead.paymentPaidAt ? "paid" : lead.depositPaid ? "deposit_paid" : lead.depositRequired ? "awaiting_deposit" : "quote"),
+        finalBalanceAmount: lead.finalBalanceAmount ? parseFloat(lead.finalBalanceAmount) : null,
+        finalInvoiceUrl: lead.finalInvoiceUrl || null,
+        closeoutStatus: lead.closeoutStatus || null,
+        arrivalWindow: lead.arrivalWindow || null,
+        enRouteAt: lead.enRouteAt?.toISOString?.() || null,
+        onSiteAt: lead.onSiteAt?.toISOString?.() || null,
+        completedAt: lead.completedAt?.toISOString?.() || null,
+        crewSummary: (lead.crewMembers || []).map((id) => ({ id, name: crewNameById.get(id) || "JC crew member" })),
+        timeline: lifecycleEvents.get(lead.id) || [],
+        closeout: closeoutByLead.get(lead.id) || null,
         quoteSnapshot: lead.quoteSnapshot || {},
         isQuoteOnly: lead.isQuoteOnly || false,
         // Task #115: shared id linking all services booked together so the
@@ -9839,7 +9920,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
     try {
       const currentUser = (req as any).currentUser;
       const records = await buildJobFlowRecords(await storage.getLeads());
-      res.json(await decorateCrewBoardRecords(records.filter(isCrewBoardEligible), currentUser.id));
+      res.json(await decorateCrewBoardRecords(records.filter(isCrewBoardEligible), currentUser));
     } catch (error) {
       console.error("Error fetching available leads:", error);
       res.status(500).json({ error: "Failed to fetch available jobs" });
@@ -9866,7 +9947,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         });
         return { ...lead, bonus };
       });
-      res.json(await Promise.all(withBonus.map((lead: any) => presentJobFlowRecordWithEarnings(lead, req.currentUser, true))));
+      const authority = await getWorkerAuthority(req.currentUser);
+      res.json(await Promise.all(withBonus.map((lead: any) => presentJobFlowRecordWithEarnings(lead, req.currentUser, true, authority.authorityTier))));
     } catch (error) {
       console.error("Error fetching assigned leads:", error);
       res.status(500).json({ error: "Failed to fetch assigned jobs" });
@@ -9877,7 +9959,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
     try {
       const userId = req.currentUser.id;
       const records = await buildJobFlowRecords(await storage.getLeads());
-      res.json(await decorateCrewBoardRecords(records.filter(isCrewBoardEligible), userId));
+      res.json(await decorateCrewBoardRecords(records.filter(isCrewBoardEligible), req.currentUser));
     } catch (error) {
       console.error("Error fetching job board:", error);
       res.status(500).json({ error: "Failed to fetch job board" });
@@ -9913,7 +9995,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         return res.status(403).json({ error: "Access denied" });
       }
 
-      res.json(await presentJobFlowRecordWithEarnings(lead, user, isOwner || isAssignedCrew));
+      const authorityTier = isOwner ? "platinum" : (await getWorkerAuthority(user)).authorityTier;
+      res.json(await presentJobFlowRecordWithEarnings(lead, user, isOwner || isAssignedCrew, authorityTier, isOwner ? "admin" : undefined));
     } catch (error) {
       console.error("Error fetching lead:", error);
       res.status(500).json({ error: "Failed to fetch lead" });
@@ -12353,6 +12436,24 @@ Thank you for your business!
         return res.status(404).json({ error: "Lead not found" });
       }
       const actorId = (req.session as any)?.userId ?? (req as any).user?.id ?? null;
+      try {
+        const editedLines = Array.isArray(quoteData.orderLineItems) && quoteData.orderLineItems.length > 0
+          ? quoteData.orderLineItems
+          : [
+              { name: updatedLead.serviceType || "Service", quantity: 1, unitPrice: basePrice, total: basePrice, discountEligible: true },
+              ...(totalSpecialItemsFee > 0 ? [{ name: "Specialty-item charges", quantity: 1, unitPrice: totalSpecialItemsFee, total: totalSpecialItemsFee, discountEligible: true }] : []),
+            ];
+        await saveQuoteDraft({
+          leadId: id,
+          actorUserId: actorId,
+          lineItems: editedLines,
+          discountTotal: Number(updatedLead.bundleDiscountAmount || 0),
+          notes: quoteData.quoteNotes ?? updatedLead.quoteNotes ?? null,
+          serviceDate: updatedLead.confirmedDate || updatedLead.moveDate || null,
+        });
+      } catch (quoteRevisionError) {
+        console.error("[lead_quote_update] revision projection failed:", quoteRevisionError instanceof Error ? quoteRevisionError.message : quoteRevisionError);
+      }
       const changedKeys = Object.keys(quoteData || {});
       const assignmentChanged = changedKeys.some((key) => ["assignedToUserId", "crewMembers"].includes(key));
       await emitJobEvent(assignmentChanged ? "crew_assigned" : "job_updated", updatedLead, {
@@ -13382,6 +13483,12 @@ Thank you for your business!
       const item = await storage.getShopItem(id);
       if (!item) return res.status(404).json({ error: "Item not found" });
       if (item.status !== 'active') return res.status(400).json({ error: "Item is no longer available" });
+      if (item.itemType === 'gift_card') {
+        return res.status(410).json({
+          error: "JC ON THE MOVE service gift cards are now sold and managed securely through Square.",
+          checkoutPath: "/gift-cards",
+        });
+      }
       if (!item.jcmovesPrice) return res.status(400).json({ error: "This item does not have a JCMOVES price set" });
 
       const jcmovesNeeded = parseFloat(item.jcmovesPrice);
@@ -13409,24 +13516,8 @@ Thank you for your business!
         metadata: { shopItemId: id, itemTitle: item.title, paymentMethod: 'jcmoves_full' }
       });
 
-      // Handle gift card issuance
-      let giftCardCode: string | null = null;
-      if (item.itemType === 'gift_card' && item.giftCardValue) {
-        const code = `JCMOVE-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-        await db.insert(giftCards).values({
-          code,
-          purchasedByUserId: userId,
-          valueUsd: item.giftCardValue,
-          shopItemId: id,
-          paymentMethod: 'jcmoves',
-          jcmovesSpent: jcmovesNeeded.toFixed(8),
-          expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        });
-        giftCardCode = code;
-      }
-
       console.log(`✅ User ${userId} purchased shop item ${id} with ${jcmovesNeeded} JCMOVES`);
-      res.json({ success: true, message: `Purchased with ${jcmovesNeeded.toLocaleString()} JCMOVES!`, giftCardCode });
+      res.json({ success: true, message: `Purchased with ${jcmovesNeeded.toLocaleString()} JCMOVES!` });
     } catch (error) {
       console.error("Error processing JCMOVES purchase:", error);
       res.status(500).json({ error: "Failed to process JCMOVES purchase" });
@@ -13442,6 +13533,12 @@ Thank you for your business!
       const item = await storage.getShopItem(id);
       if (!item) return res.status(404).json({ error: "Item not found" });
       if (item.status !== 'active') return res.status(400).json({ error: "Item is no longer available" });
+      if (item.itemType === 'gift_card') {
+        return res.status(410).json({
+          error: "JC ON THE MOVE service gift cards are now sold and managed securely through Square.",
+          checkoutPath: "/gift-cards",
+        });
+      }
       if (!item.jcmovesDiscountPercent || !item.jcmovesDiscountTokens) {
         return res.status(400).json({ error: "This item does not have a JCMOVES discount available" });
       }
@@ -13502,99 +13599,27 @@ Thank you for your business!
     }
   });
 
-  // Purchase a gift card item with USD (generates code immediately)
+  const squareGiftCardsResponse = {
+    error: "JC ON THE MOVE service gift cards are now sold, delivered, and redeemed securely through Square.",
+    checkoutPath: "/gift-cards",
+  };
+
+  // Legacy custom issuance never confirmed a USD payment. Keep the route
+  // controlled for old clients, but never create new stored-value records.
   app.post("/api/gift-cards/purchase", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = (req.session as any).userId;
-      const { shopItemId, recipientEmail, paymentMethod } = req.body;
-
-      const item = await storage.getShopItem(shopItemId);
-      if (!item || item.itemType !== 'gift_card') {
-        return res.status(404).json({ error: "Gift card item not found" });
-      }
-      if (!item.giftCardValue) {
-        return res.status(400).json({ error: "Gift card value not set" });
-      }
-
-      const code = `JCMOVE-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-      const [card] = await db.insert(giftCards).values({
-        code,
-        purchasedByUserId: userId,
-        recipientEmail: recipientEmail || null,
-        valueUsd: item.giftCardValue,
-        shopItemId,
-        paymentMethod: paymentMethod || 'usd',
-        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-      }).returning();
-
-      // Award buyer 50 JCMOVES for purchasing a gift card
-      await storage.creditWalletTokens(userId, 50);
-      await db.insert(rewards).values({
-        userId,
-        rewardType: 'gift_card_purchase',
-        tokenAmount: '50.00000000',
-        cashValue: (50 * 0.00000508432).toFixed(6),
-        status: 'confirmed',
-        referenceId: card.id,
-        metadata: { giftCardCode: code, shopItemId }
-      });
-
-      console.log(`🎁 Gift card ${code} issued to user ${userId} (value: $${item.giftCardValue})`);
-      res.json({ success: true, code, card });
-    } catch (error) {
-      console.error("Error purchasing gift card:", error);
-      res.status(500).json({ error: "Failed to purchase gift card" });
-    }
+    res.status(410).json(squareGiftCardsResponse);
   });
 
-  // Check / validate a gift card code
+  // Public legacy lookup could disclose stored-value details. Square now owns
+  // validation, balances, and customer-facing redemption.
   app.get("/api/gift-cards/check/:code", async (req, res) => {
-    try {
-      const { code } = req.params;
-      const [card] = await db.select().from(giftCards).where(eq(giftCards.code, code.toUpperCase())).limit(1);
-      if (!card) return res.status(404).json({ error: "Gift card not found" });
-      if (card.isRedeemed) return res.status(400).json({ error: "This gift card has already been redeemed", card });
-      if (card.expiresAt && new Date() > card.expiresAt) return res.status(400).json({ error: "Gift card has expired", card });
-      res.json({ valid: true, card });
-    } catch (error) {
-      console.error("Error checking gift card:", error);
-      res.status(500).json({ error: "Failed to check gift card" });
-    }
+    res.status(410).json(squareGiftCardsResponse);
   });
 
-  // Redeem a gift card (apply to a quote/booking)
+  // Legacy redemption marked a card spent without actually applying its value
+  // to an invoice. Historical records stay visible, but this unsafe mutation is retired.
   app.post("/api/gift-cards/redeem", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = (req.session as any).userId;
-      const { code } = req.body;
-
-      const [card] = await db.select().from(giftCards).where(eq(giftCards.code, code.toUpperCase())).limit(1);
-      if (!card) return res.status(404).json({ error: "Gift card not found" });
-      if (card.isRedeemed) return res.status(400).json({ error: "This gift card has already been redeemed" });
-      if (card.expiresAt && new Date() > card.expiresAt) return res.status(400).json({ error: "Gift card has expired" });
-
-      await db.update(giftCards)
-        .set({ isRedeemed: true, redeemedByUserId: userId, redeemedAt: new Date() })
-        .where(eq(giftCards.code, code.toUpperCase()));
-
-      // Award 25 JCMOVES for redeeming a gift card
-      await storage.creditWalletTokens(userId, 25);
-      await db.insert(rewards).values({
-        userId,
-        rewardType: 'gift_card_redemption',
-        tokenAmount: '25.00000000',
-        cashValue: (25 * 0.00000508432).toFixed(6),
-        status: 'confirmed',
-        referenceId: card.id,
-        metadata: { giftCardCode: code, valueUsd: card.valueUsd }
-      });
-
-      console.log(`✅ Gift card ${code} redeemed by user ${userId} (value: $${card.valueUsd})`);
-      res.json({ success: true, message: `$${parseFloat(card.valueUsd).toFixed(2)} gift card applied!`, valueUsd: card.valueUsd });
-    } catch (error) {
-      console.error("Error redeeming gift card:", error);
-      res.status(500).json({ error: "Failed to redeem gift card" });
-    }
+    res.status(410).json(squareGiftCardsResponse);
   });
 
   // Admin: get all gift cards
@@ -13608,7 +13633,7 @@ Thank you for your business!
     }
   });
 
-  // Admin: seed official moving supplies and gift card shop items
+  // Admin: seed official moving supplies. Service gift cards are Square-owned.
   app.post("/api/admin/seed-shop-items", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
     try {
       const adminId = (req.session as any).userId;
@@ -13630,16 +13655,7 @@ Thank you for your business!
         { title: "Wardrobe Moving Box (3-Pack)", description: "Tall 24×20×45 inch boxes with built-in metal hanging bar. Move hanging clothes wrinkle-free — no folding required.", price: "54.99", itemType: "moving_supplies", category: "Boxes", jcmovesPrice: "10700.00", jcmovesDiscountPercent: 20, jcmovesDiscountTokens: "800.00" },
       ];
 
-      const giftCardItems = [
-        { title: "$25 JC ON THE MOVE Gift Card", description: "Give the gift of stress-free moving! This $25 digital gift card can be applied toward any JC ON THE MOVE moving, junk removal, or cleaning service. Code delivered instantly after purchase.", price: "25.00", itemType: "gift_card", category: "Gift Cards", giftCardValue: "25.00", jcmovesPrice: "4900.00", jcmovesDiscountPercent: 5, jcmovesDiscountTokens: "500.00" },
-        { title: "$50 JC ON THE MOVE Gift Card", description: "A $50 credit toward any JC ON THE MOVE service — moving, junk removal, cleaning, handyman, and more. Perfect for housewarming gifts or helping a friend with their next move.", price: "50.00", itemType: "gift_card", category: "Gift Cards", giftCardValue: "50.00", jcmovesPrice: "9800.00", jcmovesDiscountPercent: 5, jcmovesDiscountTokens: "750.00" },
-        { title: "$100 JC ON THE MOVE Gift Card", description: "A $100 service credit — our most popular gift for new homeowners and renters. Covers a significant portion of most local moves or a full junk removal session.", price: "100.00", itemType: "gift_card", category: "Gift Cards", giftCardValue: "100.00", jcmovesPrice: "19600.00", jcmovesDiscountPercent: 10, jcmovesDiscountTokens: "1000.00" },
-        { title: "$200 JC ON THE MOVE Gift Card", description: "A $200 premium gift card — ideal for long-distance moves, full-day services, or gifting to a business. Combine with JCMOVES tokens for even more savings.", price: "200.00", itemType: "gift_card", category: "Gift Cards", giftCardValue: "200.00", jcmovesPrice: "39000.00", jcmovesDiscountPercent: 15, jcmovesDiscountTokens: "2000.00" },
-        { title: "$500 JC ON THE MOVE Gift Card", description: "The ultimate moving gift. A $500 service credit that covers a full residential move for most customers. Great for corporate relocation packages or generous gifting.", price: "500.00", itemType: "gift_card", category: "Gift Cards", giftCardValue: "500.00", jcmovesPrice: "97000.00", jcmovesDiscountPercent: 20, jcmovesDiscountTokens: "5000.00" },
-      ];
-
       const placeholderPhoto = "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&q=80";
-      const giftCardPhoto = "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=400&q=80";
 
       let created = 0;
       for (const item of movingSupplies) {
@@ -13662,28 +13678,6 @@ Thank you for your business!
           created++;
         }
       }
-      for (const item of giftCardItems) {
-        const existing = await db.select().from(shopItems).where(eq(shopItems.title, item.title)).limit(1);
-        if (existing.length === 0) {
-          await db.insert(shopItems).values({
-            postedBy: adminId,
-            title: item.title,
-            description: item.description,
-            price: item.price,
-            phoneNumber: adminPhone,
-            photos: [giftCardPhoto],
-            category: item.category,
-            itemType: item.itemType,
-            giftCardValue: item.giftCardValue,
-            jcmovesPrice: item.jcmovesPrice,
-            jcmovesDiscountPercent: item.jcmovesDiscountPercent,
-            jcmovesDiscountTokens: item.jcmovesDiscountTokens,
-            status: 'active',
-          });
-          created++;
-        }
-      }
-
       res.json({ success: true, message: `Seeded ${created} official shop items`, created });
     } catch (error) {
       console.error("Error seeding shop items:", error);
@@ -13757,16 +13751,42 @@ Thank you for your business!
     user && (["admin", "business_owner"].includes(String(user.role || "")) || user.email === "upmichiganstatemovers@gmail.com"),
   );
 
-  const presentJobFlowRecord = (record: any, user: any, includeAccess: boolean) => {
+  const workerOrderContextForRecord = (record: any, userId: string): "claimed" | "assigned" => {
+    const accepted = Array.isArray(record.acceptedByEmployees) && record.acceptedByEmployees.includes(userId);
+    const directlyAssigned = record.assignedToUserId === userId;
+    const dispatchState = String(record.dispatchState || "").toLowerCase();
+    const formallyDispatched = ["assigned", "accepted", "en_route", "on_site", "in_progress", "completed"].includes(dispatchState);
+    return accepted || directlyAssigned || formallyDispatched ? "assigned" : "claimed";
+  };
+
+  const presentJobFlowRecord = (
+    record: any,
+    user: any,
+    includeAccess: boolean,
+    authorityTier: WorkerTier = "worker",
+    context?: Exclude<WorkerOrderContext, "board">,
+  ) => {
     const { accessInstructionsCiphertext, ...safeRecord } = record;
-    return {
+    const visibleRecord = {
       ...safeRecord,
       ...(includeAccess ? { jobAccess: decryptJobAccessDetails(accessInstructionsCiphertext) } : {}),
     };
+    const resolvedContext = context || (isBusinessOwnerUser(user)
+      ? "admin"
+      : jobBelongsToCrew(record, user.id)
+        ? workerOrderContextForRecord(record, user.id)
+        : "task");
+    return projectWorkerOrder(visibleRecord, authorityTier, resolvedContext);
   };
 
-  const presentJobFlowRecordWithEarnings = async (record: any, user: any, includeAccess: boolean) => ({
-    ...presentJobFlowRecord(record, user, includeAccess),
+  const presentJobFlowRecordWithEarnings = async (
+    record: any,
+    user: any,
+    includeAccess: boolean,
+    authorityTier: WorkerTier = "worker",
+    context?: Exclude<WorkerOrderContext, "board">,
+  ) => ({
+    ...presentJobFlowRecord(record, user, includeAccess, authorityTier, context),
     personalEarnings: jobBelongsToCrew(record, user.id)
       ? await buildPersonalEarningsForLead(record, user.id)
       : null,
@@ -13796,13 +13816,14 @@ Thank you for your business!
       || (authority.rank >= tierRank.gold && approvalTaskStatus);
   };
 
-  const decorateCrewBoardRecords = async (records: Awaited<ReturnType<typeof buildJobFlowRecords>>, userId: string) => {
+  const decorateCrewBoardRecords = async (records: Awaited<ReturnType<typeof buildJobFlowRecords>>, user: any) => {
     const { calcCrewBonus } = await import("@shared/crewIncentives");
+    const authority = await getWorkerAuthority(user);
     const FLAT_TOKEN_BASE = 500;
     const TOKENS_PER_HOUR = 25;
     const DEFAULT_HOURS = 3;
     return records.map((record) => {
-      const boardRecord = toCrewBoardFlow(record, userId);
+      const boardRecord = toCrewBoardFlow(record, user.id, authority.authorityTier);
       const estimatedHrs = record.confirmedHours || DEFAULT_HOURS;
       return {
         ...boardRecord,
@@ -13838,13 +13859,14 @@ Thank you for your business!
       }
 
       const allRecords = await buildJobFlowRecords(await storage.getLeads());
-      if (scope === "admin") return res.json(allRecords);
+      if (scope === "admin") return res.json(allRecords.map((record) => presentJobFlowRecord(record, user, true, "platinum", "admin")));
       if (scope === "board") {
-        return res.json(await decorateCrewBoardRecords(allRecords.filter(isCrewBoardEligible), user.id));
+        return res.json(await decorateCrewBoardRecords(allRecords.filter(isCrewBoardEligible), user));
       }
+      const authority = await getWorkerAuthority(user);
       return res.json(await Promise.all(allRecords
         .filter((record) => jobBelongsToCrew(record, user.id))
-        .map((record) => presentJobFlowRecordWithEarnings(record, user, true))));
+        .map((record) => presentJobFlowRecordWithEarnings(record, user, true, authority.authorityTier))));
     } catch (error) {
       console.error("Error fetching universal job flow:", error);
       res.status(500).json({ error: "Failed to fetch job flow" });
@@ -13897,11 +13919,15 @@ Thank you for your business!
           await canViewJobTask(user, record) ? record : null
         )))).filter(Boolean);
 
+      const authority = isAdmin ? null : await getWorkerAuthority(user);
+
       const items = isAdmin
-        ? visible
+        ? visible.map((record: any) => presentJobFlowRecord(record, user, true, "platinum", "admin"))
         : await Promise.all(visible.map((record: any) => jobBelongsToCrew(record, user.id)
-          ? presentJobFlowRecordWithEarnings(record, user, true)
-          : presentJobFlowRecord(record, user, false)));
+          ? presentJobFlowRecordWithEarnings(record, user, true, authority!.authorityTier)
+          : isCrewBoardEligible(record)
+            ? toCrewBoardFlow(record, user.id, authority!.authorityTier)
+            : presentJobFlowRecord(record, user, false, authority!.authorityTier, "task")));
       res.json({
         items,
         viewer: {
@@ -13922,10 +13948,15 @@ Thank you for your business!
       if (!lead || lead.archivedAt) return res.status(404).json({ error: "Job not found" });
       const [record] = await buildJobFlowRecords([lead]);
       if (isBusinessOwnerUser(user) || jobBelongsToCrew(record, user.id)) {
-        return res.json(await presentJobFlowRecordWithEarnings(record, user, true));
+        const isOwner = isBusinessOwnerUser(user);
+        const authorityTier = isOwner ? "platinum" : (await getWorkerAuthority(user)).authorityTier;
+        return res.json(await presentJobFlowRecordWithEarnings(record, user, true, authorityTier, isOwner ? "admin" : undefined));
       }
-      if (isCrewBoardEligible(record)) return res.json((await decorateCrewBoardRecords([record], user.id))[0]);
-      if (await canViewJobTask(user, record)) return res.json(presentJobFlowRecord(record, user, false));
+      if (isCrewBoardEligible(record)) return res.json((await decorateCrewBoardRecords([record], user))[0]);
+      if (await canViewJobTask(user, record)) {
+        const authority = await getWorkerAuthority(user);
+        return res.json(presentJobFlowRecord(record, user, false, authority.authorityTier, "task"));
+      }
       return res.status(403).json({ error: "Access denied" });
     } catch (error) {
       console.error("Error fetching universal job detail:", error);
@@ -14613,8 +14644,14 @@ Thank you for your business!
         return res.status(404).json({ error: "Quote order not found" });
       }
 
-      const lineItems = Array.isArray(lead.orderLineItems)
-        ? lead.orderLineItems
+      const sentQuote = await getLatestSentQuote(lead.id);
+      const revisionSentAt = sentQuote?.sentAt ? new Date(sentQuote.sentAt).getTime() : 0;
+      if (!sentQuote || revisionSentAt !== token.quoteSentAt) {
+        return res.status(404).json({ error: "Quote order not found" });
+      }
+
+      const lineItems = Array.isArray(sentQuote.lineItems)
+        ? sentQuote.lineItems
             .map((item: any) => ({
               name: String(item?.name || item?.label || "Service"),
               quantity: Number(item?.quantity ?? item?.qty ?? 1) || 1,
@@ -14622,8 +14659,18 @@ Thank you for your business!
             }))
             .filter((item) => item.name)
         : [];
+      const safeAdjustments = sentQuote.pricingAdjustments as any;
+      if (Number(safeAdjustments?.geographicAmount || 0) > 0) {
+        lineItems.push({ name: "Extended service-area adjustment", quantity: 1, total: Number(safeAdjustments.geographicAmount) });
+      }
+      if (Number(safeAdjustments?.weekendAmount || 0) > 0) {
+        lineItems.push({ name: "Saturday/Sunday premium", quantity: 1, total: Number(safeAdjustments.weekendAmount) });
+      }
+      if (sentQuote.discountTotal > 0) {
+        lineItems.push({ name: "Eligible discounts", quantity: 1, total: -sentQuote.discountTotal });
+      }
       const serviceType = lead.serviceType || "Moving service";
-      const totalPrice = Number(lead.totalPrice || lead.basePrice || 0) || 0;
+      const totalPrice = sentQuote.customerTotal;
 
       return res.json({
         order: {
@@ -14640,6 +14687,15 @@ Thank you for your business!
           fromAddress: lead.confirmedFromAddress || lead.fromAddress,
           toAddress: lead.confirmedToAddress || lead.toAddress,
           totalPrice,
+          quoteRevisionId: sentQuote.id,
+          quoteRevision: sentQuote.revision,
+          pricingVersion: sentQuote.pricingVersionCode,
+          pricingAdjustments: sentQuote.pricingAdjustments,
+          travelEligibility: {
+            status: (sentQuote.travelEligibility as any)?.status || null,
+            minimumPreTax: (sentQuote.travelEligibility as any)?.minimumPreTax ?? null,
+            minimumSatisfied: (sentQuote.travelEligibility as any)?.minimumSatisfied ?? null,
+          },
           lineItems: lineItems.length > 0
             ? lineItems
             : [{ name: serviceType, quantity: 1, total: totalPrice }],
@@ -14654,7 +14710,7 @@ Thank you for your business!
   });
 
   // Send quote to customer via email + SMS
-  app.post("/api/leads/:id/send-quote", isAuthenticated, requireAdmin, async (req: any, res) => {
+  app.post("/api/leads/:id/send-quote", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
       const { message, deliveryMethod, recordSmsConsent } = req.body as {
@@ -14663,9 +14719,22 @@ Thank you for your business!
         recordSmsConsent?: boolean;
       };
       const actorId = (req.session as any)?.userId ?? req.user?.id ?? null;
+      const actor = actorId ? await storage.getUser(actorId) : null;
+      if (!actor || !(await userCanApproveQuotes(actor))) {
+        return res.status(403).json({ error: "Gold authority or business-owner access is required to send quotes." });
+      }
+      const actorIsOwner = actor.role === "business_owner"
+        || actor.email === "upmichiganstatemovers@gmail.com";
 
       const lead = await storage.getLead(id);
       if (!lead) return res.status(404).json({ error: "Lead not found" });
+      const approvedQuote = await getLatestApprovedQuote(id);
+      if (!approvedQuote) {
+        return res.status(409).json({ error: "Approve a quote revision before sending it to the customer." });
+      }
+      if ((approvedQuote.travelEligibility as any)?.requiresOwner === true && !actorIsOwner) {
+        return res.status(403).json({ error: "Only the business owner may send this travel exception quote." });
+      }
 
       const requestedDelivery = (["email", "sms", "both"] as const).includes(deliveryMethod as CustomerQuoteDeliveryMethod)
         ? deliveryMethod as CustomerQuoteDeliveryMethod
@@ -14697,7 +14766,7 @@ Thank you for your business!
         }
       }
 
-      const price = parseFloat(String(lead.totalPrice || lead.basePrice || "0"));
+      const price = approvedQuote.customerTotal;
       if (!price || price <= 0) {
         return res.status(400).json({ error: "A quote total must be set before sending. Please build the quote first." });
       }
@@ -14718,7 +14787,9 @@ Thank you for your business!
       // ── Optional: create a Square invoice silently (no Square delivery email) ──
       const { squareInvoiceService } = await import('./services/square-invoice');
       // Re-use existing payment URL if one was already created (avoids duplicate invoices on re-send)
-      const existingPaymentUrl = lead.squarePaymentUrl ?? null;
+      // Reuse a link only when re-sending the same already-sent revision.
+      // A newly approved revision must refresh payment at its new total.
+      const existingPaymentUrl = approvedQuote.status === "sent" ? lead.squarePaymentUrl ?? null : null;
       let squarePaymentUrl: string | null = existingPaymentUrl;
       let squareInvoiceCreated = false;
       let pendingShopCardLines: Array<{ id: string; name: string; unitPrice: number; qty: number }> = [];
@@ -14868,6 +14939,13 @@ Thank you for your business!
       } catch (err) {
         console.error("Quote email send error:", err);
       }
+      if (!emailSent) {
+        return res.status(502).json({
+          error: "The approved quote and payment link were saved, but the email was not delivered. The quote remains approved and can be retried.",
+          quoteRevisionId: approvedQuote.id,
+          paymentUrl: squarePaymentUrl,
+        });
+      }
       }
 
       let smsSent = false;
@@ -14886,6 +14964,7 @@ Thank you for your business!
       }
 
       await pool.query(`UPDATE leads SET quote_sent_at = $1 WHERE id = $2`, [now, id]);
+      await markQuoteRevisionSent({ quoteId: approvedQuote.id, actorUserId: actorId, sentAt: now });
       const transitionableStatuses = ["new", "quote_requested", "chatbot_pending"];
       if (transitionableStatuses.includes(lead.status)) {
         await storage.updateLeadStatus(id, "quoted");
@@ -14914,7 +14993,7 @@ Thank you for your business!
           },
         });
       }
-      res.json({ success: true, quoteSentAt: now.toISOString(), emailSent, smsSent, deliveryMethod: requestedDelivery, squareInvoiceCreated, paymentUrl: squarePaymentUrl, quoteAccessUrl, lead: updatedLead });
+      res.json({ success: true, quoteSentAt: now.toISOString(), quoteRevisionId: approvedQuote.id, emailSent, smsSent, deliveryMethod: requestedDelivery, squareInvoiceCreated, paymentUrl: squarePaymentUrl, quoteAccessUrl, lead: updatedLead });
     } catch (error) {
       console.error("Error sending quote:", error);
       res.status(500).json({ error: "Failed to send quote" });
@@ -18862,7 +18941,14 @@ Thank you for your business!
     const { id } = req.params;
     const next = req.body?.status as string | undefined;
     const crewId = req.currentUser.id;
-    const allowed = ["en_route", "on_site", "completed"];
+    if (next === "completed") {
+      return res.status(409).json({
+        error: "Submit the job closeout with actual hours and completion proof before marking this job complete.",
+        requiresCloseout: true,
+        closeoutEndpoint: `/api/crew/jobs/${id}/closeout`,
+      });
+    }
+    const allowed = ["en_route", "on_site"];
     if (!next || !allowed.includes(next)) {
       return res.status(400).json({ error: `status must be one of ${allowed.join(", ")}` });
     }
@@ -18882,15 +18968,15 @@ Thank you for your business!
       //   en_route  -> on_site
       //   on_site   -> completed
       type DispatchStep = "pending" | "offering" | "assigned" | "accepted" | "en_route" | "on_site" | "completed";
-      const allowedEdges: Record<string, Array<"en_route" | "on_site" | "completed">> = {
+      const allowedEdges: Record<string, Array<"en_route" | "on_site">> = {
         assigned: ["en_route"],
         accepted: ["en_route"],
         en_route: ["on_site"],
-        on_site: ["completed"],
+        on_site: [],
       };
       const from = (job.dispatchState || "") as DispatchStep;
       const validNext = allowedEdges[from] || [];
-      if (!validNext.includes(next as "en_route" | "on_site" | "completed")) {
+      if (!validNext.includes(next as "en_route" | "on_site")) {
         return res.status(409).json({
           error: `cannot move from ${job.dispatchState || "pending"} to ${next}`,
         });
@@ -18904,47 +18990,25 @@ Thank you for your business!
       } else if (next === "on_site") {
         patch.onSiteAt = now;
         patch.status = "in_progress";
-      } else if (next === "completed") {
-        patch.completedAt = now;
-        patch.status = "completed";
       }
       await persistState(id, patch);
       await logDispatchEvent(id, `crew_${next}`, crewId, crewId,
         job.dispatchState, next, `crew marked ${next}`);
 
-      // Mirror lead history + fire reward disbursement on completion.
-      if (next === "completed") {
-        try {
-          await writeLeadHistory(id, job.status, "completed", crewId, `Marked complete by crew (${next})`);
-        } catch (e) {
-          console.warn("[/api/crew/jobs/:id/status] history write failed:", e);
-        }
-        try {
-          const { ensureIdempotent } = await import("./lib/idempotency");
-          const idemKey = `job-reward-${id}-completion`;
-          const isNew = await ensureIdempotent(idemKey, "job_completion");
-          if (isNew) {
-            const { disburseJobTokens } = await import("./services/disburse-job-tokens");
-            await disburseJobTokens(id);
-          }
-        } catch (e) {
-          console.error("[/api/crew/jobs/:id/status] disbursement failed:", e);
-        }
-        try {
-          const completedLead = await storage.getLead(id);
-          if (completedLead) {
-            await sendCompletedJobReviewRequest(completedLead);
-            await emitJobEvent("job_completed", completedLead, {
-              actorId: crewId,
-              source: "crew_job_status",
-              previousStatus: job.status,
-              status: "completed",
-              note: "Crew marked the job complete; rewards and review request are queued.",
-            });
-          }
-        } catch (e) {
-          console.error("[/api/crew/jobs/:id/status] review request or completion event failed:", e);
-        }
+      try {
+        const { emitCustomerLifecycleEvent } = await import("./services/customerLifecycle");
+        await emitCustomerLifecycleEvent({
+          leadId: id,
+          type: next === "en_route" ? "crew_en_route" : "crew_arrived",
+          eventKey: `${id}:${next}:${now.toISOString()}`,
+          title: next === "en_route" ? "Your JC crew is en route" : "Your JC crew has arrived",
+          message: next === "en_route"
+            ? "Your assigned crew has started toward the service address."
+            : "The crew marked the job on site and is ready to begin.",
+          payload: { status: next },
+        });
+      } catch (customerEventError) {
+        console.error("[/api/crew/jobs/:id/status] customer lifecycle notification failed:", customerEventError);
       }
 
       res.json({ ok: true, state: next });
@@ -23484,34 +23548,37 @@ Thank you for your business!
 
       log.push(`[sim] Lead found: ${lead.firstName} ${lead.lastName} — status: ${lead.status}`);
 
-      // Mark deposit paid on the lead
+      const simulatedAmount = Number(req.body?.amount || (lead.depositRequired && !lead.depositPaid ? lead.depositAmount : lead.totalPrice) || 0);
+      const payment = classifyJobInvoicePayment({
+        invoiceAmount: simulatedAmount,
+        jobTotal: lead.totalPrice,
+        depositAmount: lead.depositAmount,
+        depositRequired: lead.depositRequired,
+        depositAlreadyPaid: lead.depositPaid,
+      });
+      const simulatedStatus = payment.kind === "deposit" ? "confirmed" : "paid";
       await db.update(leads)
-        .set({ depositPaid: true as any, status: "paid" as any, lastQuoteUpdatedAt: new Date() })
+        .set({
+          depositPaid: lead.depositRequired ? true as any : lead.depositPaid,
+          status: simulatedStatus as any,
+          paymentPaidAt: payment.kind === "paid_in_full" ? new Date() : lead.paymentPaidAt,
+          lastQuoteUpdatedAt: new Date(),
+        })
         .where(eq(leads.id, leadId));
-      log.push("[sim] Lead status → paid, depositPaid = true");
+      log.push(`[sim] Lead status → ${simulatedStatus}, payment scope=${payment.kind}`);
 
       try {
-        await writeLeadHistory(leadId, lead.status, "paid", user.id, "DEV: Simulated invoice payment");
+        await writeLeadHistory(leadId, lead.status, simulatedStatus, user.id, `DEV: Simulated ${payment.kind} invoice payment`);
         log.push("[sim] Lead history written");
       } catch (_) { log.push("[sim] Lead history write skipped"); }
 
       // Auto-dispatch crew
-      let assignedCrew: string[] = [];
+      let dispatchState = "pending";
       try {
-        const { dispatchGenericJob } = await import("./services/dispatchGeneric");
-        const crewSize = lead.crewSize || 2;
-        const kind = lead.serviceType === "junk" ? "labor" : "moving";
-        assignedCrew = await dispatchGenericJob({ leadId, kind, crewSize });
-        if (assignedCrew.length > 0) {
-          log.push(`[sim] Auto-dispatched ${assignedCrew.length} crew member(s)`);
-          await db.update(leads)
-            .set({ status: "dispatched" as any })
-            .where(eq(leads.id, leadId));
-          await writeLeadHistory(leadId, "paid", "dispatched", user.id, "DEV: Crew auto-dispatched");
-          log.push("[sim] Lead status → dispatched");
-        } else {
-          log.push("[sim] No available crew for auto-dispatch — status stays paid");
-        }
+        const { dispatchJob } = await import("./dispatch");
+        const dispatched = await dispatchJob(leadId, { actorUserId: user.id, reason: `dev_simulated_${payment.kind}` });
+        dispatchState = dispatched.state;
+        log.push(`[sim] Sequential offer queue state → ${dispatchState}${dispatched.message ? ` (${dispatched.message})` : ""}`);
       } catch (dispErr: any) {
         log.push(`[sim] Dispatch error (non-fatal): ${dispErr.message}`);
       }
@@ -23528,7 +23595,7 @@ Thank you for your business!
         } catch (_) { log.push("[sim] Customer email skipped"); }
       }
 
-      return res.json({ success: true, leadId, finalStatus: assignedCrew.length > 0 ? "dispatched" : "paid", crewAssigned: assignedCrew.length, log });
+      return res.json({ success: true, leadId, finalStatus: simulatedStatus, paymentKind: payment.kind, dispatchState, log });
     } catch (e: any) {
       return res.status(500).json({ error: e.message, log });
     }
@@ -23539,6 +23606,8 @@ Thank you for your business!
   // SQUARE_WEBHOOK_SIGNATURE_KEY must be set; requests without a valid
   // HMAC-SHA256 signature are rejected with 401.
   app.post("/api/webhooks/square", async (req: Request, res: Response) => {
+    let claimedWebhookEventId: string | null = null;
+    let claimedPaymentInvoiceId: string | null = null;
     try {
       const rawBody = req.body as Buffer;
       const bodyStr = rawBody.toString("utf8");
@@ -23579,6 +23648,23 @@ Thank you for your business!
       const eventType = typeof event.type === "string" ? event.type : "";
       const data = (event.data as Record<string, unknown> | undefined)?.object as Record<string, unknown> | undefined;
 
+      const webhookEventId = typeof event.event_id === "string"
+        ? event.event_id
+        : typeof event.id === "string" ? event.id : "";
+      if (!webhookEventId) return res.status(400).json({ error: "Square event id is required" });
+      const eventObject = (data?.invoice || data?.payment) as Record<string, unknown> | undefined;
+      const squareObjectId = typeof eventObject?.id === "string" ? eventObject.id : null;
+      const { claimSquareWebhookEvent, completeSquareWebhookEvent } = await import("./services/squareWebhookIdempotency");
+      const webhookClaim = await claimSquareWebhookEvent({ eventId: webhookEventId, eventType, squareObjectId, rawBody: bodyStr });
+      if (webhookClaim === "processed") {
+        return res.status(200).json({ received: true, duplicate: true });
+      }
+      if (webhookClaim === "in_progress") {
+        res.setHeader("Retry-After", "10");
+        return res.status(503).json({ received: false, retry: true });
+      }
+      claimedWebhookEventId = webhookEventId;
+
       console.log(`[Square webhook] Received event: ${eventType}`);
 
       const { squareInvoiceService } = await import("./services/square-invoice");
@@ -23599,10 +23685,17 @@ Thank you for your business!
         const isFullyPaid = invoiceStatus === "PAID" || eventType === "invoice.paid";
         if (!isFullyPaid) {
           console.log(`[Square webhook] ${eventType} for ${squareInvoiceId} — invoice status=${invoiceStatus || "unknown"}, NOT fully paid, skipping wallet/lead/dispatch work (waiting for invoice.paid)`);
+          await completeSquareWebhookEvent(webhookEventId);
           return res.json({ received: true, skipped: "partial_payment" });
         }
 
         if (squareInvoiceId) {
+          const { claimSquareInvoicePaymentEffect } = await import("./services/squareWebhookIdempotency");
+          if (!(await claimSquareInvoicePaymentEffect(squareInvoiceId, webhookEventId))) {
+            await completeSquareWebhookEvent(webhookEventId);
+            return res.status(200).json({ received: true, duplicateInvoicePayment: true });
+          }
+          claimedPaymentInvoiceId = squareInvoiceId;
           // Task #199 — fire any shop-card wallet grants tied to this
           // invoice. This runs FIRST and is idempotent so duplicate
           // webhook deliveries can't double-mint. Gated on isFullyPaid
@@ -23639,49 +23732,134 @@ Thank you for your business!
 
             if (localInvoice.leadId) {
               const lead = await storage.getLead(localInvoice.leadId);
-              if (lead?.status === "completed") {
-                await pool.query(
-                  `UPDATE leads
-                      SET payment_paid_at = COALESCE(payment_paid_at, NOW()),
-                          deposit_paid = CASE WHEN deposit_required THEN true ELSE deposit_paid END,
-                          last_quote_updated_at = NOW()
-                    WHERE id = $1`,
-                  [localInvoice.leadId],
-                );
-                try {
-                  const { disburseJobTokens } = await import("./services/disburse-job-tokens");
-                  await disburseJobTokens(localInvoice.leadId);
-                } catch (disbursementError) {
-                  console.error("[Square webhook] completed-job JCMOVES disbursement failed:", disbursementError);
-                }
-              }
-              if (lead && lead.status !== "paid" && lead.status !== "completed") {
-                await pool.query(
-                  `UPDATE leads
-                      SET status = 'paid',
-                          payment_paid_at = COALESCE(payment_paid_at, NOW()),
-                          deposit_paid = CASE WHEN deposit_required THEN true ELSE deposit_paid END,
-                          last_quote_updated_at = NOW()
-                    WHERE id = $1`,
-                  [localInvoice.leadId],
-                );
-                try {
-                  await writeLeadHistory(localInvoice.leadId, lead.status, "paid", null, `Square invoice paid: ${squareInvoiceId}`);
-                } catch (histErr) {
-                  console.error("[Square webhook] paid history write failed:", histErr);
-                }
-                console.log(`[Square webhook] Lead ${localInvoice.leadId} payment stamped and status updated to paid`);
-                await emitJobEvent("job_updated", { ...lead, status: "paid", depositPaid: lead.depositRequired ? true : lead.depositPaid } as any, {
-                  source: "square_webhook",
-                  previousStatus: lead.status,
-                  status: "paid",
-                  note: "Square invoice paid. Job is ready for dispatch/payment paperwork.",
-                  extra: { squareInvoiceId, paymentReceived: true },
+              if (lead) {
+                type SquareMoneyField = { amount?: number; currency?: string };
+                type SquareInvoicePayload = { total_money?: SquareMoneyField };
+                const squareCents = (invoice as SquareInvoicePayload).total_money?.amount;
+                const invoiceAmount = typeof squareCents === "number" && squareCents > 0
+                  ? squareCents / 100
+                  : Number(localInvoice.amount || 0);
+                const payment = classifyJobInvoicePayment({
+                  invoiceAmount,
+                  jobTotal: lead.totalPrice,
+                  depositAmount: lead.depositAmount,
+                  depositRequired: lead.depositRequired,
+                  depositAlreadyPaid: lead.depositPaid,
+                  invoicePurpose: localInvoice.purpose,
                 });
 
-                // Exact-time online holds become confirmed only when the
-                // approved deposit is paid. Older invoices do not have a
-                // matching hold row, so this remains safely best-effort.
+                if (payment.kind === "deposit") {
+                  const updated = await pool.query<{ status: string }>(
+                    `UPDATE leads
+                        SET deposit_paid = true,
+                            status = CASE
+                              WHEN status IN ('new','quote_requested','quoted','awaiting_deposit','paid') THEN 'confirmed'
+                              ELSE status
+                            END,
+                             last_quote_updated_at = NOW()
+                            ,financial_status = 'deposit_paid'
+                      WHERE id = $1
+                      RETURNING status`,
+                    [localInvoice.leadId],
+                  );
+                  const nextStatus = String(updated.rows[0]?.status || lead.status);
+                  try {
+                    await writeLeadHistory(localInvoice.leadId, lead.status, nextStatus, null, `Scheduling deposit paid: ${squareInvoiceId}`);
+                  } catch (histErr) {
+                    console.error("[Square webhook] deposit history write failed:", histErr);
+                  }
+                  console.log(`[Square webhook] Lead ${localInvoice.leadId} deposit paid; remaining job balance is still due`);
+                  try {
+                    const { emitCustomerLifecycleEvent } = await import("./services/customerLifecycle");
+                    await emitCustomerLifecycleEvent({
+                      leadId: localInvoice.leadId,
+                      type: "deposit_received",
+                      eventKey: `${localInvoice.leadId}:deposit_received:${squareInvoiceId}`,
+                      title: "Your scheduling deposit is received",
+                      message: "Your time is confirmed. JC crew assignment is now in progress.",
+                      payload: { squareInvoiceId, amountUsd: payment.invoiceAmount },
+                    });
+                    await emitCustomerLifecycleEvent({
+                      leadId: localInvoice.leadId,
+                      type: "crew_confirmation_in_progress",
+                      eventKey: `${localInvoice.leadId}:crew_confirmation_in_progress:${squareInvoiceId}`,
+                      title: "Crew confirmation is in progress",
+                      message: "The system is filling each required JC crew position. You will be notified when the full roster is confirmed.",
+                    });
+                  } catch (customerEventError) {
+                    console.error("[Square webhook] deposit customer lifecycle notification failed:", customerEventError);
+                  }
+                  await emitJobEvent("job_updated", { ...lead, status: nextStatus, depositPaid: true } as any, {
+                    source: "square_webhook",
+                    previousStatus: lead.status,
+                    status: nextStatus,
+                    note: "Scheduling deposit paid. Paid-in-full rewards and accounting remain locked until the balance is paid.",
+                    extra: { squareInvoiceId, paymentReceived: true, paymentScope: "deposit", amountUsd: payment.invoiceAmount },
+                  });
+                } else {
+                  const nextStatus = lead.status === "completed" ? "completed" : "paid";
+                  await pool.query(
+                    `UPDATE leads
+                        SET status = CASE WHEN status = 'completed' THEN status ELSE 'paid' END,
+                            payment_paid_at = COALESCE(payment_paid_at, NOW()),
+                            deposit_paid = CASE WHEN deposit_required THEN true ELSE deposit_paid END,
+                             last_quote_updated_at = NOW()
+                            ,financial_status = 'paid'
+                            ,closeout_status = CASE WHEN closeout_status IS NOT NULL THEN 'paid' ELSE closeout_status END
+                      WHERE id = $1`,
+                    [localInvoice.leadId],
+                  );
+                  if (lead.status !== "paid" && lead.status !== "completed") {
+                    try {
+                      await writeLeadHistory(localInvoice.leadId, lead.status, "paid", null, `Square job balance paid: ${squareInvoiceId}`);
+                    } catch (histErr) {
+                      console.error("[Square webhook] paid history write failed:", histErr);
+                    }
+                  }
+                  if (lead.status === "completed") {
+                    try {
+                      const { disburseJobTokens } = await import("./services/disburse-job-tokens");
+                      await disburseJobTokens(localInvoice.leadId);
+                    } catch (disbursementError) {
+                      console.error("[Square webhook] completed-job JCMOVES disbursement failed:", disbursementError);
+                    }
+                    try {
+                      if (localInvoice.closeoutId) {
+                        await pool.query(
+                          `UPDATE job_closeouts SET status='paid', updated_at=NOW() WHERE id=$1`,
+                          [localInvoice.closeoutId],
+                        );
+                      }
+                      const { emitCustomerLifecycleEvent } = await import("./services/customerLifecycle");
+                      await emitCustomerLifecycleEvent({
+                        leadId: localInvoice.leadId,
+                        type: "final_payment_received",
+                        eventKey: `${localInvoice.leadId}:final_payment_received:${squareInvoiceId}`,
+                        title: "Final payment received",
+                        message: "Your JC ON THE MOVE job is financially complete. Thank you for choosing our crew.",
+                        payload: { squareInvoiceId, amountUsd: payment.invoiceAmount },
+                      });
+                      const paidLead = await storage.getLead(localInvoice.leadId);
+                      if (paidLead) await sendCompletedJobReviewRequest(paidLead);
+                    } catch (customerEventError) {
+                      console.error("[Square webhook] final customer lifecycle notification failed:", customerEventError);
+                    }
+                  }
+                  if (payment.accountingAmount > 0) {
+                    await recordRevenueSplit(payment.accountingAmount, localInvoice.leadId, "square_payment_in_full");
+                    await creditJcMovesUsd(localInvoice.leadId, payment.accountingAmount, "square_webhook_paid_in_full");
+                  }
+                  await emitJobEvent("job_updated", { ...lead, status: nextStatus, depositPaid: lead.depositRequired ? true : lead.depositPaid } as any, {
+                    source: "square_webhook",
+                    previousStatus: lead.status,
+                    status: nextStatus,
+                    note: "Square confirmed the approved job balance paid in full.",
+                    extra: { squareInvoiceId, paymentReceived: true, paymentScope: "paid_in_full", amountUsd: payment.accountingAmount },
+                  });
+                }
+
+                // A paid deposit or a full payment confirms an exact-time
+                // hold. This does not imply that the full job balance is paid.
                 try {
                   await pool.query(
                     "UPDATE booking_slot_holds SET status='confirmed', updated_at=NOW() " +
@@ -23697,50 +23875,20 @@ Thank you for your business!
                   console.warn("[Square webhook] booking hold confirmation skipped:", holdErr instanceof Error ? holdErr.message : holdErr);
                 }
 
-                // Record revenue split on payment confirmation.
-                // Square total_money.amount is always in cents (smallest currency unit).
-                type SquareMoneyField = { amount?: number; currency?: string };
-                type SquareInvoicePayload = { total_money?: SquareMoneyField };
-                const squarePayload = invoice as SquareInvoicePayload;
-                const squareCents = squarePayload.total_money?.amount;
-                const amountUsd = typeof squareCents === 'number' && squareCents > 0
-                  ? squareCents / 100
-                  : parseFloat(lead.totalPrice || "0");
-                if (amountUsd > 0) {
-                  await recordRevenueSplit(amountUsd, localInvoice.leadId, 'square_payment');
-                  await creditJcMovesUsd(localInvoice.leadId, amountUsd, 'square_webhook');
-                }
-
-                // Auto-dispatch crew after payment confirmed
-                try {
-                  const { dispatchGenericJob } = await import("./services/dispatchGeneric");
-                  const crewSize = lead.crewSize || 2;
-                  const kind = lead.serviceType === "junk" ? "labor" : "moving";
-                  const assignedCrew = await dispatchGenericJob({ leadId: lead.id, kind, crewSize });
-                  if (assignedCrew.length > 0) {
-                    console.log(`[Square webhook] Auto-dispatched ${assignedCrew.length} crew to lead ${lead.id} after payment`);
-                    const refreshedLead = await storage.getLead(lead.id);
-                    if (refreshedLead) {
-                      await emitJobEvent("crew_assigned", refreshedLead, {
-                        source: "square_webhook_dispatch",
-                        previousStatus: "paid",
-                        status: refreshedLead.status,
-                        note: "Crew auto-dispatched after Square payment.",
-                        extra: { squareInvoiceId, assignedCrewCount: assignedCrew.length },
-                      });
-                    }
-                  } else {
-                    console.warn(`[Square webhook] No available crew found for auto-dispatch on lead ${lead.id}`);
+                if (lead.status !== "completed") {
+                  try {
+                    const { dispatchJob } = await import("./dispatch");
+                    const dispatchResult = await dispatchJob(lead.id, { reason: `square_${payment.kind}` });
+                    console.log(`[Square webhook] Dispatch request for ${lead.id}: ${dispatchResult.state}${dispatchResult.message ? ` (${dispatchResult.message})` : ""}`);
+                  } catch (dispatchErr: unknown) {
+                    const msg = dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr);
+                    console.error(`[Square webhook] Auto-dispatch failed for lead ${localInvoice.leadId}:`, msg);
                   }
-                } catch (dispatchErr: unknown) {
-                  const msg = dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr);
-                  console.error(`[Square webhook] Auto-dispatch failed for lead ${localInvoice.leadId}:`, msg);
-                  // Non-fatal — payment is already recorded
                 }
               }
             }
           } else {
-            console.warn(`[Square webhook] No local invoice found for Square ID: ${squareInvoiceId}`);
+            throw new Error(`No local invoice found for Square ID: ${squareInvoiceId}`);
           }
         }
       } else if (eventType === "payment.created" || eventType === "payment.updated") {
@@ -23786,10 +23934,23 @@ Thank you for your business!
         }
       }
 
+      if (claimedPaymentInvoiceId) {
+        const { completeSquareInvoicePaymentEffect } = await import("./services/squareWebhookIdempotency");
+        await completeSquareInvoicePaymentEffect(claimedPaymentInvoiceId);
+      }
+      await completeSquareWebhookEvent(webhookEventId);
       res.status(200).json({ received: true });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error("[Square webhook] Error processing event:", msg);
+      if (claimedWebhookEventId) {
+        const { failSquareWebhookEvent } = await import("./services/squareWebhookIdempotency");
+        await failSquareWebhookEvent(claimedWebhookEventId, error);
+      }
+      if (claimedPaymentInvoiceId) {
+        const { failSquareInvoicePaymentEffect } = await import("./services/squareWebhookIdempotency");
+        await failSquareInvoicePaymentEffect(claimedPaymentInvoiceId, error);
+      }
       res.status(500).json({ error: "Webhook processing failed" });
     }
   });
@@ -28633,6 +28794,36 @@ Thank you for your business!
 
   app.get("/api/pricing", async (_req, res) => {
     try {
+      // Compatibility adapter: legacy clients keep their existing response
+      // shape, but all values now come from the active immutable version.
+      const activePricing = await getActivePricingSnapshot();
+      return res.json({
+        ...toLegacyPricingConfig(activePricing.snapshot),
+        pricingVersionId: activePricing.versionId,
+        pricingSource: activePricing.source,
+        customItems: [],
+        junkAddons: [],
+        jc222Price: 272,
+        jc272Price: 272,
+        jc222Miles: 10,
+        jc222Minutes: 82,
+        jc222WeightLimit: 200,
+        specialtyPiano: 400,
+        specialtyHotTub: 600,
+        specialtySafe: 400,
+        specialtyPoolTable: 400,
+        weightLightMax: 200,
+        weightHeavyMin: 400,
+        stairsPerFlight: 100,
+        longCarryFlat: 100,
+        elevatorFlat: 100,
+        tightAccessFlat: 100,
+        earnRatePerDollar: 15,
+        bookingRequestBonus: 250,
+        completionFlatBonus: 250,
+        referralBonus: 1000,
+      });
+      /* istanbul ignore next -- removed after legacy clients migrate */
       const { rows } = await pool.query(
         `SELECT setting_key, setting_value FROM spin_config WHERE setting_key LIKE 'pricing_%' ORDER BY setting_key`
       );
@@ -29702,6 +29893,27 @@ Thank you for your business!
         });
       }
 
+      let createdQuoteRevision: Awaited<ReturnType<typeof saveQuoteDraft>> | null = null;
+      try {
+        createdQuoteRevision = await saveQuoteDraft({
+          leadId: lead.id,
+          actorUserId: userId || null,
+          lineItems: [{
+            name: svcRaw || serviceType || "Service",
+            serviceCode: serviceType,
+            quantity: 1,
+            unitPrice: chatbotSubtotal,
+            total: chatbotSubtotal,
+            discountEligible: true,
+            metadata: { source: "chatbot", answers: a },
+          }],
+          discountTotal: chatbotBundleDiscount.applied ? chatbotBundleDiscount.amount : 0,
+          serviceDate: moveDate || null,
+        });
+      } catch (quoteRevisionError) {
+        console.error("[chatbot-quote] draft revision creation failed:", quoteRevisionError instanceof Error ? quoteRevisionError.message : quoteRevisionError);
+      }
+
       // Auto-create deposit invoice via Square (non-blocking — doesn't fail the request)
       let depositInvoiceSent = false;
       let depositInvoiceUrl: string | null = null;
@@ -29800,6 +30012,7 @@ Thank you for your business!
 
       res.json({
         leadId: lead.id,
+        quoteRevisionId: createdQuoteRevision?.id || null,
         message: "Quote submitted for review",
         depositInvoiceSent,
         depositInvoiceUrl,
@@ -29825,10 +30038,14 @@ Thank you for your business!
       const user = await storage.getUser((req.session as any).userId);
       if (!user || !(await userCanApproveQuotes(user))) return res.status(403).json({ error: "Unauthorized" });
       const rows = await db.select().from(leads)
-        .where(inArray(leads.status, ["chatbot_pending", "pending_quote_approval"] as any))
+        .where(inArray(leads.status, ["chatbot_pending", "pending_quote_approval", "quote_requested", "quoted"] as any))
         .orderBy(desc(leads.createdAt))
         .limit(100);
-      res.json(rows);
+      const withQuotes = await Promise.all(rows.map(async (lead) => {
+        const quoteHistory = await listQuoteRevisions(lead.id);
+        return { ...lead, currentQuote: quoteHistory[0] || null, quoteHistory };
+      }));
+      res.json(withQuotes);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -29840,24 +30057,41 @@ Thank you for your business!
       if (!user || !(await userCanApproveQuotes(user))) return res.status(403).json({ error: "Unauthorized" });
       const { basePrice, totalPrice, quoteNotes } = req.body;
       const [currentLead] = await db.select().from(leads).where(eq(leads.id, req.params.id));
-      const approvalRole = user.role === "admin" || user.role === "business_owner" || user.email === "upmichiganstatemovers@gmail.com"
-        ? "owner_approval"
-        : "gold_vote";
-      await db.insert(quoteApprovals).values({
+      if (!currentLead) return res.status(404).json({ error: "Lead not found" });
+      const base = Math.max(0, Number(basePrice) || Number(totalPrice) || 0);
+      const total = Math.max(0, Number(totalPrice) || base);
+      const previousRevision = await getLatestQuoteRevision(req.params.id);
+      const compoundedMultiplier = Number((previousRevision?.pricingAdjustments as any)?.compoundedMultiplier || 1);
+      const draft = await saveQuoteDraft({
         leadId: req.params.id,
-        submittedByUserId: currentLead?.createdByUserId || null,
-        approvedByUserId: user.id,
-        approvalRole,
-        status: "approved",
+        actorUserId: user.id,
+        lineItems: [{
+          name: currentLead.serviceType || "Service",
+          quantity: 1,
+          unitPrice: base,
+          total: base,
+          discountEligible: true,
+        }],
+        discountTotal: Math.max(0, base * compoundedMultiplier - total),
         notes: quoteNotes || null,
+        serviceDate: currentLead.confirmedDate || currentLead.moveDate || null,
+      });
+      const isOwner = user.role === "business_owner" || user.email === "upmichiganstatemovers@gmail.com";
+      const approved = await approveQuoteRevision({
+        quoteId: draft.id,
+        actor: {
+          userId: user.id,
+          email: user.email,
+          isOwner,
+          canApproveStandard: true,
+        },
+        overrideReason: req.body.overrideReason || quoteNotes || null,
       });
       await db.update(leads)
         .set({
           status: "quote_requested" as any,
-          basePrice: String(basePrice || ""),
-          totalPrice: String(totalPrice || ""),
-          quoteNotes: quoteNotes || null,
-          lastQuoteUpdatedAt: new Date(),
+          basePrice: approved.subtotal.toFixed(2),
+          totalPrice: approved.customerTotal.toFixed(2),
         })
         .where(eq(leads.id, req.params.id));
       try {
@@ -29865,9 +30099,9 @@ Thank you for your business!
       } catch (histErr) {
         console.error('[lead_history] Chatbot approve history failed:', histErr);
       }
-      res.json({ success: true });
+      res.json({ success: true, quote: approved });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(/owner|required|cannot|exceeds/i.test(String(e?.message || "")) ? 403 : 400).json({ error: e.message });
     }
   });
 
@@ -31774,7 +32008,59 @@ Thank you for your business!
         .innerJoin(trashSubscriptions, eq(trashJobs.subscriptionId, trashSubscriptions.id))
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(trashJobs.serviceWeekOf));
-      res.json(rows);
+      const requestUser = (req as any).currentUser
+        || (req as any).user
+        || await storage.getUser(((req.session as any)?.userId || "") as string);
+      if (isBusinessOwnerUser(requestUser)) return res.json(rows);
+
+      const authority = await getWorkerAuthority(requestUser);
+      const visibleRows = rows.map((row) => {
+        const fullAddress = [row.sub.address, row.sub.city, row.sub.state, row.sub.zip].filter(Boolean).join(", ");
+        const visible = projectWorkerOrder({
+          ...row.sub,
+          fromAddress: fullAddress,
+          details: row.sub.serviceNotes,
+          basePrice: row.job.weeklyBasePrice,
+          totalPrice: row.job.jobValue,
+        }, authority.authorityTier, "claimed");
+        const pricingVisible = visible.workerVisibility.pricing;
+        const paymentVisible = visible.workerVisibility.payment;
+        return {
+          job: {
+            ...row.job,
+            weeklyBasePrice: pricingVisible ? row.job.weeklyBasePrice : null,
+            recyclingCharge: pricingVisible ? row.job.recyclingCharge : null,
+            travelChargePortion: pricingVisible ? row.job.travelChargePortion : null,
+            jobValue: pricingVisible ? row.job.jobValue : null,
+            notes: visible.workerVisibility.jobScope ? row.job.notes : null,
+            photoUrl: visible.workerVisibility.jobScope ? row.job.photoUrl : null,
+            completedBy: paymentVisible ? row.job.completedBy : null,
+            workerVisibility: visible.workerVisibility,
+          },
+          sub: {
+            ...row.sub,
+            customerName: visible.customerName || "Customer details protected",
+            phone: visible.phone || "",
+            email: visible.email || "",
+            address: visible.workerVisibility.exactLocation ? row.sub.address : (visible.fromAddress || "General area protected"),
+            city: visible.workerVisibility.exactLocation ? row.sub.city : "",
+            lat: visible.workerVisibility.exactLocation ? row.sub.lat : null,
+            lng: visible.workerVisibility.exactLocation ? row.sub.lng : null,
+            distanceMiles: visible.workerVisibility.exactLocation ? row.sub.distanceMiles : null,
+            serviceNotes: visible.details,
+            weeklyBasePrice: pricingVisible ? row.sub.weeklyBasePrice : null,
+            projectedMonthlyPrice: pricingVisible ? row.sub.projectedMonthlyPrice : null,
+            finalMonthlyPrice: pricingVisible ? row.sub.finalMonthlyPrice : null,
+            travelSurchargeMonthly: pricingVisible ? row.sub.travelSurchargeMonthly : null,
+            bundleDiscountAmount: pricingVisible ? row.sub.bundleDiscountAmount : null,
+            bundleDiscountReason: pricingVisible ? row.sub.bundleDiscountReason : null,
+            billingStatus: paymentVisible ? row.sub.billingStatus : null,
+            nextBillingDate: paymentVisible ? row.sub.nextBillingDate : null,
+            workerVisibility: visible.workerVisibility,
+          },
+        };
+      });
+      res.json(visibleRows);
     } catch (err) {
       console.error("Error fetching trash jobs:", err);
       res.status(500).json({ error: "Failed to fetch jobs" });
@@ -32088,6 +32374,7 @@ Thank you for your business!
   app.use("/api/admin/service-rebook", serviceRebookRouter);
   app.use("/api/service-rebook", serviceRebookPublicRouter);
   app.use("/api", marketingWebhookRemindersRouter);
+  app.use("/api", marketingBotRouter);
   app.use("/api", await createMarketingExecutionRouter());
 
   // Multi-Service Booking Foundation (Task #128) — parent bookings table,
@@ -32095,6 +32382,9 @@ Thank you for your business!
   // the upcoming /book page. Mounted at root so paths read /api/bookings,
   // /api/bookings/quote, /api/bundles/featured, /api/service-catalog.
   app.use("/api", bookingsRouter);
+  app.use("/api", quotesRouter);
+  app.use("/api", pricingV2Router);
+  app.use("/api", regionalAutomationRouter);
   app.use("/api", aiBookingRouter);
   // Task #170 — unified orchestrator endpoint. Shadow mode is wired inside
   // the legacy /api/bookings/quote handler so both paths run in parallel

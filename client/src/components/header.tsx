@@ -4,7 +4,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { useState, useRef, useEffect } from "react";
-import { Menu, X, User, LogOut, Sun, Moon, ChevronDown, ShoppingBag, Gem, BarChart3, Globe } from "lucide-react";
+import { Menu, X, User, LogOut, Sun, Moon, ChevronDown, ShoppingBag, Gem, BarChart3, Globe, Gift } from "lucide-react";
 import { apiRequest, clearTokens, queryClient } from "@/lib/queryClient";
 
 export default function Header() {
@@ -198,6 +198,13 @@ export default function Header() {
                     data-testid="button-quotes-services"
                   >
                     Services
+                  </Link>
+                  <Link
+                    href="/gift-cards"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-sm font-black text-amber-100 transition-colors hover:border-amber-200/60 hover:bg-amber-300/20"
+                    data-testid="button-public-gift-cards"
+                  >
+                    <Gift className="h-4 w-4" /> Gift Cards
                   </Link>
                   <Link
                     href="/book?mode=quick&service=moving"
@@ -419,6 +426,14 @@ export default function Header() {
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Services
+                  </Link>
+                  <Link
+                    href="/gift-cards"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-2.5 text-center text-sm font-black text-amber-100 transition-colors hover:bg-amber-300/20"
+                    data-testid="button-mobile-public-gift-cards"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <Gift className="h-4 w-4" /> Gift Cards
                   </Link>
                   <Link
                     href="/book?mode=quick&service=moving"

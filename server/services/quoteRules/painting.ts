@@ -39,7 +39,8 @@ export const PAINTING_RULES = {
   CEILING_ADDER_PER_ROOM: 120,
   PRIMER_ADDER_PER_ROOM: 50,
   HIGH_CEILING_ADDER_PER_ROOM: 200,
-  JC_PROVIDES_PAINT_ADDER_PER_ROOM: 60,
+  // Customer materials are itemized separately from discounted labor.
+  JC_PROVIDES_PAINT_ADDER_PER_ROOM: 0,
 
   // Add-ons (chatbot multi-select).
   DOORS_TRIM_ADDER_PER_ROOM: 80,

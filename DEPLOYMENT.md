@@ -41,6 +41,14 @@ and launch checks will report payment readiness as incomplete until they are set
 - `SQUARE_ACCESS_TOKEN`
 - `SQUARE_ENVIRONMENT` (`sandbox` or `production`)
 
+For the public Square-hosted gift-card page, also set this non-secret build-time variable before deploying:
+
+- `VITE_SQUARE_EGIFT_URL` — the HTTPS order-page URL copied from **Square Dashboard → Items & services → Gift cards → eGift Cards**
+
+Railway must rebuild the client after this value changes because Vite embeds `VITE_*` values in the browser bundle. If it is omitted or invalid, `/gift-cards` stays public but shows the call/text purchase fallback instead of a broken checkout link.
+
+See [SQUARE_GIFT_CARD_SETUP.md](SQUARE_GIFT_CARD_SETUP.md) for the Square configuration, published terms, and owner-controlled live purchase checklist.
+
 ### Optional in development
 
 In development (`npm run dev`), these env vars are optional at startup so local UI and non-payment work can continue without live production credentials. Database-backed routes still need a reachable PostgreSQL database once they are used.

@@ -32,38 +32,36 @@ function eq<T>(label: string, actual: T, expected: T) {
 
 console.log("── Task #218 labor-hours pricing model ─────────────");
 
-eq("rate is $85/hr", LABOR_RATE_PER_HOUR, 85);
+eq("rate is $95/hr", LABOR_RATE_PER_HOUR, 95);
 
 const smallMove = quoteByLaborHours("moving", { jobSize: "small" });
-eq("small move = 2 movers × 2 hr = $340",
+eq("small move = 2 movers × 2 hr = $380",
   { crew: smallMove?.crewSize, hrs: smallMove?.laborHours, $: smallMove?.amount },
-  { crew: 2, hrs: 2, $: 340 });
+  { crew: 2, hrs: 2, $: 380 });
 
 const mediumMove = quoteByLaborHours("moving", { jobSize: "medium" });
-eq("medium move = 2 movers × 4 hr = $680",
+eq("medium move applies the canonical four-hour discount",
   { crew: mediumMove?.crewSize, hrs: mediumMove?.laborHours, $: mediumMove?.amount },
-  { crew: 2, hrs: 4, $: 680 });
+  { crew: 2, hrs: 4, $: 722 });
 
 const largeMove = quoteByLaborHours("moving", { jobSize: "large" });
-eq("large move = 4 movers × 4 hr = $1360",
+eq("large move applies the canonical four-hour discount",
   { crew: largeMove?.crewSize, hrs: largeMove?.laborHours, $: largeMove?.amount },
-  { crew: 4, hrs: 4, $: 1360 });
+  { crew: 4, hrs: 4, $: 1444 });
 
 const lawn = quoteByLaborHours("lawn_care");
-// 1 × 0.5 × 85 = $42.50 (precise; the route layer uses the same).
-eq("lawn care = 1 person × 0.5 hr = $42.50",
+eq("lawn care = 1 person × 0.5 hr × $95",
   { crew: lawn?.crewSize, hrs: lawn?.laborHours, $: lawn?.amount },
-  { crew: 1, hrs: 0.5, $: 42.5 });
+  { crew: 1, hrs: 0.5, $: 47.5 });
 
 const valet = quoteByLaborHours("trash_valet");
-// 1 × 0.33 × 85 = $28.05 (precise).
-eq("trash valet = 1 person × 0.33 hr = $28.05",
+eq("trash valet = 1 person × 0.33 hr × $95",
   { crew: valet?.crewSize, hrs: valet?.laborHours, $: valet?.amount },
-  { crew: 1, hrs: 0.33, $: 28.05 });
+  { crew: 1, hrs: 0.33, $: 31.35 });
 
 eq("explicit override honors caller's crew/hrs (source='explicit')",
   quoteByLaborHours("moving", { crewSize: 3, laborHours: 5 }),
-  { crewSize: 3, laborHours: 5, totalLaborHours: 15, ratePerHour: 85, amount: 1275, source: "explicit" });
+  { crewSize: 3, laborHours: 5, totalLaborHours: 15, ratePerHour: 95, amount: 1353.75, source: "explicit" });
 
 eq("formatLaborSummary copies the line we render in the chat card",
   formatLaborSummary({ crewSize: 2, laborHours: 4 }),
@@ -81,21 +79,21 @@ async function endToEndPipeline() {
   type JobSize = "small" | "medium" | "large";
   const cases: Array<[string, { jobSize?: JobSize }, number, number, number]> = [
     // [serviceCode, details, expectedDollars, expectedCrew, expectedHours]
-    ["lawn_care",       {},                  42.5,  1, 0.5],
-    ["trash_valet",     {},                  28.05, 1, 0.33],
-    ["junk_removal",    { jobSize: "small"},  170,  2, 1],
-    ["junk_removal",    { jobSize: "medium"}, 340,  2, 2],
-    ["junk_removal",    { jobSize: "large"},  510,  2, 3],
-    ["window_cleaning", {},                   170,  1, 2],
-    ["snow_removal",    {},                   63.75,1, 0.75],
-    ["handyman",        {},                   170,  1, 2],
+    ["lawn_care",       {},                    55,  1, 0.5],
+    ["trash_valet",     {},                    35, 1, 0.33],
+    ["junk_removal",    { jobSize: "small"},  190,  2, 1],
+    ["junk_removal",    { jobSize: "medium"}, 380,  2, 2],
+    ["junk_removal",    { jobSize: "large"},  570,  2, 3],
+    ["window_cleaning", {},                    190,  1, 2],
+    ["snow_removal",    {},                  71.25,1, 0.75],
+    ["handyman",        {},                    190,  1, 2],
     // Task #218 review-round-5: labor + moving must round-trip too,
     // proving every reviewer-named service is parity-tight at the
     // computeBookingQuote layer (not just at quoteByLaborHours).
-    ["labor",           {},                   340,  2, 2],
-    ["moving",          { jobSize: "small"},  340,  2, 2],
-    ["moving",          { jobSize: "medium"}, 680,  2, 4],
-    ["moving",          { jobSize: "large"}, 1360,  4, 4],
+    ["labor",           {},                    380,  2, 2],
+    ["moving",          { jobSize: "small"},  380,  2, 2],
+    ["moving",          { jobSize: "medium"}, 760,  2, 4],
+    ["moving",          { jobSize: "large"}, 1520,  4, 4],
   ];
 
   for (const [code, details, expectedDollars, crew, hrs] of cases) {
@@ -118,7 +116,7 @@ async function endToEndPipeline() {
     const item = result.items[0];
     eq(`${code}/${details.jobSize ?? "default"} → $${expectedDollars} crew=${crew} hrs=${hrs}`,
       { $: item.lineSubtotal, crew: item.crewSize, hrs: item.laborHours, rate: item.ratePerHour },
-      { $: expectedDollars, crew, hrs, rate: 85 });
+      { $: expectedDollars, crew, hrs, rate: 95 });
   }
 }
 
@@ -190,10 +188,10 @@ async function movingRoutingPriority() {
   eq("moving 3br+stairs+heavy → matrix wins (no labor snap mutation)",
     { unit: r1.unit }, { unit: matrix.amount });
 
-  // (b) jobSize=medium only → labor tier amount $680
+  // (b) jobSize=medium only → canonical discounted labor tier
   const r2 = resolveMovingPrice({ jobSize: "medium" }, 500);
-  eq("moving jobSize=medium only → labor tier $680",
-    { unit: r2.unit, js: r2.jobSize }, { unit: 680, js: "medium" });
+  eq("moving jobSize=medium only → discounted labor tier $722",
+    { unit: r2.unit, js: r2.jobSize }, { unit: 722, js: "medium" });
 
   // (c) no moving hints → catalog/wizard package amount preserved
   const r3 = resolveMovingPrice({}, 999);
@@ -278,21 +276,19 @@ async function quantityCollapseSafety() {
   }
 
   const h3 = applyLaborAuthority("handyman", 3)!;
-  // 3 hrs × 1 person × $85 = $510, billed as 1 × $510 (not 3 × $170)
-  eq("handyman quantity=3 collapses to crew=1 hrs=6 sub=$510 (no double-count)",
+  // 6 hrs × 1 person × $95 = $570, billed once.
+  eq("handyman quantity=3 collapses to crew=1 hrs=6 sub=$570 (no double-count)",
     { qty: h3.qty, unit: h3.unit, sub: h3.sub, crew: h3.crew, hrs: h3.hrs },
-    { qty: 1, unit: 510, sub: 510, crew: 1, hrs: 6 });
+    { qty: 1, unit: 570, sub: 570, crew: 1, hrs: 6 });
 
   const l3 = applyLaborAuthority("labor", 3)!;
-  // labor default crew=2 hrs=2 → ×3 → crew=2 hrs=6 → 2×6×85 = $1020
-  eq("labor quantity=3 collapses to crew=2 hrs=6 sub=$1020 (no double-count)",
+  eq("labor quantity=3 collapses to crew=2 hrs=6 sub=$1140 (no double-count)",
     { qty: l3.qty, unit: l3.unit, sub: l3.sub, crew: l3.crew, hrs: l3.hrs },
-    { qty: 1, unit: 1020, sub: 1020, crew: 2, hrs: 6 });
+    { qty: 1, unit: 1140, sub: 1140, crew: 2, hrs: 6 });
 
   const h1 = applyLaborAuthority("handyman", 1)!;
-  // qty=1 path stays untouched: 1 person × 2 hrs × $85 = $170
-  eq("handyman quantity=1 stays untouched (sub=$170)",
-    { qty: h1.qty, sub: h1.sub }, { qty: 1, sub: 170 });
+  eq("handyman quantity=1 stays untouched (sub=$190)",
+    { qty: h1.qty, sub: h1.sub }, { qty: 1, sub: 190 });
 }
 
 await quantityCollapseSafety();
@@ -310,9 +306,9 @@ const catalogOverride = quoteByLaborHours("handyman", {
     defaultLaborHours: { default: 3 },
   },
 });
-eq("catalog override → handyman 2 crew × 3 hr × $85 = $510",
+eq("catalog override → handyman 2 crew × 3 hr × $95 = $570",
   { crew: catalogOverride?.crewSize, hrs: catalogOverride?.laborHours, $: catalogOverride?.amount, src: catalogOverride?.source },
-  { crew: 2, hrs: 3, $: 510, src: "catalog" });
+  { crew: 2, hrs: 3, $: 570, src: "catalog" });
 
 // Catalog jobSize-keyed hours (small/medium/large).
 const catalogMoving = quoteByLaborHours("moving", {
@@ -322,9 +318,9 @@ const catalogMoving = quoteByLaborHours("moving", {
     defaultLaborHours: { small: 2, medium: 3, large: 4 },
   },
 });
-eq("catalog moving medium → 3 × 3 × $85 = $765",
+eq("catalog moving medium → 3 × 3 × $95 = $855",
   { crew: catalogMoving?.crewSize, hrs: catalogMoving?.laborHours, $: catalogMoving?.amount },
-  { crew: 3, hrs: 3, $: 765 });
+  { crew: 3, hrs: 3, $: 855 });
 
 // Suggested-min clamp lifts the amount when crew × hrs × rate would be lower.
 const clampedUp = quoteByLaborHours("handyman", {
@@ -359,16 +355,16 @@ const movingLargeWithCatalog = quoteByLaborHours("moving", {
 });
 eq("moving large + catalog minCrew=2 → keeps 4 crew × 4 hr (floor doesn't flatten)",
   { crew: movingLargeWithCatalog?.crewSize, hrs: movingLargeWithCatalog?.laborHours, $: movingLargeWithCatalog?.amount },
-  { crew: 4, hrs: 4, $: 1360 });
+  { crew: 4, hrs: 4, $: 1444 });
 
 // minCrew DOES enforce a floor when the resolved crew is smaller.
 // Handyman default is 1 mover; a row-level minCrew=2 should lift it.
 const handymanFloor = quoteByLaborHours("handyman", {
   catalog: { minCrew: 2 },
 });
-eq("handyman + catalog minCrew=2 → 2 crew × 2 hr × $85 = $340 (floor lifts)",
+eq("handyman + catalog minCrew=2 → 2 crew × 2 hr × $95 = $380 (floor lifts)",
   { crew: handymanFloor?.crewSize, hrs: handymanFloor?.laborHours, $: handymanFloor?.amount },
-  { crew: 2, hrs: 2, $: 340 });
+  { crew: 2, hrs: 2, $: 380 });
 
 // Round-9 rev2: quoteMovingFromTable now carries a canonical labor
 // tuple in its return value so non-route callers (shared pricing
@@ -381,17 +377,16 @@ const tuple3br$ = +(matrix3br.labor.crewSize * matrix3br.labor.laborHours * matr
 const within1Dollar = Math.abs(tuple3br$ - matrix3br.amount) <= 1;
 eq("quoteMovingFromTable 3br/2/heavy → labor tuple within $1 of matrix amount",
   { within1Dollar, matrixAmount: matrix3br.amount },
-  { within1Dollar: true, matrixAmount: 1365 });
+  { within1Dollar: true, matrixAmount: 1353.75 });
 eq("quoteMovingFromTable 3br → crew=3 (per MOVING_MATRIX_CREW)",
   { crew: matrix3br.labor.crewSize }, { crew: 3 });
 
-// 1br matrix entry — base $425 × 1.0 = $425 (matrix value),
-// crew=2 → hours=425/(2*85)=2.5. Tuple round-trips cleanly to the cent.
+// 1br matrix entry round-trips through the canonical $95 labor tuple.
 const matrix1br = quoteMovingFromTable({ bedrooms: "1br", stairs: 0, loadType: "local" });
 const tuple1br$ = +(matrix1br.labor.crewSize * matrix1br.labor.laborHours * matrix1br.labor.ratePerHour).toFixed(2);
-eq("quoteMovingFromTable 1br/0/local → crew=2 hrs=2.5 $=425 (tuple matches exactly)",
+eq("quoteMovingFromTable 1br/0/local → crew=2 hrs=3 $=570 (tuple matches exactly)",
   { crew: matrix1br.labor.crewSize, hrs: matrix1br.labor.laborHours, $: matrix1br.amount, tuple: tuple1br$ },
-  { crew: 2, hrs: 2.5, $: 425, tuple: 425 });
+  { crew: 2, hrs: 3, $: 570, tuple: 570 });
 
 // 5br+ matrix entry — must use literal "5br+" key (NOT "5br") so the
 // crew lookup hits MOVING_MATRIX_CREW["5br+"] = 4. Round-9 rev2 reviewer

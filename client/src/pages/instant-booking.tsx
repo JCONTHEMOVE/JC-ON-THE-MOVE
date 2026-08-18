@@ -14,6 +14,7 @@ type BookingForm = {
   customerEmail: string;
   customerPhone: string;
   serviceAddress: string;
+  destinationAddress: string;
   zip: string;
   requestedDate: string;
   requestedHours: string;
@@ -23,6 +24,9 @@ type BookingForm = {
   stairsFlights: string;
   junkVolume: "quarter" | "half" | "three_quarter" | "full";
   notes: string;
+  smsConsent: boolean;
+  termsAccepted: boolean;
+  termsVersion: string;
 };
 
 type Quote = {
@@ -35,6 +39,12 @@ type Quote = {
   conditionalHold: boolean;
   reviewRequired: boolean;
   travelEstimate: number;
+  autoBookEligible?: boolean;
+  operatingEligibility?: {
+    decision: "eligible" | "manual_review" | "blocked";
+    areaCode: string | null;
+    reasons: Array<{ code: string; message: string }>;
+  };
 };
 
 type Slot = { time: string; label: string; availableCrew: number };
@@ -45,6 +55,7 @@ const initialForm: BookingForm = {
   customerEmail: "",
   customerPhone: "",
   serviceAddress: "",
+  destinationAddress: "",
   zip: "",
   requestedDate: "",
   requestedHours: "2",
@@ -54,6 +65,9 @@ const initialForm: BookingForm = {
   stairsFlights: "0",
   junkVolume: "half",
   notes: "",
+  smsConsent: false,
+  termsAccepted: false,
+  termsVersion: "2026-08-regional-v1",
 };
 
 function phoneIsComplete(value: string) {
@@ -86,7 +100,13 @@ export default function InstantBookingPage() {
   const [checking, setChecking] = useState(false);
   const [holding, setHolding] = useState(false);
   const [callbackSending, setCallbackSending] = useState(false);
-  const [complete, setComplete] = useState<{ kind: "callback" | "hold"; message: string } | null>(null);
+  const [complete, setComplete] = useState<{
+    kind: "callback" | "hold";
+    message: string;
+    paymentUrl?: string | null;
+    depositAmount?: number | null;
+    status?: string;
+  } | null>(null);
 
   const normalizedHeavyItems = useMemo(() => (
     heavyItems
@@ -97,7 +117,7 @@ export default function InstantBookingPage() {
 
   function update<K extends keyof BookingForm>(key: K, value: BookingForm[K]) {
     setForm((current) => ({ ...current, [key]: value }));
-    if (key !== "notes") {
+    if (!(["notes", "smsConsent", "termsAccepted", "termsVersion"] as Array<keyof BookingForm>).includes(key)) {
       setQuote(null);
       setSlots([]);
       setSelectedSlot("");
@@ -140,8 +160,8 @@ export default function InstantBookingPage() {
     setHolding(true);
     try {
       const response = await apiRequest("POST", "/api/instant-booking/hold", instantPayload(selectedSlot));
-      const data = await response.json() as { message: string };
-      setComplete({ kind: "hold", message: data.message });
+      const data = await response.json() as { message: string; paymentUrl?: string | null; depositAmount?: number | null; status?: string };
+      setComplete({ kind: "hold", message: data.message, paymentUrl: data.paymentUrl, depositAmount: data.depositAmount, status: data.status });
     } catch (error) {
       toast({ title: "Could not place the hold", description: errorMessage(error, "Please choose another time or request a callback."), variant: "destructive" });
       setSlots([]);
@@ -192,8 +212,15 @@ export default function InstantBookingPage() {
             <p className="mt-3 text-muted-foreground">{complete.message}</p>
             {complete.kind === "hold" && (
               <p className="mt-3 rounded-lg bg-background/70 p-3 text-sm">
-                No payment was taken. We will review the job details first, then send a 30% deposit request only if the hold is approved.
+                {complete.status === "awaiting_deposit"
+                  ? `Your time is held for 24 hours. The ${complete.depositAmount ? `$${complete.depositAmount.toFixed(2)} ` : ""}deposit confirms the booking and starts individual crew assignment.`
+                  : "No payment was taken. The team will review this nonstandard request before sending a deposit request."}
               </p>
+            )}
+            {complete.paymentUrl && (
+              <Button className="mt-4 w-full bg-emerald-600 hover:bg-emerald-500" asChild>
+                <a href={complete.paymentUrl}>Pay the 30% deposit securely with Square</a>
+              </Button>
             )}
             <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
               <Button onClick={() => window.location.assign("/")}>Back to home</Button>
@@ -211,7 +238,7 @@ export default function InstantBookingPage() {
         <div className="mb-6 text-center">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-blue-300">JC ON THE MOVE LLC</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Book the way that fits your day.</h1>
-          <p className="mx-auto mt-3 max-w-2xl text-slate-300">Get a quick callback, or build an estimate and request an exact crew time. Estimates are reviewed before any deposit is requested.</p>
+          <p className="mx-auto mt-3 max-w-2xl text-slate-300">Get a quick callback, or build an estimate and reserve an exact crew time. Standard eligible jobs can move directly to a 30% Square deposit.</p>
         </div>
 
         {mode === "choose" && (
@@ -279,9 +306,12 @@ export default function InstantBookingPage() {
                   <Field label={form.service === "junk" ? "Expected job time" : "Requested hours"}><Input type="number" min="1" max="12" step="0.5" value={form.requestedHours} onChange={(e) => update("requestedHours", e.target.value)} disabled={form.service === "junk"} required /></Field>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Service address"><Input autoComplete="street-address" value={form.serviceAddress} onChange={(e) => update("serviceAddress", e.target.value)} required /></Field>
+                  <Field label={form.service === "moving" ? "Pickup address" : "Service address"}><Input autoComplete="street-address" value={form.serviceAddress} onChange={(e) => update("serviceAddress", e.target.value)} required /></Field>
                   <Field label="ZIP code"><Input inputMode="numeric" maxLength={10} value={form.zip} onChange={(e) => update("zip", e.target.value)} required /></Field>
                 </div>
+                {form.service === "moving" && (
+                  <Field label="Destination address"><Input autoComplete="street-address" value={form.destinationAddress} onChange={(e) => update("destinationAddress", e.target.value)} required /></Field>
+                )}
                 {form.service === "junk" ? (
                   <Field label="How much truck space?"><select className="field-select" value={form.junkVolume} onChange={(e) => update("junkVolume", e.target.value as BookingForm["junkVolume"])}><option value="quarter">¼ truckload</option><option value="half">½ truckload</option><option value="three_quarter">¾ truckload</option><option value="full">Full truckload</option></select></Field>
                 ) : (
@@ -308,13 +338,17 @@ export default function InstantBookingPage() {
                 <div className="grid gap-4 sm:grid-cols-2"><Field label="Your name"><Input autoComplete="name" value={form.customerName} onChange={(e) => update("customerName", e.target.value)} required /></Field><Field label="Phone number"><Input type="tel" autoComplete="tel" placeholder="(906) 285-9312" value={form.customerPhone} onChange={(e) => update("customerPhone", e.target.value)} required /></Field></div>
                 <Field label="Email (optional — used for the approved deposit link)"><Input type="email" autoComplete="email" value={form.customerEmail} onChange={(e) => update("customerEmail", e.target.value)} /></Field>
                 <Field label="Notes or access details (optional)"><Textarea rows={3} value={form.notes} onChange={(e) => update("notes", e.target.value)} /></Field>
+                <label className="flex items-start gap-2 rounded-lg border border-slate-700 p-3 text-sm text-slate-300">
+                  <input type="checkbox" className="mt-1" checked={form.smsConsent} onChange={(e) => update("smsConsent", e.target.checked)} />
+                  Send transactional booking and crew-status updates by text. Email and the customer portal remain available without SMS consent.
+                </label>
                 <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => setMode("choose")}>Back</Button><Button type="submit" disabled={checking}>{checking ? "Checking live crew capacity…" : "See estimate & available times"}</Button></div>
               </CardContent>
             </Card>
 
-            {quote && <Card className="border-blue-500/40 bg-blue-500/5"><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold text-blue-200">Your instant estimate</p><p className="mt-1 text-3xl font-black">{quote.estimateLabel}</p><p className="mt-2 text-sm text-slate-300">{quote.crewSize} crew member{quote.crewSize === 1 ? "" : "s"} · about {quote.requestedHours} hour{quote.requestedHours === 1 ? "" : "s"} · subject to review</p></div><ShieldCheck className="h-8 w-8 text-blue-300" /></div>{quote.travelFallback && <p className="mt-4 rounded-md border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">This address is outside an active pricing zone. The travel estimate is included, and any hold is conditional until an admin reviews it.</p>}{quote.reviewRequired && <p className="mt-3 text-sm text-slate-300">A team review is required before a deposit is requested.</p>}</CardContent></Card>}
+            {quote && <Card className="border-blue-500/40 bg-blue-500/5"><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold text-blue-200">Your instant estimate</p><p className="mt-1 text-3xl font-black">{quote.estimateLabel}</p><p className="mt-2 text-sm text-slate-300">{quote.crewSize} crew member{quote.crewSize === 1 ? "" : "s"} · about {quote.requestedHours} hour{quote.requestedHours === 1 ? "" : "s"}</p></div><ShieldCheck className="h-8 w-8 text-blue-300" /></div>{quote.autoBookEligible ? <p className="mt-4 rounded-md border border-emerald-400/40 bg-emerald-400/10 p-3 text-sm text-emerald-100">This standard same-state job is eligible for automatic approval and a 30% scheduling deposit.</p> : <p className="mt-4 rounded-md border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">{quote.operatingEligibility?.reasons?.[0]?.message || "This request needs team review before a deposit is requested."}</p>}</CardContent></Card>}
 
-            {quote && <Card className="border-emerald-500/40 bg-slate-900/95"><CardHeader><div className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-emerald-300" /><CardTitle>Available start times</CardTitle></div><CardDescription>Two-hour increments in Central Time. Selecting one creates a pending 24-hour hold — not a paid booking.</CardDescription></CardHeader><CardContent>{slots.length ? <><div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{slots.map((slot) => <Button type="button" key={slot.time} variant={selectedSlot === slot.time ? "default" : "outline"} className={selectedSlot === slot.time ? "bg-emerald-600 hover:bg-emerald-500" : ""} onClick={() => setSelectedSlot(slot.time)}>{slot.label}</Button>)}</div><Button type="button" className="mt-4 w-full bg-emerald-600 hover:bg-emerald-500" disabled={!selectedSlot || holding} onClick={placeHold}>{holding ? "Placing 24-hour hold…" : "Request this time — no payment today"}</Button></> : <div className="rounded-lg bg-slate-950/70 p-4 text-sm text-slate-300">No online capacity is configured for this day. Use the callback option and we will check another date or crew plan.</div>}</CardContent></Card>}
+            {quote && <Card className="border-emerald-500/40 bg-slate-900/95"><CardHeader><div className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-emerald-300" /><CardTitle>Available start times</CardTitle></div><CardDescription>Two-hour increments in Central Time. The selected time is held for 24 hours while the deposit or staff review is completed.</CardDescription></CardHeader><CardContent>{slots.length ? <><div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{slots.map((slot) => <Button type="button" key={slot.time} variant={selectedSlot === slot.time ? "default" : "outline"} className={selectedSlot === slot.time ? "bg-emerald-600 hover:bg-emerald-500" : ""} onClick={() => setSelectedSlot(slot.time)}>{slot.label}</Button>)}</div><label className="mt-4 flex items-start gap-2 rounded-lg border border-slate-700 p-3 text-sm text-slate-300"><input type="checkbox" className="mt-1" checked={form.termsAccepted} onChange={(e) => update("termsAccepted", e.target.checked)} /><span>I accept the <a href="/terms" target="_blank" rel="noreferrer" className="text-blue-300 underline">service terms and cancellation policy</a> for this quote.</span></label><Button type="button" className="mt-4 w-full bg-emerald-600 hover:bg-emerald-500" disabled={!selectedSlot || !form.termsAccepted || holding} onClick={placeHold}>{holding ? "Placing 24-hour hold…" : quote.autoBookEligible ? "Reserve time & continue to 30% deposit" : "Request this time for review"}</Button></> : <div className="rounded-lg bg-slate-950/70 p-4 text-sm text-slate-300">No online capacity is configured for this day. Use the callback option and we will check another date or crew plan.</div>}</CardContent></Card>}
           </form>
         )}
       </div>

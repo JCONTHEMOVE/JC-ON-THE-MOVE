@@ -317,6 +317,7 @@ export default function HomePage() {
           </Link>
           <div className="hidden items-center gap-8 text-sm font-semibold text-slate-200 md:flex">
             <a href="#services" className="hover:text-white">Services</a>
+            <Link href="/gift-cards" className="text-amber-200 hover:text-amber-100">Gift Cards</Link>
             <a href="#jobs" className="hover:text-white">Jobs</a>
             <Link href="/gallery" className="hover:text-white">Gallery</Link>
             <a href="#reviews" className="hover:text-white">Reviews</a>
@@ -545,6 +546,38 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="border-y border-amber-300/15 bg-gradient-to-br from-amber-300/10 via-slate-950 to-blue-500/10 px-4 py-10 md:py-14">
+        <div className="mx-auto grid max-w-6xl gap-7 overflow-hidden rounded-2xl border border-white/15 bg-slate-950/75 p-5 shadow-2xl md:grid-cols-[0.9fr_1.1fr] md:items-center md:p-8">
+          <img
+            src="/gift-cards/jc-helping-hand-egift.png"
+            alt="JC ON THE MOVE Give the Gift of a Helping Hand eGift card"
+            className="aspect-[8/5] w-full rounded-xl border border-white/10 object-cover"
+            width={640}
+            height={400}
+          />
+          <div>
+            <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.22em] text-amber-200">
+              <Gift className="h-4 w-4" /> Bless someone with service
+            </p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">Give the gift of a helping hand.</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 md:text-base">
+              Send prepaid help for moving, junk removal, seasonal lawn care, snow removal, or another eligible JC ON THE MOVE service.
+            </p>
+            <p className="mt-2 text-sm font-bold text-amber-200">Available from $50 to the $5,000 Gold Helping Hand concierge card.</p>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Link
+                href="/gift-cards"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-amber-400 px-6 text-sm font-black text-slate-950 transition-colors hover:bg-amber-300"
+                data-testid="home-gift-cards-link"
+              >
+                Send a Gift Card <ArrowRight className="h-4 w-4" />
+              </Link>
+              <span className="text-xs text-slate-400">Personalized email delivery through Square</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="border-y border-white/10 bg-white px-4 py-10 text-slate-950 md:py-12">
         <div className="mx-auto max-w-6xl">
           <div className="mb-7">
@@ -671,6 +704,7 @@ export default function HomePage() {
               <Link href="/book?mode=quick&service=delivery" className="block hover:text-white">Delivery</Link>
               <Link href="/book?mode=quick&service=cleaning" className="block hover:text-white">Cleanup / Labor</Link>
               <Link href="/book?mode=quick&service=custom" className="block hover:text-white">Just Ask</Link>
+              <Link href="/gift-cards" className="block font-semibold text-amber-200 hover:text-amber-100">Gift Cards</Link>
             </div>
           </div>
           <div>

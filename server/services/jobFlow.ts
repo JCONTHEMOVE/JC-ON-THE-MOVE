@@ -7,6 +7,7 @@ import {
   type JobPayoutSummary,
 } from "@shared/job-flow";
 import { derivePaymentStatusFromRecord } from "./paymentStatus";
+import { generalizeWorkerOrderLocation, projectCrewBoardOrder } from "./workerOrderVisibility";
 
 export type JobFlowRecord = Lead & { flow: JobFlow };
 
@@ -117,23 +118,10 @@ export function jobBelongsToCrew(lead: Pick<Lead, "crewMembers" | "assignedToUse
 }
 
 export function boardLocation(address: string | null | undefined) {
-  const parts = String(address || "").split(",").map((part) => part.trim()).filter(Boolean);
-  if (parts.length >= 2) return parts.slice(-2).join(", ");
-  return parts[0] || null;
+  return generalizeWorkerOrderLocation(address);
 }
 
-/** Do not send customer address, contact, notes, or quote internals to unassigned crew. */
-export function toCrewBoardFlow(record: JobFlowRecord, userId: string) {
-  const { firstName, lastName, phone, email, details, dispatchNotes, toAddress, quoteSnapshot, zoneSnapshot, jobPlanDetails, accessInstructionsCiphertext, ...safe } = record as any;
-  return {
-    ...safe,
-    fromAddress: boardLocation(record.fromAddress),
-    toAddress: null,
-    details: null,
-    dispatchNotes: null,
-    quoteSnapshot: null,
-    zoneSnapshot: null,
-    alreadyApplied: record.flow.crew.isClaimed && (record.crewMembers || []).includes(userId),
-    crewSlotsFilled: record.flow.crew.claimed,
-  };
+/** Do not send customer, exact location, quote, or payment data to unassigned crew. */
+export function toCrewBoardFlow(record: JobFlowRecord, userId: string, authorityTier: unknown = "worker") {
+  return projectCrewBoardOrder(record as any, authorityTier, userId);
 }

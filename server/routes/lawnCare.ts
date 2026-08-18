@@ -437,11 +437,11 @@ router.post("/quote", async (req: Request, res: Response) => {
     // Task #199 — let admins see exactly what's about to land on the
     // Square invoice (and what wallet credit will mint on payment).
     const adminShopCardHtml = pendingShopCardGrants.length > 0
-      ? `<div style="background:#fef3c7;border:1px solid #f59e0b;padding:10px 14px;border-radius:8px;margin-top:10px"><b style="color:#b45309">🛍️ Bundled Add-ons (billable on this invoice)</b><ul style="margin:6px 0 0 18px;padding:0;color:#78350f">${pendingShopCardGrants.map(g => `<li><b>${g.name}</b> — $${g.unitPriceUsd.toFixed(2)} → mints $${g.unitPriceUsd.toFixed(2)} JCMOVES USD on payment</li>`).join("")}</ul>${lawnCareInvoiceUrl ? `<p style="margin:8px 0 0;font-size:12px;color:#92400e">Invoice published: <a href="${lawnCareInvoiceUrl}">${lawnCareInvoiceUrl}</a></p>` : ""}</div>`
+      ? `<div style="background:#fef3c7;border:1px solid #f59e0b;padding:10px 14px;border-radius:8px;margin-top:10px"><b style="color:#b45309">🛍️ Bundled Add-ons (billable on this invoice)</b><ul style="margin:6px 0 0 18px;padding:0;color:#78350f">${pendingShopCardGrants.map(g => `<li><b>${g.name}</b> — $${g.unitPriceUsd.toFixed(2)} → grants $${g.walletCreditUsd.toFixed(2)} JCMOVES USD after verified payment</li>`).join("")}</ul>${lawnCareInvoiceUrl ? `<p style="margin:8px 0 0;font-size:12px;color:#92400e">Invoice published: <a href="${lawnCareInvoiceUrl}">${lawnCareInvoiceUrl}</a></p>` : ""}</div>`
       : "";
     const adminShopCardText = pendingShopCardGrants.length > 0
       ? `\n\n=== BUNDLED ADD-ONS (BILLABLE) ===\n` +
-        pendingShopCardGrants.map(g => `• ${g.name} — $${g.unitPriceUsd.toFixed(2)} → mints $${g.unitPriceUsd.toFixed(2)} JCMOVES USD on payment`).join("\n") +
+        pendingShopCardGrants.map(g => `• ${g.name} — $${g.unitPriceUsd.toFixed(2)} → grants $${g.walletCreditUsd.toFixed(2)} JCMOVES USD after verified payment`).join("\n") +
         (lawnCareInvoiceUrl ? `\nInvoice: ${lawnCareInvoiceUrl}` : "")
       : "";
 
@@ -466,13 +466,13 @@ router.post("/quote", async (req: Request, res: Response) => {
     // is going to land in their JCMOVES wallet on payment.
     const shopCardLinesText = pendingShopCardGrants.length > 0
       ? "\n\nBundled add-ons (billed alongside this quote):\n" +
-        pendingShopCardGrants.map(g => `• ${g.name} — $${g.unitPriceUsd.toFixed(2)} (lands in your JCMOVES wallet on payment)`).join("\n") +
+        pendingShopCardGrants.map(g => `• ${g.name} — pay $${g.unitPriceUsd.toFixed(2)}; receive $${g.walletCreditUsd.toFixed(2)} JCMOVES USD after verified payment`).join("\n") +
         "\n\nWhere can you spend the JCMOVES USD? On any future JC ON THE MOVE invoice — moving, junk, cleaning, lawn, trash valet, or Ashley's Shop. Applies $1 = $1 off."
       : "";
     const shopCardLinesHtml = pendingShopCardGrants.length > 0
       ? `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 14px;margin:12px 0">
            <p style="margin:0 0 6px;font-weight:700;color:#b45309">🛍️ Bundled add-ons (billed with this quote)</p>
-           <ul style="margin:0 0 8px 18px;padding:0;color:#78350f">${pendingShopCardGrants.map(g => `<li><b>${g.name}</b> — $${g.unitPriceUsd.toFixed(2)} <span style="color:#92400e">(lands in your JCMOVES wallet on payment)</span></li>`).join("")}</ul>
+           <ul style="margin:0 0 8px 18px;padding:0;color:#78350f">${pendingShopCardGrants.map(g => `<li><b>${g.name}</b> — pay $${g.unitPriceUsd.toFixed(2)} <span style="color:#92400e">(receive $${g.walletCreditUsd.toFixed(2)} JCMOVES USD after verified payment)</span></li>`).join("")}</ul>
            <p style="margin:0;font-size:12px;color:#92400e">Where can you spend it? On any future JC ON THE MOVE invoice — moving, junk, cleaning, lawn, trash valet, or Ashley's Shop. Applies $1 = $1 off.</p>
          </div>`
       : "";
@@ -520,6 +520,7 @@ router.post("/quote", async (req: Request, res: Response) => {
         addonId: g.addonId,
         name: g.name,
         amountUsd: g.unitPriceUsd,
+        walletCreditUsd: g.walletCreditUsd,
         shortDescription: g.shortDescription,
       })),
       invoice: lawnCareInvoiceUrl ? { url: lawnCareInvoiceUrl, squareInvoiceId: lawnCareInvoiceId } : null,

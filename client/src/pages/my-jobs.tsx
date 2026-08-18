@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import {
   MapPin, Calendar, Loader2, Truck, Trash2, Snowflake, Wrench,
@@ -20,6 +20,10 @@ import { BookingMenuIntelligenceCard } from "@/components/BookingMenuIntelligenc
 import { extractBookingMenuIntelligence, extractSmartBookingAnswersFromQuoteSnapshot } from "@/lib/booking-menu-intelligence";
 import type { LucideIcon } from "lucide-react";
 import type { SmartBookingAnswers } from "@shared/smartBookingEngine";
+import { apiRequest } from "@/lib/queryClient";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
 
 // Task #130: shape returned by GET /api/customer/bookings — parent bookings
 // from the new multi-service `bookings` table with their child service items.
@@ -67,6 +71,26 @@ interface CustomerJob {
   depositRequired?: boolean;
   depositAmount?: number;
   depositPaid?: boolean;
+  operationalStatus?: string;
+  paymentStatus?: string;
+  finalBalanceAmount?: number | null;
+  finalInvoiceUrl?: string | null;
+  closeoutStatus?: string | null;
+  arrivalWindow?: string | null;
+  enRouteAt?: string | null;
+  onSiteAt?: string | null;
+  completedAt?: string | null;
+  crewSummary?: Array<{ id: string; name: string }>;
+  timeline?: Array<{ id: string; type: string; title: string; message: string; occurredAt: string; actionUrl?: string | null }>;
+  closeout?: {
+    id: string;
+    status: string;
+    actual_hours: string;
+    calculated_final_total: string;
+    deposit_applied: string;
+    balance_due: string;
+    updated_at: string;
+  } | null;
   quoteSnapshot?: unknown;
   // Task #115: shared id grouping all leads booked in the same multi-service
   // submission. Leads with the same bundleGroupId render as one card on /my-jobs.
@@ -87,18 +111,23 @@ function getStepIndex(status: string): number {
   if (["quoted", "under_review"].includes(status)) return 1;
   if (["quote_sent", "invoice_sent"].includes(status)) return 2;
   if (["paid", "completed"].includes(status)) return 3;
+  if (["awaiting_customer", "owner_review", "customer_rejected", "refund_review", "balance_due"].includes(status)) return 3;
   if (["dispatched", "available", "confirmed", "in_progress", "accepted"].includes(status)) return 4;
   if (status === "cancelled") return -1;
   return 0;
 }
 
 function customerActionPhaseForJob(job: CustomerJob): "start" | "progress" | "finish" {
-  const status = String(job.status || "").toLowerCase();
+  const status = String(job.closeoutStatus || job.operationalStatus || job.status || "").toLowerCase();
   if (["completed", "paid"].includes(status)) return "finish";
   if (["quoted", "quote_sent", "invoice_sent", "available", "confirmed", "accepted", "in_progress", "dispatched"].includes(status)) {
     return "progress";
   }
   return "start";
+}
+
+function customerDisplayStatus(job: CustomerJob) {
+  return job.closeoutStatus || job.operationalStatus || job.status;
 }
 
 function StatusTracker({ status }: { status: string }) {
@@ -172,6 +201,29 @@ type StatusInfo = {
 
 function getStatus(status: string): StatusInfo {
   switch (status) {
+    case "awaiting_customer":
+      return {
+        label: "Review Final",
+        cls: "bg-amber-500/15 text-amber-300",
+        icon: FileText,
+        banner: { bg: "bg-amber-500/10", border: "border-amber-500/20", iconColor: "text-amber-300", headline: "Review the completed job", body: "Check the crew's actual hours and final total. A final balance invoice is only created after you approve." },
+      };
+    case "balance_due":
+      return {
+        label: "Balance Due",
+        cls: "bg-orange-500/15 text-orange-300",
+        icon: DollarSign,
+        banner: { bg: "bg-orange-500/10", border: "border-orange-500/20", iconColor: "text-orange-300", headline: "Final balance ready", body: "Your closeout was approved. Use the secure Square link below to finish payment." },
+      };
+    case "owner_review":
+    case "customer_rejected":
+    case "refund_review":
+      return {
+        label: "Owner Review",
+        cls: "bg-violet-500/15 text-violet-300",
+        icon: AlertCircle,
+        banner: { bg: "bg-violet-500/10", border: "border-violet-500/20", iconColor: "text-violet-300", headline: "The final details are under review", body: "No automatic final charge will be created until the owner resolves the exception." },
+      };
     case "completed":
       return {
         label: "Done",
@@ -419,9 +471,13 @@ function parseChatbotDetails(raw: string): DetailLine[] | null {
 function JobSheet({ job, open, onClose, onNewJob }: {
   job: CustomerJob; open: boolean; onClose: () => void; onNewJob: () => void;
 }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [closeoutNote, setCloseoutNote] = useState("");
   const svc = getSvcConfig(job.serviceType);
   const Icon = svc.icon;
-  const st = getStatus(job.status);
+  const displayStatus = customerDisplayStatus(job);
+  const st = getStatus(displayStatus);
   const StatusIcon = st.icon;
 
   const price = parseFloat(job.quotedPrice || job.estimatedTotal || "0");
@@ -437,11 +493,35 @@ function JobSheet({ job, open, onClose, onNewJob }: {
   const showReschedule = ["new", "quote_requested", "quoted", "available", "confirmed"].includes(job.status);
   const isQuoted = job.status === "quoted";
   const isActive = ["available", "confirmed", "in_progress", "accepted"].includes(job.status);
-  const isDone = ["completed", "paid"].includes(job.status);
+  const isDone = job.paymentStatus === "paid" || ["paid"].includes(displayStatus);
   const guidanceAnswers = smartBookingAnswersForCustomerJob(job);
   const menuIntelligence = extractBookingMenuIntelligence(job.quoteSnapshot, svc.label);
   const marketplaceSourceContext = menuIntelligence?.sourceSignal || null;
   const marketplaceServiceLabel = menuIntelligence?.serviceLabel || svc.label;
+  const refreshCustomerJobs = () => queryClient.invalidateQueries({ queryKey: ["/api/customer/my-leads"] });
+  const approveCloseout = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/customer/jobs/${job.id}/closeout/approve`, {});
+      return response.json();
+    },
+    onSuccess: (data) => {
+      refreshCustomerJobs();
+      toast({ title: data.invoiceUrl ? "Final amount approved" : "Job financially complete" });
+      if (data.invoiceUrl) window.open(data.invoiceUrl, "_blank", "noopener,noreferrer");
+    },
+    onError: (error: Error) => toast({ title: "Could not approve", description: error.message, variant: "destructive" }),
+  });
+  const rejectCloseout = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/customer/jobs/${job.id}/closeout/reject`, { note: closeoutNote });
+      return response.json();
+    },
+    onSuccess: () => {
+      refreshCustomerJobs();
+      toast({ title: "Correction sent to the owner" });
+    },
+    onError: (error: Error) => toast({ title: "Could not request correction", description: error.message, variant: "destructive" }),
+  });
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
@@ -468,7 +548,7 @@ function JobSheet({ job, open, onClose, onNewJob }: {
         <div className="space-y-3">
 
           {/* Visual Status Tracker */}
-          <StatusTracker status={job.status} />
+          <StatusTracker status={displayStatus} />
           <SmartBookingGuidanceCard
             answers={guidanceAnswers}
             serviceLabel={svc.label}
@@ -542,6 +622,19 @@ function JobSheet({ job, open, onClose, onNewJob }: {
               </div>
             </div>
           </div>
+
+          {job.closeout && (
+            <div className="rounded-2xl border border-blue-500/25 bg-blue-500/5 p-4" data-testid={`customer-closeout-${job.id}`}>
+              <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-blue-300">Completion closeout</p><p className="mt-1 text-sm text-zinc-300">{Number(job.closeout.actual_hours || 0).toFixed(2)} actual hours</p></div><p className="text-2xl font-black text-white">${Number(job.closeout.calculated_final_total || 0).toFixed(2)}</p></div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div className="rounded-lg bg-zinc-950/60 p-2"><p className="text-zinc-500">Deposit applied</p><p className="font-bold text-emerald-300">− ${Number(job.closeout.deposit_applied || 0).toFixed(2)}</p></div><div className="rounded-lg bg-zinc-950/60 p-2"><p className="text-zinc-500">Balance</p><p className="font-bold text-orange-300">${Number(job.closeout.balance_due || 0).toFixed(2)}</p></div></div>
+              {job.closeout.status === "awaiting_customer" && <div className="mt-4 space-y-2"><Button className="w-full bg-emerald-600 hover:bg-emerald-500" disabled={approveCloseout.isPending} onClick={() => approveCloseout.mutate()}>{approveCloseout.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Approve final amount"}</Button><Textarea value={closeoutNote} onChange={(event) => setCloseoutNote(event.target.value)} placeholder="Explain any hours, damage, or charge that needs correction" className="border-zinc-700 bg-zinc-950" /><Button className="w-full" variant="outline" disabled={!closeoutNote.trim() || rejectCloseout.isPending} onClick={() => rejectCloseout.mutate()}>Request owner review</Button></div>}
+              {job.finalInvoiceUrl && <Button className="mt-4 w-full bg-orange-500 hover:bg-orange-400" asChild><a href={job.finalInvoiceUrl} target="_blank" rel="noreferrer">Pay final balance with Square <ExternalLink className="ml-2 h-4 w-4" /></a></Button>}
+            </div>
+          )}
+
+          {job.crewSummary && job.crewSummary.length > 0 && <div className="rounded-2xl border border-zinc-800 bg-zinc-800/30 p-4"><p className="text-xs font-bold uppercase tracking-widest text-zinc-500">Confirmed crew</p><p className="mt-2 text-sm text-white">{job.crewSummary.map((member) => member.name).join(" · ")}</p>{job.arrivalWindow && <p className="mt-1 text-xs text-zinc-400">Arrival window: {job.arrivalWindow}</p>}</div>}
+
+          {job.timeline && job.timeline.length > 0 && <div className="rounded-2xl border border-zinc-800 bg-zinc-800/30 p-4"><p className="text-xs font-bold uppercase tracking-widest text-zinc-500">Job timeline</p><div className="mt-3 space-y-3">{job.timeline.map((event) => <div key={event.id} className="flex gap-3"><div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-teal-400" /><div><p className="text-sm font-semibold text-white">{event.title}</p><p className="text-xs leading-relaxed text-zinc-400">{event.message}</p><p className="mt-0.5 text-[10px] text-zinc-600">{new Date(event.occurredAt).toLocaleString()}</p></div></div>)}</div></div>}
 
           {/* Pay Now button — shown when quote_sent with a payment URL */}
           {(job.status === "quote_sent" || job.status === "invoice_sent") && job.squarePaymentUrl && (
@@ -777,7 +870,11 @@ export default function MyJobsPage() {
   const sortedJobs = jobs.slice().sort((a, b) =>
     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
-  const isPast = (j: CustomerJob) => ["completed", "paid", "cancelled"].includes(j.status);
+  const isPast = (j: CustomerJob) =>
+    j.status === "cancelled"
+    || j.paymentStatus === "paid"
+    || j.status === "paid"
+    || (j.status === "completed" && !j.closeout);
   const activeJobs = sortedJobs.filter(j => !isPast(j));
   const pastJobs = sortedJobs.filter(isPast);
 
@@ -1031,7 +1128,7 @@ export default function MyJobsPage() {
                 // lead's detail sheet (existing UX), keeping the change low
                 // risk while still surfacing the bundle.
                 const primary = card.jobs[0];
-                const st = getStatus(primary.status);
+                const st = getStatus(customerDisplayStatus(primary));
                 return (
                   <button
                     key={`bundle-${card.groupId}`}
@@ -1079,7 +1176,7 @@ export default function MyJobsPage() {
               const job = card.job;
               const svc = getSvcConfig(job.serviceType);
               const Icon = svc.icon;
-              const st = getStatus(job.status);
+              const st = getStatus(customerDisplayStatus(job));
               const price = parseFloat(job.estimatedTotal || "0");
 
               const pickupAddr = formatAddress(job.pickupAddress);
@@ -1160,7 +1257,7 @@ export default function MyJobsPage() {
                 {pastJobs.map(job => {
                   const svc = getSvcConfig(job.serviceType);
                   const Icon = svc.icon;
-                  const st = getStatus(job.status);
+                  const st = getStatus(customerDisplayStatus(job));
                   const price = parseFloat(job.estimatedTotal || "0");
                   return (
                     <button
@@ -1199,7 +1296,7 @@ export default function MyJobsPage() {
 
       {selectedJob && (
         <JobSheet
-          job={selectedJob}
+          job={jobs.find((job) => job.id === selectedJob.id) || selectedJob}
           open={true}
           onClose={() => setSelectedJob(null)}
           onNewJob={() => { setSelectedJob(null); setLocation("/book"); }}

@@ -73,6 +73,7 @@ export async function startOfferLoop(jobId: string): Promise<void> {
       lng: job.lng,
       urgency: job.urgency,
       totalPrice: job.totalPrice,
+      serviceDate: job.serviceDate,
     },
     triedIds,
   );

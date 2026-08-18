@@ -21,10 +21,10 @@ import { LABOR_RATE_PER_HOUR } from "../../../shared/pricingTables";
 export const FLOORING_RULES = {
   // Per-sqft labor by new-product tier ($/sqft).
   PER_SQFT_BY_PRODUCT: {
-    "🪵 Hardwood (solid or engineered)": 7,
-    "🔲 Luxury vinyl plank (LVP)": 4,
-    "⬛ Tile / Stone": 9,
-    "🟫 Carpet": 3,
+    "🪵 Hardwood (solid or engineered)": 5,
+    "🔲 Luxury vinyl plank (LVP)": 5,
+    "⬛ Tile / Stone": 5,
+    "🟫 Carpet": 5,
     "Other / Undecided": 5,
   } as Record<string, number>,
   PER_SQFT_DEFAULT: 5,
@@ -38,7 +38,8 @@ export const FLOORING_RULES = {
 
   // JC-supplied materials adds a $/sqft markup that approximates the
   // material cost passed through to the customer.
-  MATERIALS_SUPPLIED_BY_JC_PER_SQFT: 2,
+  // Materials are an itemized pass-through and do not change labor price.
+  MATERIALS_SUPPLIED_BY_JC_PER_SQFT: 0,
 
   // Trim treatment.
   TRIM_NEW: 200,
@@ -49,7 +50,7 @@ export const FLOORING_RULES = {
   DEFAULT_ROOMS: 1,
 
   // Per-job minimum service fee (covers truck, drop-off, day labor).
-  MIN_JOB_FEE: 350,
+  MIN_JOB_FEE: 500,
 } as const;
 
 export interface FlooringAnswers {

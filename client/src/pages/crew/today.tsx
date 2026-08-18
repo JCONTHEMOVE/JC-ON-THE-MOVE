@@ -16,7 +16,7 @@ import {
   Sun, Cloud, CloudSnow, CloudRain, Zap, Wind, BookOpen,
   Wifi, WifiOff, Coins, MapPin, Calendar, ChevronRight, Loader2, Trophy,
   XCircle, Plus, LogOut, Briefcase, Users, CheckCircle2,
-  ChevronDown, ChevronLeft, Ban, Settings2, Navigation, Play, Flag,
+  ChevronDown, ChevronLeft, Ban, Settings2, Navigation, Play, Flag, LockKeyhole,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import type { Lead, User } from "@shared/schema";
@@ -30,6 +30,7 @@ import { getWorkerLevel, type LoyaltyTierKey } from "@/lib/loyalty";
 import { useAdminViewMode } from "@/hooks/useAdminViewMode";
 import ProcessFlowCard, { type ProcessFlowStep } from "@/components/ProcessFlowCard";
 import MarketplaceShapeBadge from "@/components/MarketplaceShapeBadge";
+import { CrewCloseoutDialog } from "@/components/crew-closeout-dialog";
 
 const MONTH_NAMES_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAY_NAMES_SHORT = ["Su","Mo","Tu","We","Th","Fr","Sa"];
@@ -48,15 +49,29 @@ type JobBoardLead = {
   alreadyApplied: boolean;
   crewSlotsFilled: number;
   flow: JobFlow;
+  workerVisibility?: WorkerVisibility;
 };
 
-type FlowLead = Lead & { flow?: JobFlow };
+type WorkerVisibility = {
+  tier: string;
+  context: "board" | "claimed" | "assigned" | "task" | "admin";
+  customerIdentity: boolean;
+  customerContact: boolean;
+  exactLocation: boolean;
+  pricing: boolean;
+  payment: boolean;
+  privateOperations: boolean;
+  locked: Array<{ key: string; label: string; unlockAt: string }>;
+};
+
+type FlowLead = Lead & { flow?: JobFlow; workerVisibility?: WorkerVisibility };
 
 type TrashJobSub = {
   customerName: string;
   address: string;
   city: string;
   phone: string;
+  workerVisibility?: WorkerVisibility;
 };
 
 type TrashJob = {
@@ -67,7 +82,8 @@ type TrashJob = {
   cans: number;
   bagCount: number;
   isRecyclingWeek: boolean;
-  jobValue: string;
+  jobValue: string | null;
+  workerVisibility?: WorkerVisibility;
 };
 
 type TrashJobRow = {
@@ -473,6 +489,7 @@ export default function CrewTodayPage() {
 
   // Task #173 — state machine mutations for inline My Assignments actions.
   const [statusPending, setStatusPending] = useState<string | null>(null);
+  const [closeoutLeadId, setCloseoutLeadId] = useState<string | null>(null);
   const statusMutation = useMutation({
     mutationFn: async ({ leadId, status }: { leadId: string; status: "en_route"|"on_site"|"completed" }) => {
       const res = await apiRequest("POST", `/api/crew/jobs/${leadId}/status`, { status });
@@ -866,6 +883,13 @@ export default function CrewTodayPage() {
     if (!dateStr) return false;
     return new Date(dateStr as string).toDateString() === todayStr;
   });
+  const advanceJob = (leadId: string, status: "en_route" | "on_site" | "completed") => {
+    if (status === "completed") {
+      setCloseoutLeadId(leadId);
+      return;
+    }
+    statusMutation.mutate({ leadId, status });
+  };
   const hasActiveWork = myAssignments.length > 0 || todayJobs.length > 0;
   const hasOpenWork = visibleUpcomingBoardJobs.length > 0;
   const crewProcessSteps: ProcessFlowStep[] = [
@@ -1276,7 +1300,11 @@ export default function CrewTodayPage() {
                     <span className="text-2xl">{SERVICE_ICONS[job.serviceType] ?? "🚛"}</span>
                     <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <p className="text-white text-sm font-semibold truncate">{job.firstName} {job.lastName}</p>
+                          <p className="text-white text-sm font-semibold truncate">
+                            {job.workerVisibility?.customerIdentity
+                              ? `${job.firstName || ""} ${job.lastName || ""}`.trim()
+                              : "Customer details protected"}
+                          </p>
                           <MarketplaceShapeBadge serviceCode={job.serviceType} className="text-[8px]" />
                         </div>
                       {job.fromAddress && (
@@ -1337,6 +1365,11 @@ export default function CrewTodayPage() {
                       <MapPin className="h-3 w-3" />
                       <span className="truncate">{sub?.address}{sub?.city ? `, ${sub.city}` : ""}</span>
                     </p>
+                    {sub.workerVisibility?.exactLocation === false && (
+                      <p className="mt-1 flex items-center gap-1 text-[10px] font-medium text-amber-300">
+                        <LockKeyhole className="h-3 w-3" /> Exact route and customer details unlock at Silver
+                      </p>
+                    )}
                     <div className="flex flex-wrap gap-1 mt-1">
                       <Badge className="bg-slate-700/60 text-slate-300 border-0 text-[10px]">{tj.cans} can{tj.cans !== 1 ? "s" : ""}</Badge>
                       {tj.bagCount > 0 && <Badge className="bg-slate-700/60 text-slate-300 border-0 text-[10px]">{tj.bagCount} bags</Badge>}
@@ -1464,9 +1497,12 @@ export default function CrewTodayPage() {
                           {job.fromAddress && (
                             <span className="text-slate-400 text-xs flex items-center gap-1">
                               <MapPin className="h-3 w-3" />
-                              <span className="truncate max-w-[130px]">{job.fromAddress}</span>
+                              <span className="truncate max-w-[160px]">General area: {job.fromAddress}</span>
                             </span>
                           )}
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-amber-300">
+                            <LockKeyhole className="h-3 w-3" /> Exact address and customer details unlock after assignment
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1746,7 +1782,7 @@ export default function CrewTodayPage() {
                           </>
                         ) : nextAction ? (
                         <Button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); statusMutation.mutate({ leadId: job.id, status: nextAction.next }); }}
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); advanceJob(job.id, nextAction.next); }}
                           disabled={statusBusy}
                           className="flex-1 min-h-[44px] bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs"
                           data-testid={`today-status-${job.id}-${nextAction.next}`}
@@ -1794,7 +1830,7 @@ export default function CrewTodayPage() {
               </p>
             </div>
             <Button
-              onClick={() => statusMutation.mutate({ leadId: primaryActiveJob.job.id, status: primaryNext.next })}
+              onClick={() => advanceJob(primaryActiveJob.job.id, primaryNext.next)}
               disabled={statusPending === primaryActiveJob.job.id}
               className="min-h-[44px] bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-3"
               data-testid={`sticky-status-${primaryNext.next}`}
@@ -1804,6 +1840,15 @@ export default function CrewTodayPage() {
           </div>
         </div>
       )}
+      <CrewCloseoutDialog
+        leadId={closeoutLeadId}
+        onClose={() => setCloseoutLeadId(null)}
+        onSuccess={() => {
+          setCloseoutLeadId(null);
+          queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=mine"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/jobs/flow?scope=admin"] });
+        }}
+      />
     </div>
   );
 }

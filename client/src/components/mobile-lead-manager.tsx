@@ -42,7 +42,8 @@ import {
   Coins,
   Download,
   ShoppingBag,
-  Plus
+  Plus,
+  LockKeyhole
 } from "lucide-react";
 import { useGeolocation, calculateDistance, geocodeAddress } from "@/hooks/use-geolocation";
 import { useOfflineStorage } from "@/hooks/use-offline-storage";
@@ -156,7 +157,7 @@ import { JobMapView } from "@/components/job-map-view";
 import { JobPhoto } from "@shared/schema";
 
 interface SwipeCardProps {
-  lead: Lead;
+  lead: WorkerVisibleLead;
   onSwipeLeft?: (leadId: string) => void;
   onSwipeRight?: (leadId: string) => void;
   onTap?: (leadId: string) => void;
@@ -164,6 +165,20 @@ interface SwipeCardProps {
   userLocation?: { latitude: number; longitude: number } | null;
   distance?: number | null;
 }
+
+type WorkerVisibleLead = Lead & {
+  workerVisibility?: {
+    tier: string;
+    context: "board" | "claimed" | "assigned" | "task" | "admin";
+    customerIdentity: boolean;
+    customerContact: boolean;
+    exactLocation: boolean;
+    pricing: boolean;
+    payment: boolean;
+    privateOperations: boolean;
+    locked: Array<{ key: string; label: string; unlockAt: string }>;
+  };
+};
 
 function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions = false, userLocation, distance }: SwipeCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -275,7 +290,9 @@ function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions =
                 </div>
                 <div>
                   <h3 className="font-semibold text-base">
-                    {lead.firstName} {lead.lastName}
+                    {lead.workerVisibility?.customerIdentity
+                      ? `${lead.firstName || ""} ${lead.lastName || ""}`.trim()
+                      : "Customer details protected"}
                   </h3>
                   <p className="text-xs text-muted-foreground">
                     {new Date(lead.createdAt).toLocaleDateString()}
@@ -293,7 +310,7 @@ function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions =
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm">
                 <MapPin className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">From:</span>
+                <span className="text-muted-foreground">{lead.workerVisibility?.exactLocation ? "From:" : "General area:"}</span>
                 <span className="font-medium truncate">{lead.fromAddress}</span>
               </div>
               {lead.toAddress && (
@@ -377,8 +394,9 @@ function SwipeCard({ lead, onSwipeLeft, onSwipeRight, onTap, showAcceptActions =
                 </>
               ) : (
                 <p className="text-xs text-amber-500/80 italic flex items-center gap-1 pt-1">
-                  <Phone className="h-3 w-3" />
-                  No phone on file — add it in the admin panel
+                  {lead.workerVisibility && !lead.workerVisibility.customerContact
+                    ? <><LockKeyhole className="h-3 w-3" /> Customer contact unlocks at Silver after assignment</>
+                    : <><Phone className="h-3 w-3" /> No phone on file — add it in the admin panel</>}
                 </p>
               )}
               {lead.email && (
@@ -458,7 +476,7 @@ export default function MobileLeadManager() {
   };
   const [jobDistances, setJobDistances] = useState<Record<string, number>>({});
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
-  const [selectedJobForPhotos, setSelectedJobForPhotos] = useState<Lead | null>(null);
+  const [selectedJobForPhotos, setSelectedJobForPhotos] = useState<WorkerVisibleLead | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [dutyStatus, setDutyStatus] = useState<boolean>(Boolean((user as any)?.isAvailable));
 
@@ -496,13 +514,13 @@ export default function MobileLeadManager() {
     maximumAge: 300000, // 5 minutes
   });
 
-  const { data: availableJobs = [], isLoading: availableLoading } = useQuery<Lead[]>({
+  const { data: availableJobs = [], isLoading: availableLoading } = useQuery<WorkerVisibleLead[]>({
     queryKey: ["/api/leads/available"],
     enabled: isOnline,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
-  const { data: myJobs = [], isLoading: myJobsLoading } = useQuery<Lead[]>({
+  const { data: myJobs = [], isLoading: myJobsLoading } = useQuery<WorkerVisibleLead[]>({
     queryKey: ["/api/leads/my-jobs"],
     enabled: isOnline,
     staleTime: 5 * 60 * 1000, // 5 minutes

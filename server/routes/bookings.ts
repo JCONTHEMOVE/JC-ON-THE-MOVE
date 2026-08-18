@@ -9,6 +9,7 @@
 // upcoming frontend can import the same types.
 
 import { Router, Request, Response } from "express";
+import crypto from "crypto";
 import { eq, and, asc, desc, or, inArray, ilike, gte, lte, sql } from "drizzle-orm";
 import { disburseBookingTokens, loadBookingRewardSettings } from "../services/disburseBookingTokens";
 import { computeBookingReward } from "../services/bookingPricing";
@@ -71,13 +72,26 @@ import {
 } from "@shared/marketplaceShapes";
 import { getRouteDayDiscountEligibility } from "@shared/routeDays";
 import { previewZoneQuote } from "../marketplace/zonePricing";
+import {
+  applyGeographicQuotePolicy,
+  calculateMarketplaceFlatRate,
+  calculateRateCardLine,
+  catalogPriceSummary,
+  type CanonicalPricingSnapshot,
+  type MarketplaceHourlyServiceCode,
+} from "@shared/canonicalPricing";
+import { getActivePricingSnapshot, getPricingSnapshotByCode } from "../services/pricingVersions";
+import { resolveQuoteRouteEvidence } from "../services/quoteGeography";
+import { evaluateOperatingEligibility } from "../services/serviceAreaEligibility";
+import {
+  approveQuoteRevision,
+  getLatestQuoteRevision,
+  markQuoteRevisionSent,
+  saveQuoteDraft,
+} from "../services/quoteRevisions";
 
-// Task #218 spec line 44: small moving = "$300 (or $340 if floor lifted;
-// we keep $300)". The labor math 2×2×$85 naturally produces $340, but
-// the customer-facing "two-person 2-hour special" is billed at $300 flat.
-// The route layer enforces this whenever the resolved jobSize is "small"
-// — overriding both the matrix output and the labor-tier amount.
-const SMALL_MOVE_SPECIAL_PRICE = 300;
+// Canonical two-person, two-hour moving labor: 2 × 2 × $95.
+const SMALL_MOVE_SPECIAL_PRICE = 380;
 
 const router = Router();
 
@@ -96,6 +110,7 @@ const instantBookingRequestSchema = z.object({
   customerEmail: z.union([z.string().trim().email(), z.literal("")]).optional().transform((value) => value || ""),
   customerPhone: z.string().trim().min(7, "Enter a phone number"),
   serviceAddress: z.string().trim().min(5, "Enter the service address").max(350),
+  destinationAddress: z.string().trim().max(350).optional().transform((value) => value || ""),
   zip: z.string().trim().regex(/^\d{5}(?:-\d{4})?$/, "Enter a 5-digit ZIP code"),
   requestedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a date"),
   startTime: z.string().regex(/^\d{2}:00$/, "Choose an available start time").optional(),
@@ -111,6 +126,13 @@ const instantBookingRequestSchema = z.object({
   junkVolume: z.enum(["quarter", "half", "three_quarter", "full"]).optional(),
   distanceMiles: z.coerce.number().min(0).max(500).default(0),
   notes: z.string().trim().max(2500).optional().transform((value) => value || ""),
+  smsConsent: z.boolean().default(false),
+  termsAccepted: z.boolean().default(false),
+  termsVersion: z.string().trim().min(1).max(80).default("2026-08-regional-v1"),
+}).superRefine((value, ctx) => {
+  if (value.service === "moving" && !value.destinationAddress) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["destinationAddress"], message: "Enter the moving destination" });
+  }
 });
 
 type InstantBookingRequest = z.infer<typeof instantBookingRequestSchema>;
@@ -188,6 +210,49 @@ function timeLabel(time: string) {
   return `${displayHour}:00 ${suffix}`;
 }
 
+async function expireInstantBookingHolds() {
+  await ensureInstantBookingTables();
+  const expired = await pool.query<{ lead_id: string; booking_id: string; previous_status: string }>(`
+    WITH due AS (
+      SELECT id, lead_id, booking_id, status AS previous_status
+        FROM booking_slot_holds
+       WHERE status IN ('pending_review','awaiting_deposit')
+         AND expires_at IS NOT NULL AND expires_at <= NOW()
+       FOR UPDATE SKIP LOCKED
+    )
+    UPDATE booking_slot_holds h
+       SET status='expired', updated_at=NOW()
+      FROM due
+     WHERE h.id=due.id
+    RETURNING h.lead_id, h.booking_id, due.previous_status
+  `);
+  if (!expired.rows.length) return 0;
+  const bookingIds = expired.rows.map((row) => row.booking_id);
+  const leadIds = expired.rows.map((row) => row.lead_id);
+  await pool.query(`UPDATE bookings SET status='expired' WHERE id=ANY($1::varchar[]) AND status IN ('pending_review','awaiting_deposit')`, [bookingIds]);
+  await pool.query(
+    `UPDATE leads SET status=CASE WHEN status='awaiting_deposit' THEN 'quote_requested' ELSE status END,
+                      financial_status=CASE WHEN financial_status='awaiting_deposit' THEN 'deposit_expired' ELSE financial_status END
+      WHERE id=ANY($1::varchar[])`,
+    [leadIds],
+  );
+  const invoices = await pool.query<{ square_invoice_id: string }>(
+    `SELECT square_invoice_id FROM square_invoices
+      WHERE lead_id=ANY($1::varchar[]) AND purpose='deposit'
+        AND status NOT IN ('paid','canceled','refunded')`,
+    [leadIds],
+  );
+  if (invoices.rows.length) {
+    const { squareInvoiceService } = await import("../services/square-invoice");
+    for (const invoice of invoices.rows) {
+      await squareInvoiceService.cancelInvoice(invoice.square_invoice_id).catch((error) => {
+        console.warn(`[instant-booking] could not cancel expired deposit invoice ${invoice.square_invoice_id}:`, error instanceof Error ? error.message : error);
+      });
+    }
+  }
+  return expired.rows.length;
+}
+
 function profileForInstantBooking(input: InstantBookingRequest) {
   const junkDefaults = {
     quarter: { crewSize: 2, hours: 2 },
@@ -218,8 +283,147 @@ function profileForInstantBooking(input: InstantBookingRequest) {
   };
 }
 
+async function attachOperatingEligibility(input: InstantBookingRequest, quote: any) {
+  const routeEvidence = quote.routeEvidence
+    && Array.isArray(quote.routeEvidence.stops)
+    && Array.isArray(quote.routeEvidence.stopCoordinates)
+    ? quote.routeEvidence
+    : await resolveQuoteRouteEvidence({
+        addresses: [input.serviceAddress, input.destinationAddress],
+        snapshot: (await getActivePricingSnapshot()).snapshot,
+      });
+  const operatingEligibility = await evaluateOperatingEligibility({
+    service: input.service,
+    truckSource: input.truckSource,
+    routeEvidence,
+    zoneCode: quote.zoneCode,
+    travelEligibility: quote.travelEligibility,
+    reviewRequired: quote.reviewRequired,
+    hasSpecialItems: input.heavyItems.length > 0,
+  });
+  return {
+    ...quote,
+    routeEvidence,
+    operatingEligibility,
+    autoBookEligible: operatingEligibility.decision === "eligible",
+    eligibleForHold: quote.eligibleForHold !== false && operatingEligibility.decision !== "blocked",
+    reviewRequired: quote.reviewRequired || operatingEligibility.decision !== "eligible",
+    conditionalHold: quote.conditionalHold || operatingEligibility.decision !== "eligible",
+  };
+}
+
 async function instantBookingQuote(input: InstantBookingRequest) {
   const profile = profileForInstantBooking(input);
+  const activePricing = await getActivePricingSnapshot();
+
+  // Once the owner publishes the geographic pricing version, instant
+  // booking uses the same deterministic rate card and route evidence as
+  // every other quote channel. The legacy zone preview remains available
+  // only while an older pricing version is active.
+  if (activePricing.snapshot.geographicPolicy) {
+    const rateLine = input.service !== "junk"
+      ? calculateRateCardLine({
+          serviceCode: "load_unload",
+          crewSize: profile.crewSize,
+          hours: profile.requestedHours,
+          snapshot: activePricing.snapshot,
+        })
+      : null;
+    const junkTier = input.junkVolume === "quarter"
+      ? "small"
+      : input.junkVolume === "three_quarter"
+        ? "large"
+        : input.junkVolume === "full"
+          ? "xlarge"
+          : "medium";
+    const laborSubtotal = rateLine?.subtotal
+      ?? activePricing.snapshot.services.junkRemoval.tiers[junkTier];
+    const jobFactor = profile.difficultyMultiplier * profile.stairsMultiplier;
+    const adjustedLabor = Math.round(laborSubtotal * jobFactor * 100) / 100;
+    const companyTruck = input.truckSource === "jc_on_the_move";
+    const truckAmount = !companyTruck
+      ? 0
+      : ["20_ft", "26_ft"].includes(input.truckSize)
+        ? activePricing.snapshot.equipment.truck26Ft
+        : activePricing.snapshot.equipment.truck15Ft;
+    const baseSubtotal = Math.round((adjustedLabor + truckAmount) * 100) / 100;
+    const routeEvidence = await resolveQuoteRouteEvidence({
+      addresses: [input.serviceAddress, input.destinationAddress],
+      snapshot: activePricing.snapshot,
+    });
+    const policy = applyGeographicQuotePolicy({
+      baseSubtotal,
+      automaticDiscountTotal: 0,
+      serviceDate: input.requestedDate,
+      stopCoordinates: routeEvidence.stopCoordinates,
+      routeVerified: routeEvidence.verified,
+      oneWayMiles: routeEvidence.oneWayMiles,
+      oneWayMinutes: routeEvidence.oneWayMinutes,
+      snapshot: activePricing.snapshot,
+    });
+    if (policy) {
+      const total = policy.finalPreTaxTotal;
+      const insideBubble = policy.pricingAdjustments.insideBubble;
+      const lineItems = [
+        {
+          name: input.service === "junk"
+            ? `Junk removal — ${String(input.junkVolume || "half").replace("_", " ")} load`
+            : `Load/Unload — ${profile.crewSize} helper${profile.crewSize === 1 ? "" : "s"}`,
+          serviceCode: input.service === "junk" ? "junk_removal" : "load_unload",
+          quantity: 1,
+          unitPrice: adjustedLabor,
+          total: adjustedLabor,
+          discountEligible: true,
+          metadata: {
+            rateCard: rateLine,
+            junkVolume: input.junkVolume || null,
+            difficulty: input.difficulty,
+            difficultyMultiplier: profile.difficultyMultiplier,
+            stairsFlights: input.stairsFlights,
+            stairsMultiplier: profile.stairsMultiplier,
+            heavyItems: input.heavyItems,
+          },
+        },
+        ...(truckAmount > 0 ? [{
+          name: `JC ON THE MOVE truck — ${input.truckSize.replace("_", " ")}`,
+          serviceCode: "truck",
+          quantity: 1,
+          unitPrice: truckAmount,
+          total: truckAmount,
+          discountEligible: true,
+          metadata: { truckSource: input.truckSource, truckSize: input.truckSize },
+        }] : []),
+      ];
+      return attachOperatingEligibility(input, {
+        service: input.service,
+        zoneMatched: insideBubble === true,
+        zoneCode: insideBubble === true ? "IRONWOOD_50_MILE" : insideBubble === false ? "EXTENDED_SERVICE" : null,
+        zoneName: insideBubble === true ? "Ironwood 50-mile service bubble" : insideBubble === false ? "Extended service area" : null,
+        travelFallback: insideBubble !== true,
+        conditionalHold: profile.reviewRequired || policy.travelEligibility.requiresOwner,
+        eligibleForHold: policy.travelEligibility.canApprove,
+        minEstimate: total,
+        maxEstimate: total,
+        estimateLabel: `$${total.toLocaleString()} estimate`,
+        subjectToReview: true,
+        crewSize: profile.crewSize,
+        requestedHours: profile.requestedHours,
+        durationMinutes: profile.durationMinutes,
+        reviewRequired: profile.reviewRequired || policy.travelEligibility.requiresOwner,
+        difficultyMultiplier: profile.difficultyMultiplier,
+        stairsMultiplier: profile.stairsMultiplier,
+        travelEstimate: policy.pricingAdjustments.geographicAmount,
+        baseSubtotal,
+        lineItems,
+        pricingAdjustments: policy.pricingAdjustments,
+        travelEligibility: policy.travelEligibility,
+        routeEvidence,
+        pricingVersion: activePricing.snapshot.version,
+        pricingVersionId: activePricing.versionId,
+      });
+    }
+  }
+
   const zonePreview = await previewZoneQuote({
     zip: input.zip,
     serviceCode: profile.serviceCode,
@@ -231,10 +435,16 @@ async function instantBookingQuote(input: InstantBookingRequest) {
     oversized: input.heavyItems.some((item) => item.pounds >= 200),
   });
   const rawQuote = zonePreview.quote;
+  const structuredRawQuote = rawQuote as typeof rawQuote & {
+    pricingAdjustments?: Record<string, unknown> | null;
+    travelEligibility?: { canApprove?: boolean } & Record<string, unknown>;
+    routeEvidence?: Record<string, unknown> | null;
+    pricingVersion?: string;
+  };
   const multiplier = profile.difficultyMultiplier * profile.stairsMultiplier;
   const minEstimate = Math.round(Number(rawQuote.minEstimate || 0) * multiplier);
   const maxEstimate = Math.max(minEstimate, Math.round(Number(rawQuote.maxEstimate || 0) * multiplier));
-  return {
+  return attachOperatingEligibility(input, {
     service: input.service,
     zoneMatched: zonePreview.matched,
     zoneCode: zonePreview.quote.zone?.code || null,
@@ -252,7 +462,23 @@ async function instantBookingQuote(input: InstantBookingRequest) {
     difficultyMultiplier: profile.difficultyMultiplier,
     stairsMultiplier: profile.stairsMultiplier,
     travelEstimate: Math.round(Number(rawQuote.travel || 0)),
-  };
+    baseSubtotal: minEstimate,
+    lineItems: [{
+      name: input.service === "moving" ? "Moving" : input.service === "labor" ? "Labor" : "Junk Removal",
+      serviceCode: input.service === "junk" ? "junk_removal" : "load_unload",
+      quantity: 1,
+      unitPrice: minEstimate,
+      total: minEstimate,
+      discountEligible: true,
+      metadata: { legacyZonePricing: true },
+    }],
+    pricingAdjustments: structuredRawQuote.pricingAdjustments || null,
+    travelEligibility: structuredRawQuote.travelEligibility || null,
+    routeEvidence: structuredRawQuote.routeEvidence || null,
+    pricingVersion: structuredRawQuote.pricingVersion || activePricing.snapshot.version,
+    pricingVersionId: activePricing.versionId,
+    eligibleForHold: structuredRawQuote.travelEligibility?.canApprove !== false,
+  });
 }
 
 async function capacityForInstantBooking(
@@ -268,7 +494,7 @@ async function capacityForInstantBooking(
   await client.query(`
     UPDATE booking_slot_holds
     SET status = 'expired', updated_at = NOW()
-    WHERE status = 'pending_review' AND expires_at IS NOT NULL AND expires_at <= NOW()
+    WHERE status IN ('pending_review','awaiting_deposit') AND expires_at IS NOT NULL AND expires_at <= NOW()
   `);
 
   const [employees, legacyResult, holdResult] = await Promise.all([
@@ -303,7 +529,7 @@ async function capacityForInstantBooking(
     legacyReserved,
     heldReserved,
     availableCrew,
-    available: capacity > 0 && availableCrew >= quote.crewSize,
+    available: quote.eligibleForHold !== false && capacity > 0 && availableCrew >= quote.crewSize,
   };
 }
 
@@ -343,6 +569,10 @@ type BookingPricingWithAddressDiscount = BookingPricingResult & {
   serviceAddressDiscount?: ServiceAddressDiscount;
   serviceAddressPricingAdjustment?: ServiceAddressPricingAdjustment;
   serviceAddressDiscountHint?: ReturnType<typeof getRouteDayDiscountEligibility>;
+  pricingAdjustments?: NonNullable<ReturnType<typeof applyGeographicQuotePolicy>>["pricingAdjustments"];
+  travelEligibility?: NonNullable<ReturnType<typeof applyGeographicQuotePolicy>>["travelEligibility"];
+  routeEvidence?: Awaited<ReturnType<typeof resolveQuoteRouteEvidence>>;
+  serviceabilityTotal?: number;
 };
 
 const WORKER_TIERS = ["worker", "bronze", "silver", "gold", "platinum"] as const;
@@ -430,12 +660,13 @@ function firstDetailValue(items: PersistedBookingInput[], keys: string[]): strin
 }
 
 function applyServiceAddressDiscount(
-  quote: BookingPricingResult,
+  quote: BookingPricingWithAddressDiscount,
   input: {
     serviceAddress?: string | null;
     requestedDate?: string | null;
     flatBonus: number;
     earnRate: number;
+    pricing: CanonicalPricingSnapshot;
   },
 ): BookingPricingWithAddressDiscount {
   const eligibility = getRouteDayDiscountEligibility({
@@ -444,38 +675,20 @@ function applyServiceAddressDiscount(
   });
 
   const roundMoney = (value: number) => Math.round(value * 100) / 100;
-  if (eligibility.priceMultiplier > 1 && quote.finalTotal > 0) {
-    const amount = roundMoney(quote.finalTotal * (eligibility.priceMultiplier - 1));
-    const finalTotal = roundMoney(quote.finalTotal + amount);
-    const reward = computeBookingReward({
-      finalTotal,
-      flatBonus: input.flatBonus,
-      earnRate: input.earnRate,
-      bonusMultiplier: quote.bundleApplied?.bonusMultiplier ?? 1,
-      hasOverride: false,
-    });
-
-    return {
-      ...quote,
-      finalTotal,
-      tokenEstimate: reward.totalAward,
-      serviceAddressPricingAdjustment: {
-        type: eligibility.pricingAdjustment.type === "non_discount_day" ? "non_discount_day" : "out_of_town",
-        label: eligibility.pricingAdjustment.label || "Route pricing adjustment",
-        reason: eligibility.reason,
-        multiplier: eligibility.priceMultiplier,
-        surchargePercent: eligibility.pricingAdjustment.surchargePercent,
-        amount,
-      },
-      serviceAddressDiscountHint: eligibility,
-    };
-  }
-
   if (!eligibility.eligible || !eligibility.code || eligibility.discountPercent <= 0 || quote.finalTotal <= 0) {
     return { ...quote, serviceAddressDiscountHint: eligibility };
   }
 
-  const amount = roundMoney(quote.finalTotal * (eligibility.discountPercent / 100));
+  // Route days are a 5% offer, but percentage savings may never exceed the
+  // canonical 15% order cap. Out-of-area and non-route-day addresses no
+  // longer receive whole-invoice multipliers; actual travel is a separate
+  // line item in the canonical travel policy.
+  const capAmount = roundMoney(quote.subtotal * (input.pricing.offers.totalPercentageCap / 100));
+  const remainingCap = roundMoney(Math.max(0, capAmount - quote.discountTotal));
+  const amount = Math.min(
+    roundMoney(quote.finalTotal * (eligibility.discountPercent / 100)),
+    remainingCap,
+  );
   if (amount <= 0) return quote;
 
   const finalTotal = roundMoney(Math.max(0, quote.finalTotal - amount));
@@ -487,10 +700,28 @@ function applyServiceAddressDiscount(
     hasOverride: false,
   });
 
+  const travelEligibility = quote.travelEligibility && quote.pricingAdjustments?.insideBubble === false
+    && finalTotal < quote.travelEligibility.minimumPreTax
+    && quote.travelEligibility.status !== "out_of_range"
+    && quote.travelEligibility.status !== "unverified"
+    ? {
+        ...quote.travelEligibility,
+        status: "owner_review" as const,
+        minimumSatisfied: false,
+        requiresOwner: true,
+        reasons: [
+          ...quote.travelEligibility.reasons.filter((reason: string) => !reason.toLowerCase().includes("minimum")),
+          `Outside-bubble total is below the $${quote.travelEligibility.minimumPreTax.toLocaleString()} minimum.`,
+        ],
+      }
+    : quote.travelEligibility;
+
   return {
     ...quote,
     discountTotal: roundMoney(quote.discountTotal + amount),
     finalTotal,
+    serviceabilityTotal: finalTotal,
+    travelEligibility,
     tokenEstimate: reward.totalAward,
     serviceAddressDiscount: {
       code: eligibility.code,
@@ -500,6 +731,91 @@ function applyServiceAddressDiscount(
       amount,
     },
     serviceAddressDiscountHint: eligibility,
+  };
+}
+
+function serviceStopsForQuote(
+  body: { serviceAddress?: string; serviceStops?: string[] },
+  items: PersistedBookingInput[],
+): string[] {
+  return [
+    ...(body.serviceStops || []),
+    body.serviceAddress || "",
+    firstDetailValue(items, ["serviceAddress", "fromAddress", "pickupAddress", "address"]) || "",
+    firstDetailValue(items, ["toAddress", "dropoffAddress", "destinationAddress"]) || "",
+  ].filter((address) => address.trim().length >= 4);
+}
+
+async function applyBookingGeographicPricing(input: {
+  quote: BookingPricingResult;
+  body: { serviceAddress?: string; serviceStops?: string[] };
+  items: PersistedBookingInput[];
+  requestedDate?: string | null;
+  pricing: CanonicalPricingSnapshot;
+  flatBonus: number;
+  earnRate: number;
+}): Promise<BookingPricingWithAddressDiscount> {
+  const routeEvidence = await resolveQuoteRouteEvidence({
+    addresses: serviceStopsForQuote(input.body, input.items),
+    snapshot: input.pricing,
+  });
+  const preliminary = applyGeographicQuotePolicy({
+    baseSubtotal: input.quote.subtotal,
+    automaticDiscountTotal: 0,
+    serviceDate: input.requestedDate || undefined,
+    stopCoordinates: routeEvidence.stopCoordinates,
+    routeVerified: routeEvidence.verified,
+    oneWayMiles: routeEvidence.oneWayMiles,
+    oneWayMinutes: routeEvidence.oneWayMinutes,
+    snapshot: input.pricing,
+  });
+  if (!preliminary) {
+    return { ...input.quote, routeEvidence, serviceabilityTotal: input.quote.finalTotal };
+  }
+
+  // Promotions are evaluated after the geographic and weekend premiums.
+  // Existing bundle eligibility and caps remain authoritative.
+  let automaticDiscountTotal = input.quote.discountTotal;
+  if (input.quote.bundleApplied) {
+    const eligibleSubtotal = input.quote.items
+      .filter((item) => item.discountEligible !== false)
+      .reduce((sum, item) => sum + item.lineSubtotal, 0);
+    const adjustedEligibleSubtotal = eligibleSubtotal * preliminary.pricingAdjustments.compoundedMultiplier;
+    const requestedDiscount = adjustedEligibleSubtotal * (input.quote.bundleApplied.discountValue / 100);
+    automaticDiscountTotal = Math.round(Math.min(
+      requestedDiscount,
+      input.pricing.offers.bundleMaximumDollars,
+      preliminary.adjustedSubtotal * (input.pricing.offers.totalPercentageCap / 100),
+    ) * 100) / 100;
+  }
+
+  const evaluated = applyGeographicQuotePolicy({
+    baseSubtotal: input.quote.subtotal,
+    automaticDiscountTotal,
+    serviceDate: input.requestedDate || undefined,
+    stopCoordinates: routeEvidence.stopCoordinates,
+    routeVerified: routeEvidence.verified,
+    oneWayMiles: routeEvidence.oneWayMiles,
+    oneWayMinutes: routeEvidence.oneWayMinutes,
+    snapshot: input.pricing,
+  })!;
+  const reward = computeBookingReward({
+    finalTotal: evaluated.finalPreTaxTotal,
+    flatBonus: input.flatBonus,
+    earnRate: input.earnRate,
+    bonusMultiplier: input.quote.bundleApplied?.bonusMultiplier ?? 1,
+    hasOverride: false,
+  });
+  return {
+    ...input.quote,
+    subtotal: evaluated.adjustedSubtotal,
+    discountTotal: evaluated.automaticDiscountTotal,
+    finalTotal: evaluated.finalPreTaxTotal,
+    tokenEstimate: reward.totalAward,
+    pricingAdjustments: evaluated.pricingAdjustments,
+    travelEligibility: evaluated.travelEligibility,
+    routeEvidence,
+    serviceabilityTotal: evaluated.finalPreTaxTotal,
   };
 }
 
@@ -717,6 +1033,22 @@ function deriveJobSize(
   return undefined;
 }
 
+function rateCardServiceForItem(
+  serviceCode: string,
+  details: Record<string, unknown>,
+): MarketplaceHourlyServiceCode | null {
+  if (serviceCode === "cleaning") return "cleaning";
+  if (serviceCode === "labor") {
+    const laborType = String(details.serviceCode || details.laborType || details.movingPath || "").toLowerCase();
+    return laborType.includes("pack") ? "pack_unpack" : "load_unload";
+  }
+  if (serviceCode === "moving") {
+    const path = String(details.movingPath || details.loadType || "").toLowerCase();
+    return path.includes("pack") ? "pack_unpack" : "load_unload";
+  }
+  return null;
+}
+
 // Services whose dollar amount comes from a non-labor calculator
 // (matrix lookups, sqft × rate, rule files). For these the labor meta
 // is exposed as derived metadata; the labor amount NEVER overrides
@@ -787,10 +1119,7 @@ function buildLaborMeta(
   // never displays math that disagrees with the price.
   const lineTotal = Math.max(0, unitPrice * Math.max(1, quantity));
   if (serviceCode === "moving") {
-    // Small-move special ($300) is a marketed promotion — the chat card
-    // still promises "2 movers × 2 hrs"; we deliberately skip the
-    // back-computation that would otherwise show ~1.76 hrs (300 ÷ 170).
-    // The dollars are special-cased upstream; the tuple stays canonical.
+    // Preserve the canonical two-person, two-hour tuple for the small tier.
     if (jobSize === "small" && lineTotal === SMALL_MOVE_SPECIAL_PRICE) {
       return {
         crewSize: labor.crewSize,
@@ -845,6 +1174,7 @@ function buildLaborMeta(
 function resolveItems(
   items: ReturnType<typeof bookingQuoteRequestSchema.parse>["items"],
   catalog: Map<string, ServiceCatalogEntry>,
+  pricing: CanonicalPricingSnapshot,
 ): ResolvedItems {
   const pricingInputs: BookingPricingItemInput[] = [];
   const persistInputs: ResolvedItems["persistInputs"] = [];
@@ -878,6 +1208,8 @@ function resolveItems(
     // SERVICE_LABOR_DEFAULTS' jobSize tuple. Declared at the for-loop
     // scope because it crosses the moving-branch / labor-meta boundary.
     let matrixLaborOverride: { crewSize: number; laborHours: number; totalLaborHours: number; ratePerHour: number } | undefined;
+    let rateCardLaborOverride: { crewSize: number; laborHours: number; totalLaborHours: number; ratePerHour: number } | undefined;
+    let collapseQuantityToOne = false;
 
     // Task #211 — Painting & Flooring run the chatbot questionnaire
     // through the editable rule files in services/quoteRules/ so the
@@ -910,10 +1242,9 @@ function resolveItems(
       //   1. If bedrooms / stairs / loadType are present → matrix
       //      (preserves nuance like "3br + stairs + heavy load").
       //   2. Else if explicit jobSize / truckSize maps to a tier →
-      //      labor tier (small=$340, medium=$680, large=$1360 — these
-      //      ARE crew × hours × $85 per the spec table).
+      //      canonical labor tier with long-job savings.
       //   3. Else → leave unitPrice from the catalog/wizard alone.
-      // Small move always respects the $300 floor per the spec.
+      // Small move is the canonical 2 workers × 2 hours × $95.
       const details = (item.details ?? {}) as Record<string, unknown>;
       const hasDetailedInputs =
         details.bedrooms != null || details.stairs != null || details.loadType != null;
@@ -964,10 +1295,7 @@ function resolveItems(
           }
         }
       }
-      // Small move special: per spec line 44 we always bill $300 for a
-      // small move, regardless of whether matrix or labor-tier produced
-      // the candidate amount. This overrides upward (matrix $340 → $300)
-      // and downward (matrix $250 → $300).
+      // Keep every small-move path on the canonical two-worker/two-hour rate.
       const finalJobSize = appliedJobSize ?? deriveJobSize("moving", details);
       if (finalJobSize === "small") {
         unitPrice = SMALL_MOVE_SPECIAL_PRICE;
@@ -990,6 +1318,63 @@ function resolveItems(
       }
     }
 
+    // The published marketplace rate card is authoritative whenever a
+    // labor request supplies an explicit crew size and duration. Long-job
+    // rates are marginal: only hours after the threshold use the lower
+    // hourly rate. Add-ons remain separate inputs and are included before
+    // geographic and weekend adjustments are applied to the full quote.
+    const rateDetails = (item.details ?? {}) as Record<string, unknown>;
+    const rateCardService = rateCardServiceForItem(item.serviceCode, rateDetails);
+    const requestedCrew = Number(rateDetails.crewSize ?? rateDetails.crew ?? rateDetails.helpers ?? 0);
+    const requestedHours = Number(rateDetails.laborHours ?? rateDetails.hours ?? rateDetails.estimatedHours ?? 0);
+    const rateCardLine = rateCardService && requestedCrew > 0 && requestedHours > 0
+      ? calculateRateCardLine({
+          serviceCode: rateCardService,
+          crewSize: requestedCrew,
+          hours: requestedHours,
+          snapshot: pricing,
+        })
+      : null;
+    if (rateCardLine) {
+      const addOnKeys = ["truckFee", "truckMileageFee", "oversizedItemFee", "disposalFee", "materialsFee"];
+      const addOnTotal = addOnKeys.reduce((sum, key) => {
+        const amount = Number(rateDetails[key] ?? 0);
+        return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0);
+      }, 0);
+      unitPrice = +(rateCardLine.subtotal + addOnTotal).toFixed(2);
+      rateCardLaborOverride = {
+        crewSize: rateCardLine.crewSize,
+        laborHours: rateCardLine.billableHours,
+        totalLaborHours: +(rateCardLine.crewSize * rateCardLine.billableHours).toFixed(2),
+        ratePerHour: rateCardLine.regularHourlyRate,
+      };
+    }
+
+    const normalizedServiceCode = item.serviceCode.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    const uboxMode = String(rateDetails.uboxMode || rateDetails.deliveryMode || rateDetails.serviceType || "").toLowerCase();
+    const flatServiceCode = normalizedServiceCode.includes("u_box") || normalizedServiceCode.includes("ubox")
+      ? uboxMode.includes("delivery") && (uboxMode.includes("load") || uboxMode.includes("unload"))
+        ? "ubox_delivery_load_unload" as const
+        : uboxMode.includes("delivery")
+          ? "ubox_delivery_only" as const
+          : "ubox_load_unload" as const
+      : normalizedServiceCode.includes("piano")
+        ? "piano" as const
+        : normalizedServiceCode.includes("safe")
+          ? "safe" as const
+          : null;
+    const flatRate = flatServiceCode ? calculateMarketplaceFlatRate({
+      serviceCode: flatServiceCode,
+      quantity: item.quantity,
+      boxes: Number(rateDetails.uboxCount ?? rateDetails.boxCount ?? item.quantity),
+      miles: Number(rateDetails.loadedMiles ?? rateDetails.distanceMiles ?? rateDetails.miles ?? 0),
+      snapshot: pricing,
+    }) : null;
+    if (flatRate != null) {
+      unitPrice = flatRate;
+      collapseQuantityToOne = true;
+    }
+
     let laborMeta = buildLaborMeta(item.serviceCode, unitPrice, item.quantity, item.details || {}, cat);
     // Matrix labor tuple wins for moving when bedrooms/stairs/loadType
     // were supplied: per spec the matrix is the source of truth, and the
@@ -1002,6 +1387,9 @@ function resolveItems(
     if (item.serviceCode === "moving" && matrixLaborOverride && !isSmallSpecial) {
       laborMeta = matrixLaborOverride;
     }
+    if (rateCardLaborOverride) {
+      laborMeta = rateCardLaborOverride;
+    }
     // Labor-priced services (lawn, valet, snow, junk, handyman, etc.)
     // get their unitPrice replaced with the canonical crew × hrs × $85
     // so the catalog suggested-min never silently bypasses the chat
@@ -1012,8 +1400,8 @@ function resolveItems(
     // catalog row defaults to "fixed" (trash_valet flat rate) or
     // "hourly" (handyman/labor), the chat card still promises crew ×
     // hours × $85, so the route layer must bill that exact amount.
-    let effectiveQuantity = item.quantity;
-    if (laborMeta && LABOR_AUTHORITATIVE_SERVICES.has(item.serviceCode)) {
+    let effectiveQuantity = collapseQuantityToOne ? 1 : item.quantity;
+    if (laborMeta && !rateCardLaborOverride && LABOR_AUTHORITATIVE_SERVICES.has(item.serviceCode)) {
       const laborDollars = +(laborMeta.crewSize * laborMeta.laborHours * laborMeta.ratePerHour).toFixed(2);
       if (laborDollars > 0) {
         // unitPrice now represents the FULL labor block (crew × hours
@@ -1083,6 +1471,7 @@ router.post("/instant-booking/quote", async (req: Request, res: Response) => {
 router.post("/instant-booking/availability", async (req: Request, res: Response) => {
   try {
     const input = instantBookingRequestSchema.parse(req.body);
+    await expireInstantBookingHolds();
     const result = await availableInstantBookingSlots(input);
     return res.json({
       success: true,
@@ -1104,9 +1493,13 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
   let client: InstantBookingTransactionClient | null = null;
   try {
     const input = instantBookingRequestSchema.parse(req.body);
+    await expireInstantBookingHolds();
     const normalizedPhone = normalizeLeadPhoneNumber(input.customerPhone);
     if (!normalizedPhone) {
       return res.status(400).json({ error: "Enter a complete 10-digit phone number so we can call you back." });
+    }
+    if (!input.termsAccepted) {
+      return res.status(400).json({ error: "Accept the service terms before reserving a time." });
     }
     if (!input.startTime || !INSTANT_BOOKING_START_HOURS.includes(Number(input.startTime.slice(0, 2)) as typeof INSTANT_BOOKING_START_HOURS[number])) {
       return res.status(400).json({ error: "Choose one of the available two-hour start times." });
@@ -1133,11 +1526,16 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
     }
 
     const quote = capacity.quote;
+    const autoBookEligible = quote.operatingEligibility?.decision === "eligible";
+    const initialHoldStatus = autoBookEligible ? "awaiting_deposit" : "pending_review";
+    const initialBookingStatus = autoBookEligible ? "awaiting_deposit" : "pending_review";
+    const initialLeadStatus = autoBookEligible ? "awaiting_deposit" : "quote_requested";
     const [firstName, ...lastNameParts] = input.customerName.split(/\s+/);
     const lastName = lastNameParts.join(" ") || "Customer";
     const details = {
       bookingFlow: "instant_booking_hold",
       service: input.service,
+      destinationAddress: input.destinationAddress || null,
       requestedDate: input.requestedDate,
       requestedStartTime: input.startTime,
       timeZone: INSTANT_BOOKING_TIME_ZONE,
@@ -1150,6 +1548,8 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
       requestedHours: quote.requestedHours,
       requiredCrew: quote.crewSize,
       notes: input.notes,
+      operatingEligibility: quote.operatingEligibility,
+      termsVersion: input.termsVersion,
     };
     const quoteSnapshot = {
       capturedAt: new Date().toISOString(),
@@ -1166,7 +1566,7 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
     const bookingResult = await tx.query(`
       INSERT INTO bookings
         (customer_name, customer_email, customer_phone, service_address, notes, subtotal, discount_total, final_total, status, source)
-      VALUES ($1,$2,$3,$4,$5,$6,0,$7,'pending_review','instant_booking_hold')
+      VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,'instant_booking_hold')
       RETURNING id
     `, [
       input.customerName,
@@ -1176,6 +1576,7 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
       input.notes || null,
       quote.minEstimate.toFixed(2),
       quote.maxEstimate.toFixed(2),
+      initialBookingStatus,
     ]);
     const bookingId = String(bookingResult.rows[0]?.id || "");
     if (!bookingId) throw new Error("Booking insert returned no id");
@@ -1194,11 +1595,13 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
     ]);
     const leadResult = await tx.query(`
       INSERT INTO leads
-        (first_name, last_name, email, phone, service_type, from_address, move_date, details, source, status,
+        (first_name, last_name, email, phone, service_type, from_address, to_address, move_date, details, source, status,
          truck_config, truck_provider, truck_size, crew_size, confirmed_hours, base_price, total_price,
-         booking_id, quote_snapshot, zone_snapshot, arrival_window, deposit_required, is_quote_only)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'instant_booking_hold','quote_requested',
-              $9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,true,$20)
+         booking_id, quote_snapshot, zone_snapshot, arrival_window, deposit_required, is_quote_only,
+         sms_consent, sms_consent_recorded_at, sms_consent_source, financial_status)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'instant_booking_hold',$10,
+              $11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20::jsonb,$21,$22,$23,
+              $24,$25,'instant_booking',$26)
       RETURNING id, order_number
     `, [
       firstName,
@@ -1207,15 +1610,17 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
       normalizedPhone,
       input.service === "moving" ? "Residential Move" : input.service === "labor" ? "Labor" : "Junk Removal",
       input.serviceAddress,
+      input.destinationAddress || null,
       input.requestedDate,
       [
-        "[PENDING ONLINE HOLD - ADMIN REVIEW REQUIRED]",
+        autoBookEligible ? "[STANDARD ONLINE BOOKING - 30% DEPOSIT REQUIRED]" : "[PENDING ONLINE HOLD - ADMIN REVIEW REQUIRED]",
         `Requested start: ${input.requestedDate} ${timeLabel(input.startTime)} ${INSTANT_BOOKING_TIME_ZONE}`,
         `Estimate: $${quote.minEstimate}–$${quote.maxEstimate} (subject to review)`,
         `Crew required: ${quote.crewSize}`,
         `Hours: ${quote.requestedHours}`,
         input.notes ? `Customer notes: ${input.notes}` : "",
       ].filter(Boolean).join("\n"),
+      initialLeadStatus,
       input.truckSource === "jc_on_the_move" ? "company_truck" : input.truckSource === "customer" ? "customer_truck" : input.truckSource === "rental" ? "rental_truck" : "no_truck",
       input.truckSource,
       input.truckSize,
@@ -1227,7 +1632,11 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
       JSON.stringify(quoteSnapshot),
       JSON.stringify({ zoneCode: quote.zoneCode, zoneName: quote.zoneName, travelFallback: quote.travelFallback }),
       `${timeLabel(input.startTime)}–${timeLabel(`${String(Math.min(23, Number(input.startTime.slice(0, 2)) + Math.ceil(quote.requestedHours))).padStart(2, "0")}:00`)}`,
-      quote.travelFallback,
+      autoBookEligible || quote.travelFallback,
+      !autoBookEligible,
+      input.smsConsent,
+      input.smsConsent ? new Date() : null,
+      autoBookEligible ? "awaiting_deposit" : "quote",
     ]);
     const leadId = String(leadResult.rows[0]?.id || "");
     if (!leadId) throw new Error("Lead insert returned no id");
@@ -1235,7 +1644,7 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
     const holdResult = await tx.query(`
       INSERT INTO booking_slot_holds
         (booking_id, lead_id, service_date, start_at, duration_minutes, crew_size, status, expires_at, review_required, zone_code, quote_snapshot)
-      VALUES ($1,$2,$3::date,$4::timestamptz,$5,$6,'pending_review',$7::timestamptz,$8,$9,$10::jsonb)
+        VALUES ($1,$2,$3::date,$4::timestamptz,$5,$6,$7,$8::timestamptz,$9,$10,$11::jsonb)
       RETURNING id
     `, [
       bookingId,
@@ -1244,13 +1653,94 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
       capacity.startAt.toISOString(),
       quote.durationMinutes,
       quote.crewSize,
+      initialHoldStatus,
       expiresAt.toISOString(),
-      quote.reviewRequired,
+      !autoBookEligible || quote.reviewRequired,
       quote.zoneCode,
       JSON.stringify(quoteSnapshot),
     ]);
     await tx.query("COMMIT");
     const holdId = String(holdResult.rows[0]?.id || "");
+
+    let quoteRevision: Awaited<ReturnType<typeof saveQuoteDraft>> | null = null;
+    let approvedQuote: Awaited<ReturnType<typeof approveQuoteRevision>> | null = null;
+    let finalStatus = initialHoldStatus;
+    let paymentUrl: string | null = null;
+    let depositSquareInvoiceId: string | null = null;
+    let invoiceWarning: string | null = null;
+    let depositAmount: number | null = null;
+    try {
+      quoteRevision = await saveQuoteDraft({
+        leadId,
+        actorUserId: null,
+        lineItems: quote.lineItems,
+        discountTotal: 0,
+        notes: input.notes || null,
+        serviceDate: input.requestedDate,
+      });
+      if (autoBookEligible) {
+        const owner = await pool.query<{ id: string; email: string }>(
+          `SELECT id, email FROM users WHERE role='business_owner' AND status='approved' ORDER BY created_at ASC LIMIT 1`,
+        );
+        if (!owner.rows[0]) throw new Error("No approved business owner is configured for automatic quote approval");
+        approvedQuote = await approveQuoteRevision({
+          quoteId: quoteRevision.id,
+          actor: { userId: owner.rows[0].id, email: owner.rows[0].email, isOwner: true, canApproveStandard: true },
+          overrideReason: null,
+        });
+        depositAmount = Math.round(approvedQuote.customerTotal * 0.3 * 100) / 100;
+        const termsHash = crypto.createHash("sha256").update(`${input.termsVersion}:${approvedQuote.id}:${approvedQuote.customerTotal.toFixed(2)}`).digest("hex");
+        await pool.query(
+          `INSERT INTO job_agreements
+             (lead_id, quote_revision_id, terms_version, terms_hash, acceptance_method, acceptance_token_id)
+           VALUES ($1,$2,$3,$4,'web_checkbox',$5)
+           ON CONFLICT (lead_id, quote_revision_id, terms_hash) DO NOTHING`,
+          [leadId, approvedQuote.id, input.termsVersion, termsHash, holdId],
+        );
+        await pool.query(
+          `UPDATE leads SET base_price=$2, total_price=$3, deposit_required=true,
+                  deposit_amount_gate=$4, is_quote_only=false, financial_status='awaiting_deposit',
+                  last_quote_updated_at=NOW()
+            WHERE id=$1`,
+          [leadId, approvedQuote.subtotal, approvedQuote.customerTotal, depositAmount],
+        );
+        await pool.query(
+          `UPDATE bookings SET subtotal=$2, discount_total=$3, final_total=$4, status='awaiting_deposit' WHERE id=$1`,
+          [bookingId, approvedQuote.subtotal, approvedQuote.discountTotal, approvedQuote.customerTotal],
+        );
+        const freshLead = await storage.getLead(leadId);
+        if (!freshLead) throw new Error("Automatic booking lead could not be reloaded");
+        const { squareInvoiceService } = await import("../services/square-invoice");
+        if (!squareInvoiceService.isConfigured()) {
+          invoiceWarning = "Square is not configured. The time remains held while staff sends the deposit request.";
+        } else {
+          const hasCustomerEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(freshLead.email)
+            && !/@jconthemove\.local$/i.test(freshLead.email);
+          const invoice = await squareInvoiceService.createInvoiceForLead(
+            freshLead,
+            depositAmount,
+            `30% scheduling deposit for JC ON THE MOVE ${freshLead.serviceType} job`,
+            undefined,
+            hasCustomerEmail ? "email" : "none",
+            { purpose: "deposit", quoteRevisionId: approvedQuote.id },
+          );
+          paymentUrl = invoice.invoiceUrl || null;
+          depositSquareInvoiceId = invoice.squareInvoiceId;
+          await db.update(leads).set({ squarePaymentUrl: paymentUrl }).where(eq(leads.id, leadId));
+        }
+      }
+    } catch (quoteRevisionError) {
+      // The hold and lead are still useful for recovery, but they may not be
+      // approved or invoiced until the revision service succeeds.
+      console.error("[instant-booking/hold] quote revision creation failed:", quoteRevisionError instanceof Error ? quoteRevisionError.message : quoteRevisionError);
+      if (autoBookEligible) {
+        finalStatus = "pending_review";
+        invoiceWarning = "Automatic approval could not finish, so the request was moved to staff review. No payment was taken.";
+        await pool.query(`UPDATE booking_slot_holds SET status='pending_review', review_required=true WHERE id=$1`, [holdId]).catch(() => undefined);
+        await pool.query(`UPDATE bookings SET status='pending_review' WHERE id=$1`, [bookingId]).catch(() => undefined);
+        await pool.query(`UPDATE leads SET status='quote_requested', financial_status='quote' WHERE id=$1`, [leadId]).catch(() => undefined);
+      }
+    }
 
     // Every quote request is offered for crew-size and quote sampling. The
     // pending-hold flag keeps it distinct from a confirmed dispatch.
@@ -1262,17 +1752,44 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
         extra: { bookingId, holdId, pendingHold: true, expiresAt: expiresAt.toISOString() },
       });
     }
+    try {
+      const { emitCustomerLifecycleEvent } = await import("../services/customerLifecycle");
+      await emitCustomerLifecycleEvent({
+        leadId,
+        type: paymentUrl ? "deposit_invoice_sent" : "booking_request_received",
+        eventKey: `${leadId}:instant_hold:${holdId}:${finalStatus}`,
+        title: paymentUrl ? "Your deposit link is ready" : "Your booking request is received",
+        message: paymentUrl
+          ? `Your standard job and requested time are approved. Pay the $${Number(depositAmount || 0).toFixed(2)} scheduling deposit within 24 hours to confirm the time.`
+          : finalStatus === "pending_review"
+            ? "Your requested time is held for 24 hours while the team reviews route, scope, and crew requirements. No payment has been taken."
+            : "Your requested time is held while staff prepares the scheduling deposit link.",
+        payload: { bookingId, holdId, status: finalStatus, expiresAt: expiresAt.toISOString(), depositAmount, squareInvoiceId: depositSquareInvoiceId },
+        actionUrl: paymentUrl || undefined,
+      });
+    } catch (customerEventError) {
+      console.error("[instant-booking/hold] customer confirmation notification failed:", customerEventError);
+    }
     return res.status(201).json({
       success: true,
       bookingId,
       leadId,
       holdId,
-      status: "pending_review",
+      status: finalStatus,
       expiresAt: expiresAt.toISOString(),
       quote,
-      message: quote.travelFallback
-        ? "We received your conditional hold and travel estimate. An admin will review it before any deposit is requested."
-        : "Your requested time is held for 24 hours pending our review. No payment has been taken yet.",
+      quoteRevisionId: approvedQuote?.id || quoteRevision?.id || null,
+      quoteRevision: approvedQuote?.revision || quoteRevision?.revision || null,
+      depositAmount,
+      paymentUrl,
+      invoiceWarning,
+      message: finalStatus === "awaiting_deposit"
+        ? paymentUrl
+          ? "Your standard job is approved. Pay the 30% Square deposit within 24 hours to confirm the time and start crew assignment."
+          : "Your standard job is approved and held for 24 hours. Staff will send the 30% deposit request."
+        : quote.travelFallback
+          ? "We received your conditional hold and travel estimate. An admin will review it before any deposit is requested."
+          : "Your requested time is held for 24 hours pending our review. No payment has been taken yet.",
     });
   } catch (error) {
     if (client) {
@@ -1290,8 +1807,9 @@ router.post("/instant-booking/hold", async (req: Request, res: Response) => {
 router.post("/bookings/quote", async (req: Request, res: Response) => {
   try {
     const body = bookingQuoteRequestSchema.parse(req.body);
+    const activePricing = await getActivePricingSnapshot();
     const catalog = await loadCatalog();
-    const { pricingInputs, persistInputs } = resolveItems(body.items, catalog);
+    const { pricingInputs, persistInputs } = resolveItems(body.items, catalog, activePricing.snapshot);
     // Pull live reward-engine settings so the displayed estimate uses the
     // exact same flatBonus/earnRate the issuer (disburseBookingTokens) will
     // use at confirmation time. Booking creation snapshots these onto the
@@ -1309,15 +1827,25 @@ router.post("/bookings/quote", async (req: Request, res: Response) => {
     // amount is surfaced (rather than silently zeroed) and the discounted
     // line + new finalTotal flow into both the displayed quote AND the
     // persisted booking when the customer hits "Confirm".
-    const requestedDate = firstDetailValue(persistInputs, ["requestedDate", "moveDate", "date"]);
+    const requestedDate = body.requestedDate || firstDetailValue(persistInputs, ["requestedDate", "moveDate", "date"]);
     const serviceAddress = body.serviceAddress || firstDetailValue(persistInputs, ["serviceAddress", "fromAddress", "address"]);
     let result: BookingPricingWithAddressDiscount & {
       tokenRedemption?: { tokens: number; discountUsd: number };
-    } = applyServiceAddressDiscount(baseResult, {
+    } = await applyBookingGeographicPricing({
+      quote: baseResult,
+      body,
+      items: persistInputs,
+      requestedDate,
+      pricing: activePricing.snapshot,
+      flatBonus: settings.flatBonus,
+      earnRate: settings.earnRate,
+    });
+    result = applyServiceAddressDiscount(result, {
       serviceAddress,
       requestedDate,
       flatBonus: settings.flatBonus,
       earnRate: settings.earnRate,
+      pricing: activePricing.snapshot,
     });
     if (body.applyTokens && body.applyTokens > 0) {
       const { validateRedemption, tokensToDollars } = await import("@shared/tokenRedemptionRules");
@@ -1345,21 +1873,66 @@ router.post("/bookings/quote", async (req: Request, res: Response) => {
     // here and the customer sees no change until operators promote.
     let surge: { multiplier: number; band: string; reason: string; surgedTotal: number; zone: string | null } | null = null;
     try {
-      const { getDemandForCoords } = await import("../demand");
-      const { surge: decision, zone } = await getDemandForCoords(body.serviceLat, body.serviceLng);
-      if (decision.multiplier !== 1) {
-        const surgedTotal = +(result.finalTotal * decision.multiplier).toFixed(2);
-        result = { ...result, finalTotal: surgedTotal };
+      // The versioned geographic policy is the sole location premium once
+      // published; legacy demand surge must not stack on top of it.
+      if (!activePricing.snapshot.geographicPolicy) {
+        const { getDemandForCoords } = await import("../demand");
+        const { surge: decision, zone } = await getDemandForCoords(body.serviceLat, body.serviceLng);
+        if (decision.multiplier !== 1) {
+          const surgedTotal = +(result.finalTotal * decision.multiplier).toFixed(2);
+          result = { ...result, finalTotal: surgedTotal };
+        }
+        surge = {
+          multiplier: decision.multiplier,
+          band: decision.band,
+          reason: decision.reason,
+          surgedTotal: result.finalTotal,
+          zone: zone?.name ?? null,
+        };
       }
-      surge = {
-        multiplier: decision.multiplier,
-        band: decision.band,
-        reason: decision.reason,
-        surgedTotal: result.finalTotal,
-        zone: zone?.name ?? null,
-      };
     } catch (e) {
       console.warn("[bookings/quote] surge compute failed:", e instanceof Error ? e.message : e);
+    }
+    // Keep the owner-publishable geographic version in shadow mode until it
+    // is explicitly activated. This comparison never changes the response.
+    if (activePricing.snapshot.version !== "2026.08.1") {
+      void (async () => {
+        try {
+          const candidate = await getPricingSnapshotByCode("2026.08.1");
+          if (!candidate) return;
+          const candidateItems = resolveItems(body.items, catalog, candidate.snapshot);
+          const candidateBase = await quoteBundle(candidateItems.pricingInputs, {
+            flatBookingBonus: settings.flatBonus,
+            earnRatePerDollar: settings.earnRate,
+          });
+          const candidateGeo = await applyBookingGeographicPricing({
+            quote: candidateBase,
+            body,
+            items: candidateItems.persistInputs,
+            requestedDate,
+            pricing: candidate.snapshot,
+            flatBonus: settings.flatBonus,
+            earnRate: settings.earnRate,
+          });
+          const candidateFinal = applyServiceAddressDiscount(candidateGeo, {
+            serviceAddress,
+            requestedDate,
+            flatBonus: settings.flatBonus,
+            earnRate: settings.earnRate,
+            pricing: candidate.snapshot,
+          });
+          console.info("[pricing-shadow]", JSON.stringify({
+            activeVersion: activePricing.snapshot.version,
+            candidateVersion: candidate.snapshot.version,
+            activePreCreditTotal: result.serviceabilityTotal ?? result.finalTotal,
+            candidatePreCreditTotal: candidateFinal.serviceabilityTotal ?? candidateFinal.finalTotal,
+            difference: +((candidateFinal.serviceabilityTotal ?? candidateFinal.finalTotal) - (result.serviceabilityTotal ?? result.finalTotal)).toFixed(2),
+            travelEligibility: candidateFinal.travelEligibility,
+          }));
+        } catch (shadowError) {
+          console.warn("[pricing-shadow] candidate comparison failed:", shadowError instanceof Error ? shadowError.message : shadowError);
+        }
+      })();
     }
     // Task #170 — shadow mode. Fire-and-forget a parallel pipeline run
     // and log the parity comparison. Never awaited — response latency is
@@ -1382,7 +1955,15 @@ router.post("/bookings/quote", async (req: Request, res: Response) => {
         console.warn("[bookings/quote] shadow run failed:", e instanceof Error ? e.message : e);
       }
     })();
-    return res.json({ success: true, quote: result, surge });
+    return res.json({
+      success: true,
+      quote: {
+        ...result,
+        pricingVersion: activePricing.snapshot.version,
+        pricingSource: activePricing.source,
+      },
+      surge,
+    });
   } catch (err) {
     if (err instanceof ZodError) {
       return res.status(400).json({ error: "Invalid request", details: err.errors });
@@ -1566,8 +2147,9 @@ async function autoProvisionTrashSubscriptionFromBooking(args: {
 router.post("/bookings", async (req: Request, res: Response) => {
   try {
     const body = bookingCreateRequestSchema.parse(req.body);
+    const activePricing = await getActivePricingSnapshot();
     const catalog = await loadCatalog();
-    const { pricingInputs, persistInputs } = resolveItems(body.items, catalog);
+    const { pricingInputs, persistInputs } = resolveItems(body.items, catalog, activePricing.snapshot);
     const bundles = await loadBundles();
     // Snapshot of the active reward-engine settings at quote/creation time.
     // Persisting these on the booking row guarantees the customer-facing
@@ -1613,15 +2195,25 @@ router.post("/bookings", async (req: Request, res: Response) => {
         serverTier = "bronze";
       }
     }
-    const requestedDateForDiscount = firstDetailValue(persistInputs, ["requestedDate", "moveDate", "date"]);
+    const requestedDateForDiscount = body.requestedDate || firstDetailValue(persistInputs, ["requestedDate", "moveDate", "date"]);
     const serviceAddressForDiscount = body.serviceAddress || firstDetailValue(persistInputs, ["serviceAddress", "fromAddress", "address"]);
     let quote: BookingPricingWithAddressDiscount & {
       tokenRedemption?: { tokens: number; discountUsd: number };
-    } = applyServiceAddressDiscount(baseQuote, {
+    } = await applyBookingGeographicPricing({
+      quote: baseQuote,
+      body,
+      items: persistInputs,
+      requestedDate: requestedDateForDiscount,
+      pricing: activePricing.snapshot,
+      flatBonus: settings.flatBonus,
+      earnRate: settings.earnRate,
+    });
+    quote = applyServiceAddressDiscount(quote, {
       serviceAddress: serviceAddressForDiscount,
       requestedDate: requestedDateForDiscount,
       flatBonus: settings.flatBonus,
       earnRate: settings.earnRate,
+      pricing: activePricing.snapshot,
     });
     if (wantsTokens) {
       const { validateRedemption, tokensToDollars } = await import("@shared/tokenRedemptionRules");
@@ -1731,6 +2323,26 @@ router.post("/bookings", async (req: Request, res: Response) => {
           rewardFlatBonusSnapshot: Math.round(settings.flatBonus),
           rewardEarnRateSnapshot: (Number.isFinite(settings.earnRate) ? settings.earnRate : 0).toFixed(4),
           rewardBonusMultiplierSnapshot: money(appliedMultiplier),
+          pricingVersionId: activePricing.versionId,
+          pricingVersionCode: activePricing.snapshot.version,
+          pricingSnapshot: {
+            capturedAt: new Date().toISOString(),
+            source: activePricing.source,
+            pricing: activePricing.snapshot,
+            quote: {
+              subtotal: quote.subtotal,
+              discountTotal: quote.discountTotal,
+              finalTotal: quote.finalTotal,
+              bundleApplied: quote.bundleApplied ?? null,
+              serviceAddressDiscount: quote.serviceAddressDiscount ?? null,
+              pricingAdjustments: quote.pricingAdjustments ?? null,
+              travelEligibility: quote.travelEligibility ?? null,
+              routeEvidence: quote.routeEvidence ?? null,
+              serviceabilityTotal: quote.serviceabilityTotal ?? quote.finalTotal,
+              tokenRedemption: quote.tokenRedemption ?? null,
+              items: quote.items,
+            },
+          },
           status: bookingStatus,
           source: body.source || "api",
         })
@@ -1786,7 +2398,7 @@ router.post("/bookings", async (req: Request, res: Response) => {
             submittedByUserId: requestUser.id,
             approvalRole: "silver_submission",
             status: "pending",
-            notes: "Silver quote draft requires Darrell or 2 Gold approvals.",
+            notes: "Silver quote draft requires a Gold+ reviewer or business-owner approval.",
           });
         }
       } catch (attrErr) {
@@ -1896,6 +2508,9 @@ router.post("/bookings", async (req: Request, res: Response) => {
           subtotal: quote.subtotal,
           discountTotal: quote.discountTotal,
           finalTotal: quote.finalTotal,
+          pricingVersion: activePricing.snapshot.version,
+          pricingSource: activePricing.source,
+          serviceStops: body.serviceStops || [],
           tokenEstimate: quote.tokenEstimate,
           marketingCampaignId: marketingCampaignId || null,
           marketingTracking,
@@ -1907,6 +2522,10 @@ router.post("/bookings", async (req: Request, res: Response) => {
             marketingTracking,
           },
           bundleApplied: quote.bundleApplied ?? null,
+          pricingAdjustments: quote.pricingAdjustments ?? null,
+          travelEligibility: quote.travelEligibility ?? null,
+          routeEvidence: quote.routeEvidence ?? null,
+          serviceabilityTotal: quote.serviceabilityTotal ?? quote.finalTotal,
           marketplaceQuotePreview,
           items: quote.items,
           requestedItems: persistInputs.map((item) => ({
@@ -1969,6 +2588,35 @@ router.post("/bookings", async (req: Request, res: Response) => {
       }
     } catch (leadErr) {
       console.error("[bookings] marketplace lead bridge failed:", leadErr instanceof Error ? leadErr.message : leadErr);
+    }
+
+    let quoteRevision: Awaited<ReturnType<typeof saveQuoteDraft>> | null = null;
+    if (linkedLead) {
+      try {
+        quoteRevision = await saveQuoteDraft({
+          leadId: linkedLead.id,
+          actorUserId: requestUser?.id || null,
+          lineItems: quote.items.map((item) => ({
+            name: item.label,
+            serviceCode: item.serviceCode,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            total: item.lineSubtotal,
+            discountEligible: item.discountEligible !== false,
+            metadata: {
+              details: item.details || {},
+              laborMeta: item.laborMeta || null,
+            },
+          })),
+          discountTotal: quote.discountTotal,
+          notes: body.notes || null,
+          serviceDate: requestedDateForDiscount,
+        });
+      } catch (quoteRevisionError) {
+        // Preserve legacy booking creation during rollout, while surfacing a
+        // loud server-side error instead of fabricating approval state.
+        console.error("[bookings] quote revision creation failed:", quoteRevisionError instanceof Error ? quoteRevisionError.message : quoteRevisionError);
+      }
     }
 
     const trashItem = persistInputs.find((p) => p.serviceCode === "trash_valet");
@@ -2058,7 +2706,18 @@ router.post("/bookings", async (req: Request, res: Response) => {
       console.error("[bookings] admin notification failed:", notifyErr instanceof Error ? notifyErr.message : notifyErr);
     }
 
-    return res.status(201).json({ success: true, booking, quote, walletPay, lead: linkedLead });
+    return res.status(201).json({
+      success: true,
+      booking,
+      quote: {
+        ...quote,
+        pricingVersion: activePricing.snapshot.version,
+        pricingSource: activePricing.source,
+      },
+      walletPay,
+      lead: linkedLead,
+      quoteRevision,
+    });
   } catch (err) {
     if (err instanceof ZodError) {
       return res.status(400).json({ error: "Invalid request", details: err.errors });
@@ -2116,12 +2775,28 @@ router.get("/bundles/featured", async (_req: Request, res: Response) => {
 // ── GET /api/service-catalog ──────────────────────────────────────────────
 router.get("/service-catalog", async (_req: Request, res: Response) => {
   try {
+    const activePricing = await getActivePricingSnapshot();
     const rows = await db
       .select()
       .from(serviceCatalog)
       .where(eq(serviceCatalog.isActive, true))
       .orderBy(asc(serviceCatalog.sortOrder));
-    return res.json({ services: rows });
+    const services = rows.map((row) => {
+      const summary = catalogPriceSummary(row.code, activePricing.snapshot);
+      return summary
+        ? {
+            ...row,
+            defaultPrice: summary.defaultPrice == null ? null : summary.defaultPrice.toFixed(2),
+            suggestedMin: summary.suggestedMin.toFixed(2),
+            suggestedMax: summary.suggestedMax.toFixed(2),
+          }
+        : row;
+    });
+    return res.json({
+      services,
+      pricingVersion: activePricing.snapshot.version,
+      pricingSource: activePricing.source,
+    });
   } catch (err) {
     console.error("[service-catalog] error:", err);
     return res.status(500).json({ error: "Failed to load service catalog" });
@@ -2306,7 +2981,9 @@ const reviewInstantBookingHoldSchema = z.object({
   decision: z.enum(["approve", "release"]),
   total: z.coerce.number().positive().max(100000).optional(),
   notes: z.string().trim().max(2000).optional().transform((value) => value || ""),
-  sendDepositLink: z.boolean().optional().default(true),
+  // Approval alone is silent. The caller must explicitly request the
+  // customer-facing deposit invoice/link.
+  sendDepositLink: z.boolean().optional().default(false),
 });
 
 router.patch("/admin/booking-holds/:id", isAuthenticated, async (req: any, res: Response) => {
@@ -2334,36 +3011,78 @@ router.patch("/admin/booking-holds/:id", isAuthenticated, async (req: any, res: 
       return res.json({ success: true, status: "released", message: "The pending hold was released. The lead remains available for a manual follow-up." });
     }
 
-    const snapshot = typeof hold.quote_snapshot === "string"
-      ? JSON.parse(hold.quote_snapshot)
-      : (hold.quote_snapshot || {});
-    const estimatedTotal = Number(snapshot?.quote?.maxEstimate || 0);
-    const total = Math.round((input.total || estimatedTotal) * 100) / 100;
-    if (!Number.isFinite(total) || total <= 0) return res.status(400).json({ error: "Enter an approved total before requesting the deposit." });
-    const depositAmount = Math.round(total * 0.3 * 100) / 100;
     const [lead] = await db.select().from(leads).where(eq(leads.id, hold.lead_id)).limit(1);
     if (!lead) return res.status(404).json({ error: "Lead for this hold was not found" });
 
+    const actor = actorId ? await storage.getUser(actorId) : null;
+    if (!actor) return res.status(403).json({ error: "Approved staff access required" });
+    const actorIsOwner = actor.role === "business_owner"
+      || actor.email === "upmichiganstatemovers@gmail.com";
+    let draft = await getLatestQuoteRevision(lead.id);
+    if (!draft || draft.status !== "draft") {
+      draft = await saveQuoteDraft({
+        leadId: lead.id,
+        actorUserId: actor.id,
+        notes: input.notes || lead.quoteNotes || null,
+        serviceDate: lead.confirmedDate || lead.moveDate || null,
+      });
+    }
+    if (input.total != null && Math.abs(input.total - draft.customerTotal) >= 0.01) {
+      const multiplier = Math.max(0.01, Number((draft.pricingAdjustments as any)?.compoundedMultiplier || 1));
+      const baseForRequestedTotal = Math.round((input.total / multiplier) * 100) / 100;
+      draft = await saveQuoteDraft({
+        leadId: lead.id,
+        actorUserId: actor.id,
+        lineItems: [{
+          name: lead.serviceType || "Service",
+          quantity: 1,
+          unitPrice: baseForRequestedTotal,
+          total: baseForRequestedTotal,
+          discountEligible: true,
+          metadata: { staffAdjustedFromHold: true },
+        }],
+        discountTotal: 0,
+        notes: input.notes || lead.quoteNotes || null,
+        serviceDate: lead.confirmedDate || lead.moveDate || null,
+      });
+    }
+    const approvedQuote = await approveQuoteRevision({
+      quoteId: draft.id,
+      actor: {
+        userId: actor.id,
+        email: actor.email,
+        isOwner: actorIsOwner,
+        canApproveStandard: true,
+      },
+      overrideReason: input.notes || null,
+    });
+    const total = approvedQuote.customerTotal;
+    if (!Number.isFinite(total) || total <= 0) return res.status(400).json({ error: "Enter an approved total before requesting the deposit." });
+    const depositAmount = Math.round(total * 0.3 * 100) / 100;
+
     await pool.query(
-      "UPDATE booking_slot_holds SET status='awaiting_deposit', admin_notes=$2, reviewed_by_user_id=$3, reviewed_at=NOW(), expires_at=NULL, updated_at=NOW() WHERE id=$1",
+      "UPDATE booking_slot_holds SET status='awaiting_deposit', admin_notes=$2, reviewed_by_user_id=$3, reviewed_at=NOW(), expires_at=NOW()+INTERVAL '24 hours', updated_at=NOW() WHERE id=$1",
       [hold.id, input.notes || null, actorId],
     );
     await pool.query(
-      "UPDATE bookings SET subtotal=$2, final_total=$2, status='awaiting_deposit' WHERE id=$1",
-      [hold.booking_id, total.toFixed(2)],
+      "UPDATE bookings SET subtotal=$2, discount_total=$3, final_total=$4, status='awaiting_deposit' WHERE id=$1",
+      [hold.booking_id, approvedQuote.subtotal.toFixed(2), approvedQuote.discountTotal.toFixed(2), total.toFixed(2)],
     );
     await db.update(leads).set({
-      basePrice: total.toFixed(2),
+      basePrice: approvedQuote.subtotal.toFixed(2),
       totalPrice: total.toFixed(2),
       depositRequired: true,
       depositAmount: depositAmount.toFixed(2),
       isQuoteOnly: false,
+      financialStatus: "awaiting_deposit",
       quoteNotes: input.notes || lead.quoteNotes,
       lastQuoteUpdatedAt: new Date(),
     }).where(eq(leads.id, lead.id));
 
     let paymentUrl: string | null = null;
+    let depositSquareInvoiceId: string | null = null;
     let invoiceWarning: string | null = null;
+    let quoteSent = false;
     if (input.sendDepositLink) {
       try {
         const { squareInvoiceService } = await import("../services/square-invoice");
@@ -2378,10 +3097,18 @@ router.patch("/admin/booking-holds/:id", isAuthenticated, async (req: any, res: 
             "30% scheduling deposit for approved JC ON THE MOVE " + lead.serviceType + " job",
             undefined,
             hasCustomerEmail ? "email" : "none",
+            { purpose: "deposit", quoteRevisionId: approvedQuote.id },
           );
           paymentUrl = invoice.invoiceUrl || null;
+          depositSquareInvoiceId = invoice.squareInvoiceId;
           if (paymentUrl) {
             await db.update(leads).set({ squarePaymentUrl: paymentUrl }).where(eq(leads.id, lead.id));
+            if (hasCustomerEmail) {
+              const sentAt = new Date();
+              await markQuoteRevisionSent({ quoteId: approvedQuote.id, actorUserId: actor.id, sentAt });
+              await db.update(leads).set({ quoteSentAt: sentAt }).where(eq(leads.id, lead.id));
+              quoteSent = true;
+            }
           } else {
             invoiceWarning = "Square created the invoice without returning a shareable link.";
           }
@@ -2392,6 +3119,23 @@ router.patch("/admin/booking-holds/:id", isAuthenticated, async (req: any, res: 
       }
     }
 
+    if (paymentUrl) {
+      try {
+        const { emitCustomerLifecycleEvent } = await import("../services/customerLifecycle");
+        await emitCustomerLifecycleEvent({
+          leadId: lead.id,
+          type: "deposit_invoice_sent",
+          eventKey: `${lead.id}:deposit_invoice_sent:${depositSquareInvoiceId || approvedQuote.id}`,
+          title: "Your approved deposit link is ready",
+          message: `Pay the $${depositAmount.toFixed(2)} scheduling deposit within 24 hours to confirm the requested time and start crew assignment.`,
+          payload: { holdId: hold.id, quoteRevisionId: approvedQuote.id, squareInvoiceId: depositSquareInvoiceId, depositAmount },
+          actionUrl: paymentUrl,
+        });
+      } catch (customerEventError) {
+        console.error("[admin/booking-holds] deposit customer notification failed:", customerEventError);
+      }
+    }
+
     return res.json({
       success: true,
       status: "awaiting_deposit",
@@ -2399,6 +3143,9 @@ router.patch("/admin/booking-holds/:id", isAuthenticated, async (req: any, res: 
       depositAmount,
       paymentUrl,
       invoiceWarning,
+      quoteRevisionId: approvedQuote.id,
+      quoteRevision: approvedQuote.revision,
+      quoteSent,
       message: paymentUrl
         ? "Hold approved and deposit link created. Once Square confirms payment, the hold becomes confirmed."
         : "Hold approved and awaiting deposit. No crew notification has been sent yet.",
@@ -2583,6 +3330,17 @@ router.post(
         .limit(1);
       if (!parent) return res.status(404).json({ error: "Booking not found" });
 
+      const [linkedLead] = await db.select().from(leads).where(eq(leads.bookingId, parent.id)).limit(1);
+      if (linkedLead) {
+        const revision = await getLatestQuoteRevision(linkedLead.id);
+        if (!revision || !["approved", "sent"].includes(revision.status)) {
+          return res.status(409).json({ error: "Approve the latest quote revision before confirming this booking." });
+        }
+        if (linkedLead.depositRequired && !linkedLead.depositPaid) {
+          return res.status(409).json({ error: "The required scheduling deposit has not been paid." });
+        }
+      }
+
       if (parent.status === "quote") {
         await db
           .update(bookings)
@@ -2609,42 +3367,45 @@ router.post(
       const user = await getRequestUser(req);
       if (!user) return res.status(401).json({ message: "Not authenticated" });
       const authority = await getAuthorityForUser(user);
-      const ownerApproval = user.role === "admin" || user.role === "business_owner" || user.email === "upmichiganstatemovers@gmail.com";
-      if (!ownerApproval && authority.rank < tierRank.gold) {
+      const ownerApproval = user.role === "business_owner" || user.email === "upmichiganstatemovers@gmail.com";
+      const canApproveStandard = ownerApproval || user.role === "admin" || authority.rank >= tierRank.gold;
+      if (!canApproveStandard) {
         return res.status(403).json({ message: "Gold or Platinum authority required" });
       }
       const [parent] = await db.select().from(bookings).where(eq(bookings.id, req.params.id)).limit(1);
       if (!parent) return res.status(404).json({ message: "Booking not found" });
-
-      const approvalRole = ownerApproval ? "owner_approval" : "gold_vote";
-      await db.insert(quoteApprovals).values({
-        bookingId: parent.id,
-        approvedByUserId: user.id,
-        approvalRole,
-        status: "approved",
-        notes: typeof req.body?.notes === "string" ? req.body.notes.slice(0, 1000) : null,
-      });
-
-      const [voteRow] = await db.select({ count: sql<number>`count(distinct ${quoteApprovals.approvedByUserId})::int` })
-        .from(quoteApprovals)
-        .where(and(eq(quoteApprovals.bookingId, parent.id), eq(quoteApprovals.status, "approved"), eq(quoteApprovals.approvalRole, "gold_vote")));
-      const goldVotes = Number(voteRow?.count || 0);
-      const approved = ownerApproval || goldVotes >= 2;
-      if (approved) {
-        await db.update(bookings)
-          .set({ status: "quote" })
-          .where(eq(bookings.id, parent.id));
+      const [linkedLead] = await db.select().from(leads).where(eq(leads.bookingId, parent.id)).limit(1);
+      if (!linkedLead) return res.status(409).json({ message: "This booking has no linked lead for quote revision approval." });
+      const notes = typeof req.body?.notes === "string" ? req.body.notes.slice(0, 1000) : null;
+      let draft = await getLatestQuoteRevision(linkedLead.id);
+      if (!draft || draft.status !== "draft") {
+        draft = await saveQuoteDraft({ leadId: linkedLead.id, actorUserId: user.id, notes });
       }
+      const revision = await approveQuoteRevision({
+        quoteId: draft.id,
+        actor: {
+          userId: user.id,
+          email: user.email,
+          isOwner: ownerApproval,
+          canApproveStandard,
+        },
+        overrideReason: notes,
+      });
+      await db.update(bookings)
+        .set({ status: "quote", subtotal: revision.subtotal.toFixed(2), discountTotal: revision.discountTotal.toFixed(2), finalTotal: revision.customerTotal.toFixed(2) })
+        .where(eq(bookings.id, parent.id));
       await db.insert(quoteAttributions).values({
         bookingId: parent.id,
+        leadId: linkedLead.id,
         userId: user.id,
-        attributionType: approved ? "quote_approver" : "gold_vote",
-        metadata: { approved, goldVotes },
+        attributionType: "quote_approver",
+        metadata: { approved: true, quoteRevisionId: revision.id },
       });
-      res.json({ success: true, approved, goldVotes });
+      res.json({ success: true, approved: true, quote: revision });
     } catch (err) {
       console.error("[worker booking approval] error:", err);
-      res.status(500).json({ message: "Failed to approve quote" });
+      const message = err instanceof Error ? err.message : "Failed to approve quote";
+      res.status(/owner|required|cannot|exceeds/i.test(message) ? 403 : 400).json({ message });
     }
   },
 );

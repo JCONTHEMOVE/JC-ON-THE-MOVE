@@ -12,10 +12,8 @@
 //     dollar amount is minted as JCMOVES USD service credit in the
 //     customer's wallet.
 //
-// User rule: any new add-on without an explicit `priceUsd` defaults to
-// the "$100 Shop Card" treatment when surfaced through
-// `getBillableShopCardLine` — that's why the helper falls back to
-// SHOP_CARD_DEFAULT instead of silently dropping the line.
+// Shop cards are only billed when the customer explicitly selects one.
+// Companion-service selections never create an implicit wallet purchase.
 
 export type BundleAddonFulfillment = "companion_service" | "shop_card";
 
@@ -26,29 +24,34 @@ export interface BundleAddon {
   hint: string;
   fulfillmentType: BundleAddonFulfillment;
   priceUsd?: number;            // present iff billed up front
+  walletCreditUsd?: number;     // credit granted after verified payment
   grantsWalletCredit?: boolean; // shop_card → mint equivalent JCMOVES USD on payment
   shortDescription?: string;    // used in confirmation email + admin email
   redeemableCopy?: string;      // customer-facing "where can I spend this?"
 }
 
-export const SHOP_CARD_DEFAULT_AMOUNT_USD = 100;
+export const SHOP_CARD_PRICE_USD = 90;
+export const SHOP_CARD_CREDIT_USD = 100;
+/** Backward-compatible export; this is the credit face value, not its price. */
+export const SHOP_CARD_DEFAULT_AMOUNT_USD = SHOP_CARD_CREDIT_USD;
 
 export const BUNDLE_ADDONS: BundleAddon[] = [
-  { id: "moving",          label: "Moving",          emoji: "🚛", hint: "from $85/mover·hr", fulfillmentType: "companion_service" },
-  { id: "junk_removal",    label: "Junk Removal",    emoji: "🗑️", hint: "from $170",         fulfillmentType: "companion_service" },
-  { id: "cleaning",        label: "Cleaning",        emoji: "🧼", hint: "from $150",         fulfillmentType: "companion_service" },
-  { id: "window_cleaning", label: "Window Cleaning", emoji: "🪟", hint: "$5/pane",           fulfillmentType: "companion_service" },
-  { id: "lawn_care",       label: "Lawn Care",       emoji: "🌿", hint: "from $50/visit",    fulfillmentType: "companion_service" },
-  { id: "trash_valet",     label: "Trash Valet",     emoji: "♻️", hint: "from $25/mo",       fulfillmentType: "companion_service" },
-  { id: "snow_removal",    label: "Snow Removal",    emoji: "❄️", hint: "from $40/visit",    fulfillmentType: "companion_service" },
-  { id: "assembly",        label: "Assembly",        emoji: "🔧", hint: "$75 first 2 items", fulfillmentType: "companion_service" },
+  { id: "moving",          label: "Moving",          emoji: "🚛", hint: "$95/worker·hr", fulfillmentType: "companion_service" },
+  { id: "junk_removal",    label: "Junk Removal",    emoji: "🗑️", hint: "from $125",     fulfillmentType: "companion_service" },
+  { id: "cleaning",        label: "Cleaning",        emoji: "🧼", hint: "from $125",     fulfillmentType: "companion_service" },
+  { id: "window_cleaning", label: "Window Cleaning", emoji: "🪟", hint: "from $125",     fulfillmentType: "companion_service" },
+  { id: "lawn_care",       label: "Lawn Care",       emoji: "🌿", hint: "from $55/visit", fulfillmentType: "companion_service" },
+  { id: "trash_valet",     label: "Trash Valet",     emoji: "♻️", hint: "from $35/mo",    fulfillmentType: "companion_service" },
+  { id: "snow_removal",    label: "Snow Removal",    emoji: "❄️", hint: "from $65/push",  fulfillmentType: "companion_service" },
+  { id: "assembly",        label: "Assembly",        emoji: "🔧", hint: "from $190",       fulfillmentType: "companion_service" },
   {
     id: "ashley_shop",
     label: "$100 Shop Card",
     emoji: "🛍️",
-    hint: "$100 · 10% off",
+    hint: "$90 for $100 credit",
     fulfillmentType: "shop_card",
-    priceUsd: SHOP_CARD_DEFAULT_AMOUNT_USD,
+    priceUsd: SHOP_CARD_PRICE_USD,
+    walletCreditUsd: SHOP_CARD_CREDIT_USD,
     grantsWalletCredit: true,
     shortDescription: "$100 JCMOVES USD added to your wallet on payment",
     redeemableCopy:
@@ -74,6 +77,7 @@ export interface BundleBillableLine {
   /** Customer-visible name on the Square invoice + email. */
   name: string;
   unitPriceUsd: number;
+  walletCreditUsd: number;
   quantity: number;
   /** When true, payment of this line mints an equivalent JCMOVES USD credit. */
   grantsWalletCredit: boolean;
@@ -85,20 +89,15 @@ export interface BundleBillableLine {
  * Convert a raw `bundleAddons` selection into the line items we should
  * bill the customer for up front.
  *
- * Rules:
- *   1. Every add-on with `priceUsd` becomes its own line.
- *   2. If the customer ticked at least one add-on but none of them
- *      carry an explicit price, fall back to a single $100 Shop Card
- *      line (the user's "everything new defaults to a shop card" rule).
- *      We deliberately DO NOT add the default line if a priced shop
- *      card was already selected — that would double-charge.
+ * Every explicitly selected add-on with `priceUsd` becomes its own line.
+ * Companion services remain quote/scheduling requests and are not converted
+ * to a shop card charge.
  */
 export function getBundleBillableLines(bundleAddons: string[] | null | undefined): BundleBillableLine[] {
   const ids = (bundleAddons || []).map((s) => String(s || "").trim()).filter(Boolean);
   if (ids.length === 0) return [];
 
   const lines: BundleBillableLine[] = [];
-  let sawPricedAddon = false;
   const seen = new Set<string>();
 
   for (const id of ids) {
@@ -107,32 +106,17 @@ export function getBundleBillableLines(bundleAddons: string[] | null | undefined
     const addon = BY_ID[id];
     if (!addon) continue;
     if (addon.priceUsd && addon.priceUsd > 0) {
-      sawPricedAddon = true;
       lines.push({
         addonId: addon.id,
         name: addon.label,
         unitPriceUsd: addon.priceUsd,
+        walletCreditUsd: addon.walletCreditUsd ?? addon.priceUsd,
         quantity: 1,
         grantsWalletCredit: !!addon.grantsWalletCredit,
         shortDescription: addon.shortDescription,
         redeemableCopy: addon.redeemableCopy,
       });
     }
-  }
-
-  // No priced add-ons but the customer DID tick something → default to
-  // a single $100 Shop Card so we never silently drop a billable bundle.
-  if (!sawPricedAddon) {
-    lines.push({
-      addonId: "shop_card_default",
-      name: `$${SHOP_CARD_DEFAULT_AMOUNT_USD} Shop Card`,
-      unitPriceUsd: SHOP_CARD_DEFAULT_AMOUNT_USD,
-      quantity: 1,
-      grantsWalletCredit: true,
-      shortDescription: `$${SHOP_CARD_DEFAULT_AMOUNT_USD} JCMOVES USD added to your wallet on payment`,
-      redeemableCopy:
-        `Spend the $${SHOP_CARD_DEFAULT_AMOUNT_USD} JCMOVES USD on any future JC ON THE MOVE invoice — moving, junk, cleaning, lawn, trash valet, or Ashley's Shop. Applies at $1 = $1 off.`,
-    });
   }
 
   return lines;

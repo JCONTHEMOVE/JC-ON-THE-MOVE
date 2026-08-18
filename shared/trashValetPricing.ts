@@ -4,14 +4,15 @@ export const TRASH_VALET_BASE_LAT = 46.4547;
 export const TRASH_VALET_BASE_LNG = -90.1726;
 export const TRASH_VALET_TRAVEL_THRESHOLD_MILES = 2.5;
 
-// $6 per can per service event (first can); $3 each additional can same day
-export const TRASH_VALET_FIRST_CAN_RATE = 6;
-export const TRASH_VALET_ADDITIONAL_CAN_RATE = 3;
+// Canonical monthly plans: $35 / $42 / $49 for one to three cans,
+// then $7/month for each additional can.
+export const TRASH_VALET_FIRST_CAN_RATE = 35;
+export const TRASH_VALET_ADDITIONAL_CAN_RATE = 7;
 
 // Recycling is a separate service day (bi-weekly), same per-can rates
 // $30/month minimum (local); $129/month minimum for out-of-area
-export const TRASH_VALET_MONTHLY_MINIMUM = 30;
-export const TRASH_VALET_TRAVEL_SURCHARGE_MONTHLY = 50;
+export const TRASH_VALET_MONTHLY_MINIMUM = 35;
+export const TRASH_VALET_TRAVEL_SURCHARGE_MONTHLY = 0;
 export const TRASH_VALET_OUT_OF_AREA_MINIMUM = 129;
 
 export interface TrashValetInput {
@@ -55,7 +56,7 @@ export function isRecyclingWeek(anchorDate: string, targetDate: Date): boolean {
   return diffWeeks % 2 === 0;
 }
 
-function eventCost(cans: number): number {
+function monthlyCanPrice(cans: number): number {
   if (cans <= 0) return 0;
   return TRASH_VALET_FIRST_CAN_RATE + Math.max(0, cans - 1) * TRASH_VALET_ADDITIONAL_CAN_RATE;
 }
@@ -67,26 +68,18 @@ export function calculateTrashValetQuote(input: TrashValetInput): TrashValetQuot
   const trashCans = cans + Math.ceil(bagCount / 5);
   const billableCans = trashCans; // primary billing reference
 
-  // Recycling: same number of cans unless separately specified
-  const recyclingCans = Math.max(0, Math.floor((input.recyclingCans ?? cans)));
-
-  // Per-event costs
-  const weeklyTrashCost = eventCost(trashCans);           // every week
-  const weeklyRecyclingCost = eventCost(recyclingCans);   // every other week (priced per event)
-
-  // Monthly trash: weekly × 52/12
-  const projectedMonthlyTrash = parseFloat((weeklyTrashCost * 52 / 12).toFixed(2));
-
-  // Monthly recycling: bi-weekly × 26/12
-  const monthlyRecyclingAdder = input.recyclingEnabled
-    ? parseFloat((weeklyRecyclingCost * 26 / 12).toFixed(2))
-    : 0;
+  const projectedMonthlyTrash = monthlyCanPrice(Math.max(1, trashCans));
+  // Recycling remains schedule metadata and is included in the selected
+  // can plan; it does not create an unapproved second price ladder.
+  const monthlyRecyclingAdder = 0;
   const projectedMonthlyRecycling = monthlyRecyclingAdder;
 
   const projectedMonthlyPrice = parseFloat((projectedMonthlyTrash + projectedMonthlyRecycling).toFixed(2));
 
-  const monthlyMinimumApplied = projectedMonthlyPrice < TRASH_VALET_MONTHLY_MINIMUM;
+  const monthlyMinimumApplied = projectedMonthlyPrice <= TRASH_VALET_MONTHLY_MINIMUM;
   const baseMonthly = monthlyMinimumApplied ? TRASH_VALET_MONTHLY_MINIMUM : projectedMonthlyPrice;
+  const weeklyTrashCost = parseFloat((baseMonthly * 12 / 52).toFixed(2));
+  const weeklyRecyclingCost = 0;
 
   let distanceMiles: number | null = null;
   let travelSurchargeMonthly = 0;
@@ -96,7 +89,7 @@ export function calculateTrashValetQuote(input: TrashValetInput): TrashValetQuot
       input.lat, input.lng
     ).toFixed(3));
     if (distanceMiles > TRASH_VALET_TRAVEL_THRESHOLD_MILES) {
-      travelSurchargeMonthly = TRASH_VALET_TRAVEL_SURCHARGE_MONTHLY;
+      travelSurchargeMonthly = Math.max(0, TRASH_VALET_OUT_OF_AREA_MINIMUM - baseMonthly);
     }
   }
 
@@ -111,7 +104,7 @@ export function calculateTrashValetQuote(input: TrashValetInput): TrashValetQuot
   let recyclingCharge = 0;
   if (input.recyclingEnabled && input.recyclingAnchorDate) {
     recyclingWeek = isRecyclingWeek(input.recyclingAnchorDate, targetDate);
-    if (recyclingWeek) recyclingCharge = weeklyRecyclingCost;
+    if (recyclingWeek) recyclingCharge = 0;
   }
 
   const travelChargePortion = parseFloat((travelSurchargeMonthly * 12 / 52).toFixed(2));

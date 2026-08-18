@@ -28,6 +28,14 @@ import {
 } from "./store";
 import { migrateDispatchSchema } from "./migrate";
 import { rankCandidates } from "./engine";
+import {
+  acceptCrewSlotOffer,
+  cancelCrewSlotTimers,
+  declineCrewSlotOffer,
+  hasActiveCrewSlotOffer,
+  startCrewSlotDispatch,
+  sweepStaleCrewSlotOffers,
+} from "./multiSlot";
 
 export interface DispatchJobOptions {
   actorUserId?: string | null;
@@ -57,7 +65,7 @@ export async function dispatchJob(
 
   // Kick off offer loop. startOfferLoop swallows its own errors; we just
   // surface whether an offer was actually sent.
-  await startOfferLoop(leadId);
+  await startCrewSlotDispatch(leadId);
   const fresh = await loadJob(leadId);
   return {
     ok: !!fresh && fresh.dispatchState !== "failed",
@@ -97,6 +105,7 @@ export async function adminReassign(opts: {
   }
 
   cancelOfferTimer(opts.leadId);
+  cancelCrewSlotTimers(opts.leadId);
 
   const newCrew = Array.from(new Set([opts.crewId, ...job.crewMembers.filter(id => id !== opts.crewId)]));
   await persistState(opts.leadId, {
@@ -114,6 +123,9 @@ export async function adminReassign(opts: {
 
 /** Crew accept handler — atomic DB guard then side effects. */
 export async function crewAccept(leadId: string, crewId: string): Promise<{ ok: boolean; message?: string }> {
+  if (await hasActiveCrewSlotOffer(leadId, crewId)) {
+    return acceptCrewSlotOffer(leadId, crewId);
+  }
   const before = await loadJob(leadId);
   if (!before) return { ok: false, message: "lead not found" };
   if (before.dispatchState !== "offering" || before.dispatchOfferedTo !== crewId) {
@@ -129,6 +141,9 @@ export async function crewAccept(leadId: string, crewId: string): Promise<{ ok: 
 
 /** Crew decline handler — advances to next candidate if applicable. */
 export async function crewDecline(leadId: string, crewId: string): Promise<{ ok: boolean; message?: string }> {
+  if (await hasActiveCrewSlotOffer(leadId, crewId)) {
+    return declineCrewSlotOffer(leadId, crewId);
+  }
   const before = await loadJob(leadId);
   if (!before) return { ok: false, message: "lead not found" };
   if (before.dispatchState !== "offering" || before.dispatchOfferedTo !== crewId) {
@@ -161,7 +176,7 @@ export async function crewDecline(leadId: string, crewId: string): Promise<{ ok:
 // Retry loop: picks up jobs still in 'pending' (expired offers, fresh
 // unassigned) and re-runs the engine. Run every 2 min from registerRoutes.
 export async function dispatchRetryTick(): Promise<{ picked: number; swept: number }> {
-  const swept = await sweepStaleOffers();
+  const swept = (await sweepStaleOffers()) + (await sweepStaleCrewSlotOffers());
   const { rows } = await pool.query(
     `SELECT id FROM leads
       WHERE archived_at IS NULL
@@ -173,7 +188,7 @@ export async function dispatchRetryTick(): Promise<{ picked: number; swept: numb
   );
   for (const r of rows) {
     try {
-      await startOfferLoop(r.id);
+      await startCrewSlotDispatch(r.id);
     } catch (e) {
       console.warn(`[dispatch.retry] ${r.id} failed:`, e);
     }
@@ -186,7 +201,7 @@ let retryHandle: NodeJS.Timeout | null = null;
 export async function initDispatchModule(): Promise<void> {
   await migrateDispatchSchema();
   try {
-    const swept = await sweepStaleOffers();
+    const swept = (await sweepStaleOffers()) + (await sweepStaleCrewSlotOffers());
     if (swept > 0) console.log(`[dispatch] swept ${swept} stale offers on boot`);
   } catch (e) {
     console.warn("[dispatch] sweepStaleOffers failed:", e);

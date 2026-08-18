@@ -10,21 +10,36 @@
 // (no persistence) and POST /api/bookings (persists the result).
 
 import { EARN_RATE_PER_DOLLAR } from "../../shared/rewards";
+import { CANONICAL_PRICING_2026_08 } from "../../shared/canonicalPricing";
 
-/** Per-service minimum line-subtotal floors (USD). The spec for Junk Removal
- *  is a hard 2 mover-hour minimum at $85/hr → $170. The pricing engine clamps
- *  any priced junk_removal line up to this floor so an under-priced quote
- *  (typo, stale promo, or client-side draft) can never sneak below the floor
- *  on the booking that actually gets persisted. */
+/** Canonical per-service minimum line-subtotal floors (USD). */
 export const SERVICE_LINE_MINIMUMS: Record<string, number> = {
-  junk_removal: 170,
+  moving: CANONICAL_PRICING_2026_08.labor.minimumInvoice,
+  labor: CANONICAL_PRICING_2026_08.labor.minimumInvoice,
+  junk_removal: CANONICAL_PRICING_2026_08.services.junkRemoval.tiers.tiny,
+  delivery: CANONICAL_PRICING_2026_08.services.delivery.singleItem,
+  handyman: CANONICAL_PRICING_2026_08.services.handyman.minimumInvoice,
+  assembly: CANONICAL_PRICING_2026_08.services.assembly.standaloneMinimum,
+  assembly_finish: CANONICAL_PRICING_2026_08.services.assembly.moveDayFirstTwoItems,
+  cleaning: CANONICAL_PRICING_2026_08.services.cleaning.standardByBedrooms.one,
+  move_cleaning: CANONICAL_PRICING_2026_08.services.cleaning.moveOutByBedrooms.one,
+  deep_clean_turnover: CANONICAL_PRICING_2026_08.services.cleaning.moveOutByBedrooms.one,
+  window_cleaning: CANONICAL_PRICING_2026_08.services.windows.minimumInvoice,
+  lawn_care: CANONICAL_PRICING_2026_08.services.lawn.mowing.small,
+  snow_removal: CANONICAL_PRICING_2026_08.services.snow.perPush.small,
+  trash_valet: CANONICAL_PRICING_2026_08.services.trashValet.monthlyByCans.one,
+  jump_start: CANONICAL_PRICING_2026_08.services.jumpStart.distanceBands.upTo5,
+  painting: CANONICAL_PRICING_2026_08.services.projects.paintingMinimum,
+  flooring: CANONICAL_PRICING_2026_08.services.projects.flooringMinimum,
+  demolition: CANONICAL_PRICING_2026_08.services.projects.demolitionMinimum,
+  roofing: CANONICAL_PRICING_2026_08.services.projects.roofRepairMinimum,
 };
 
-/** Maximum total discount as a fraction of the subtotal. The spec calls this
- *  the "discount-guardrail" — caps any single bundle at 25% of the cart even
- *  if the matching bundle definition would normally award more. Stops a
- *  misconfigured bundle row from accidentally giving the cart away. */
-export const MAX_BUNDLE_DISCOUNT_PCT = 25;
+/** Total percentage offers cap. Bundle savings are additionally limited to
+ *  10% and $50, even when a legacy database row advertises a larger value. */
+export const MAX_BUNDLE_DISCOUNT_PCT = CANONICAL_PRICING_2026_08.offers.totalPercentageCap;
+export const MAX_BUNDLE_PERCENT = CANONICAL_PRICING_2026_08.offers.bundlePercent;
+export const MAX_BUNDLE_DISCOUNT_USD = CANONICAL_PRICING_2026_08.offers.bundleMaximumDollars;
 
 /** Fallback flat customer booking bonus, mirrors the
  *  `customer_quote_accepted` reward setting (250 JCMOVES today). Kept here
@@ -133,7 +148,7 @@ export interface AppliedBundle {
   discountValue: number;
   /** Raw discount before guardrail clamp. */
   rawDiscount: number;
-  /** Whether the global 25% guardrail clamped the discount. */
+  /** Whether a canonical bundle or total-offer guardrail clamped the discount. */
   guardrailClamped: boolean;
   merchandisingSlot?: string | null;
   /** Task #131 — multiplier the booking will receive on its base JCMOVES
@@ -202,14 +217,19 @@ function rawDiscountForBundle(
 ): number {
   if (eligibleSubtotal <= 0) return 0;
   const value = Math.max(0, Number.isFinite(bundle.discountValue) ? bundle.discountValue : 0);
-  let raw =
+  const legacyRaw =
     bundle.discountType === "percent"
       ? eligibleSubtotal * (value / 100)
       : value;
-  if (bundle.maxDiscount != null && Number.isFinite(bundle.maxDiscount)) {
-    raw = Math.min(raw, Math.max(0, bundle.maxDiscount));
-  }
-  return round2(Math.max(0, raw));
+  const configuredMaximum = bundle.maxDiscount != null && Number.isFinite(bundle.maxDiscount)
+    ? Math.max(0, bundle.maxDiscount)
+    : Number.POSITIVE_INFINITY;
+  return round2(Math.max(0, Math.min(
+    legacyRaw,
+    eligibleSubtotal * (MAX_BUNDLE_PERCENT / 100),
+    configuredMaximum,
+    MAX_BUNDLE_DISCOUNT_USD,
+  )));
 }
 
 /** Pick the best matching bundle from the supplied definitions: largest raw
@@ -276,8 +296,8 @@ export function computeBookingQuote(
       code: best.bundle.code,
       name: best.bundle.name,
       serviceCombo: best.bundle.serviceCombo,
-      discountType: best.bundle.discountType,
-      discountValue: best.bundle.discountValue,
+      discountType: "percent",
+      discountValue: MAX_BUNDLE_PERCENT,
       rawDiscount: best.rawDiscount,
       guardrailClamped: clamped < best.rawDiscount,
       merchandisingSlot: best.bundle.merchandisingSlot ?? null,

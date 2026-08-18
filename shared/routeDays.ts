@@ -31,13 +31,13 @@ export const IRONWOOD_DAILY_DISCOUNT_CODE = "IRONWOOD5";
 export const SERVICE_ADDRESS_DISCOUNT_NOTE = "Discount eligibility is based on the service address.";
 export const ROUTE_DAY_DISCOUNT_PERCENT = 5;
 export const ROUTE_DAY_TRAVEL_PRICE_NOTE =
-  "Route-day promo packages are built to combat high gas prices and travel time by grouping work in the same area.";
-export const ROUTE_DAY_OUT_OF_TOWN_MULTIPLIER = 1.25;
-export const ROUTE_DAY_NON_DISCOUNT_DAY_MULTIPLIER = 1.5;
+  "Route days group nearby work. Actual regional or long-distance travel is itemized under the active rate sheet.";
+export const ROUTE_DAY_OUT_OF_TOWN_MULTIPLIER = 1;
+export const ROUTE_DAY_NON_DISCOUNT_DAY_MULTIPLIER = 1;
 export const ROUTE_DAY_OUT_OF_TOWN_NOTE =
-  "Surrounding-area and out-of-town requests do not receive the route-day discount and use 1.25x travel pricing.";
+  "Surrounding-area and out-of-town requests do not receive the route-day discount; actual travel is itemized separately.";
 export const ROUTE_DAY_NON_DISCOUNT_DAY_NOTE =
-  "Promo-town requests outside their assigned route day do not receive the discount and use 1.5x non-route-day pricing.";
+  "Promo-town requests outside their assigned route day do not receive the discount; no whole-invoice multiplier applies.";
 
 export const ROUTE_DAY_PROMO_PACKAGES = [
   {
@@ -200,7 +200,7 @@ export const ROUTE_DAY_SUMMARY = ROUTE_DAY_SCHEDULE
   .join(", ");
 
 export const ROUTE_DAY_CAMPAIGN_NOTE =
-  `Route-day scheduling: ${ROUTE_DAY_SUMMARY}. ${ROUTE_DAY_DISCOUNT} ${IRONWOOD_DAILY_DISCOUNT} ${SERVICE_ADDRESS_DISCOUNT_NOTE} Surrounding-area and out-of-town requests pay full price with ${ROUTE_DAY_OUT_OF_TOWN_MULTIPLIER}x travel pricing; promo-town requests on non-route days use ${ROUTE_DAY_NON_DISCOUNT_DAY_MULTIPLIER}x non-route-day pricing. ${ROUTE_DAY_TRAVEL_PRICE_NOTE} Target traveling jobs at 3-4 movers for 3-4 hours at $850-$1,200, with a 2-mover 2-hour travel minimum at $425-$600. Stack moving, junk removal, handyman, light demo, flooring, painting, roofing, and similar jobs by area to reduce repeat drive time. More route days coming as demand grows.`;
+  `Route-day scheduling: ${ROUTE_DAY_SUMMARY}. ${ROUTE_DAY_DISCOUNT} ${IRONWOOD_DAILY_DISCOUNT} ${SERVICE_ADDRESS_DISCOUNT_NOTE} No whole-invoice route multiplier applies. ${ROUTE_DAY_TRAVEL_PRICE_NOTE} Labor is $95 per worker-hour with a two-hour minimum and $300 minimum invoice; truck and travel charges are separate. Stack moving, junk removal, handyman, light demo, flooring, painting, roofing, and similar jobs by area to reduce repeat drive time. More route days coming as demand grows.`;
 
 export function routeDayCampaignId(route: RouteDay, promoPackage?: RouteDayPromoPackage | null) {
   const packagePart = promoPackage?.id || "general";
@@ -336,16 +336,10 @@ export function getRouteDayDiscountEligibility(input: {
       eligible: false,
       code: null,
       label: nearbyRoute.label,
-      reason: `${area} is near ${nearbyRoute.city}, but the 5% route-day discount only applies to ${nearbyRoute.city} service addresses on ${nearbyRoute.day}. Surrounding-area requests use 1.25x travel pricing.`,
+      reason: `${area} is near ${nearbyRoute.city}, but the 5% route-day discount only applies to ${nearbyRoute.city} service addresses on ${nearbyRoute.day}. Actual travel is itemized separately.`,
       discountPercent: 0,
       priceMultiplier: ROUTE_DAY_OUT_OF_TOWN_MULTIPLIER,
-      pricingAdjustment: {
-        type: "out_of_town",
-        label: "Surrounding-area travel pricing",
-        reason: ROUTE_DAY_OUT_OF_TOWN_NOTE,
-        multiplier: ROUTE_DAY_OUT_OF_TOWN_MULTIPLIER,
-        surchargePercent: 25,
-      },
+      pricingAdjustment: noAdjustment,
     };
   }
 
@@ -354,16 +348,10 @@ export function getRouteDayDiscountEligibility(input: {
       eligible: false,
       code: null,
       label: null,
-      reason: "This service address is outside Ironwood and the current promo towns. No route-day discount applies; out-of-town requests use 1.25x travel pricing.",
+      reason: "This service address is outside Ironwood and the current promo towns. No route-day discount applies; actual travel is itemized separately.",
       discountPercent: 0,
       priceMultiplier: ROUTE_DAY_OUT_OF_TOWN_MULTIPLIER,
-      pricingAdjustment: {
-        type: "out_of_town",
-        label: "Out-of-town travel pricing",
-        reason: ROUTE_DAY_OUT_OF_TOWN_NOTE,
-        multiplier: ROUTE_DAY_OUT_OF_TOWN_MULTIPLIER,
-        surchargePercent: 25,
-      },
+      pricingAdjustment: noAdjustment,
     };
   }
 
@@ -385,16 +373,10 @@ export function getRouteDayDiscountEligibility(input: {
       eligible: false,
       code: null,
       label: route.label,
-      reason: `${route.city} saves 5% on ${route.day}. Requests for other days use 1.5x non-route-day pricing because they require a separate trip.`,
+      reason: `${route.city} saves 5% on ${route.day}. Requests for other days pay the active rate sheet with actual travel itemized separately.`,
       discountPercent: 0,
       priceMultiplier: ROUTE_DAY_NON_DISCOUNT_DAY_MULTIPLIER,
-      pricingAdjustment: {
-        type: "non_discount_day",
-        label: `${route.city} non-route-day pricing`,
-        reason: ROUTE_DAY_NON_DISCOUNT_DAY_NOTE,
-        multiplier: ROUTE_DAY_NON_DISCOUNT_DAY_MULTIPLIER,
-        surchargePercent: 50,
-      },
+      pricingAdjustment: noAdjustment,
     };
   }
 

@@ -15,6 +15,8 @@ import {
 } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { SERVICE_LABOR_DEFAULTS } from "@shared/pricingTables";
+import { CANONICAL_PRICING_2026_08, catalogPriceSummary } from "@shared/canonicalPricing";
+import { ensureCanonicalPricingVersionsSeeded } from "./pricingVersions";
 
 // Task #218 — labor metadata derived from the SERVICE_LABOR_DEFAULTS
 // constant in shared/pricingTables.ts. This map is the source of truth
@@ -473,7 +475,7 @@ export const BUNDLE_SEED: InsertBundleDefinition[] = [
     serviceComboJson: ["moving", "junk_reset"],
     discountType: "percent",
     discountValue: "10",
-    maxDiscount: "200",
+    maxDiscount: "50",
     isFeatured: true,
     merchandisingSlot: "most_popular",
     priority: 10,
@@ -481,11 +483,11 @@ export const BUNDLE_SEED: InsertBundleDefinition[] = [
   {
     code: "move_assembly_finish",
     name: "Move + Assembly Finish",
-    description: "Move-day + same-crew assembly, $150 off.",
+    description: "Move-day + same-crew assembly, 10% off up to $50.",
     serviceComboJson: ["moving", "assembly_finish"],
-    discountType: "fixed",
-    discountValue: "150",
-    maxDiscount: null,
+    discountType: "percent",
+    discountValue: "10",
+    maxDiscount: "50",
     isFeatured: true,
     merchandisingSlot: "best_value",
     priority: 20,
@@ -493,11 +495,11 @@ export const BUNDLE_SEED: InsertBundleDefinition[] = [
   {
     code: "junk_deep_clean_turnover",
     name: "Junk + Deep Clean Turnover",
-    description: "Clear it out + deep clean — perfect turnover, 12% off.",
+    description: "Clear it out + deep clean — perfect turnover, 10% off up to $50.",
     serviceComboJson: ["junk_removal", "deep_clean_turnover"],
     discountType: "percent",
-    discountValue: "12",
-    maxDiscount: "200",
+    discountValue: "10",
+    maxDiscount: "50",
     isFeatured: true,
     merchandisingSlot: "most_popular",
     priority: 30,
@@ -505,11 +507,11 @@ export const BUNDLE_SEED: InsertBundleDefinition[] = [
   {
     code: "labor_delivery_assembly",
     name: "Labor + Delivery + Assembly",
-    description: "We pick it up, drop it off, and put it together — $200 off.",
+    description: "We pick it up, drop it off, and put it together — 10% off up to $50.",
     serviceComboJson: ["labor", "delivery", "assembly"],
-    discountType: "fixed",
-    discountValue: "200",
-    maxDiscount: null,
+    discountType: "percent",
+    discountValue: "10",
+    maxDiscount: "50",
     isFeatured: true,
     merchandisingSlot: "best_value",
     priority: 40,
@@ -521,7 +523,7 @@ export const BUNDLE_SEED: InsertBundleDefinition[] = [
     serviceComboJson: ["snow_removal", "walkway_priority"],
     discountType: "percent",
     discountValue: "10",
-    maxDiscount: "100",
+    maxDiscount: "50",
     isFeatured: true,
     merchandisingSlot: "fast_addon",
     priority: 50,
@@ -533,7 +535,7 @@ export const BUNDLE_SEED: InsertBundleDefinition[] = [
     serviceComboJson: ["moving", "painting"],
     discountType: "percent",
     discountValue: "10",
-    maxDiscount: "200",
+    maxDiscount: "50",
     isFeatured: true,
     merchandisingSlot: "most_popular",
     priority: 60,
@@ -541,11 +543,11 @@ export const BUNDLE_SEED: InsertBundleDefinition[] = [
   {
     code: "demo_flooring_replace",
     name: "Demo + New Flooring",
-    description: "Tear out the old, lay down the new — $200 off when bundled.",
+    description: "Tear out the old, lay down the new — 10% off up to $50.",
     serviceComboJson: ["demolition", "flooring"],
-    discountType: "fixed",
-    discountValue: "200",
-    maxDiscount: null,
+    discountType: "percent",
+    discountValue: "10",
+    maxDiscount: "50",
     isFeatured: true,
     merchandisingSlot: "best_value",
     priority: 70,
@@ -600,21 +602,22 @@ export async function ensureBookingCatalogSeeded(): Promise<void> {
       console.log(`✅ service_catalog labor metadata backfilled — ${backfilled} row${backfilled === 1 ? "" : "s"}`);
     }
 
-    // Pricing correction: assembly add-ons are $75 for the first two items.
-    // These two rows may already exist because the seed is normally
-    // insert-only, so patch the catalog values explicitly without touching
-    // unrelated admin-maintained services.
-    await pool.query(
-      `UPDATE service_catalog
-          SET default_price = '75',
-              suggested_min = '75',
-              suggested_max = '150',
-              description = CASE
-                WHEN code = 'assembly_finish' THEN 'Move-day furniture assembly add-on — first 2 items included.'
-                ELSE 'Furniture/gear assembly — first 2 items included.'
-              END
-        WHERE code IN ('assembly_finish', 'assembly')`,
-    );
+    // `service_catalog` remains service metadata, but its legacy price
+    // columns are synchronized for callers that have not moved to
+    // /api/pricing/v2 yet. They are derived from the canonical version and
+    // are never accepted as quote authority.
+    for (const row of CATALOG_SEED) {
+      const summary = catalogPriceSummary(row.code, CANONICAL_PRICING_2026_08);
+      if (!summary) continue;
+      await pool.query(
+        `UPDATE service_catalog
+            SET default_price = $1,
+                suggested_min = $2,
+                suggested_max = $3
+          WHERE code = $4`,
+        [summary.defaultPrice, summary.suggestedMin, summary.suggestedMax, row.code],
+      );
+    }
   } catch (err) {
     console.error("[bookingCatalogSeed] service_catalog seed failed:", (err as Error).message);
   }
@@ -635,7 +638,22 @@ export async function ensureBookingCatalogSeeded(): Promise<void> {
     if (inserted > 0) {
       console.log(`✅ bundle_definitions seeded — ${inserted} new bundle${inserted === 1 ? "" : "s"}`);
     }
+    // Normalize legacy bundle rows so admin previews and customer copy match
+    // the canonical offer even before those rows are republished.
+    await pool.query(
+      `UPDATE bundle_definitions
+          SET discount_type = 'percent',
+              discount_value = '10',
+              max_discount = '50'
+        WHERE is_active = true`,
+    );
   } catch (err) {
     console.error("[bookingCatalogSeed] bundle_definitions seed failed:", (err as Error).message);
+  }
+
+  try {
+    await ensureCanonicalPricingVersionsSeeded();
+  } catch (err) {
+    console.error("[bookingCatalogSeed] canonical pricing seed failed:", (err as Error).message);
   }
 }

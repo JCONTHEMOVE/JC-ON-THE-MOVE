@@ -1,6 +1,7 @@
 import type { SquareClient } from "square";
 import { storage } from "../storage";
 import type { InsertSquareInvoice, Lead } from "@shared/schema";
+import type { InvoicePurpose } from "@shared/regionalAutomation";
 
 export type InvoiceDeliveryMethod = "email" | "sms" | "both" | "none";
 
@@ -18,6 +19,12 @@ export interface InvoiceRecipient {
   totalPrice?: string | number | null;
   bundleDiscountAmount?: string | number | null;
   serviceType?: string | null;
+}
+
+export interface LeadInvoiceOptions {
+  purpose?: InvoicePurpose;
+  quoteRevisionId?: string | null;
+  closeoutId?: string | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -155,7 +162,8 @@ export class SquareInvoiceService {
     amount: number,
     description?: string,
     dueDate?: string,
-    deliveryMethod: InvoiceDeliveryMethod = "email"
+    deliveryMethod: InvoiceDeliveryMethod = "email",
+    options: LeadInvoiceOptions = {},
   ): Promise<{ invoiceId: string; invoiceUrl: string; squareInvoiceId: string }> {
     const client = await getSquareClient();
     const locationId = await this.getLocationId();
@@ -236,6 +244,9 @@ export class SquareInvoiceService {
       status: "sent",
       invoiceUrl: publishedInvoice.publicUrl,
       dueDate: dueDate || this.getDefaultDueDate(),
+      purpose: options.purpose || "legacy_unknown",
+      quoteRevisionId: options.quoteRevisionId || undefined,
+      closeoutId: options.closeoutId || undefined,
     };
 
     const savedInvoice = await storage.createSquareInvoice(invoiceData);

@@ -4,19 +4,21 @@
 // /book, chatbot, and admin pricing-calibrate surfaces all read from the
 // same numbers. Change a value here and every quote surface updates.
 
+import { CANONICAL_PRICING_2026_08, calculateMovingLabor } from "./canonicalPricing";
+
 export const MOVING_LOAD_TYPE_MULTIPLIER: Record<string, number> = {
-  labor_only: 0.6,
+  labor_only: 1.0,
   local: 1.0,
-  long_distance: 1.85,
+  long_distance: 1.0,
 };
 
 export const MOVING_BASE_MATRIX: Record<string, Record<string, number>> = {
-  studio: { "0": 285, "1": 365, "2": 425, "3": 485 },
-  "1br": { "0": 425, "1": 525, "2": 625, "3": 725 },
-  "2br": { "0": 685, "1": 825, "2": 965, "3": 1100 },
-  "3br": { "0": 985, "1": 1175, "2": 1365, "3": 1555 },
-  "4br": { "0": 1395, "1": 1635, "2": 1875, "3": 2115 },
-  "5br+": { "0": 1850, "1": 2150, "2": 2450, "3": 2750 },
+  studio: { "0": 380, "1": 380, "2": 380, "3": 380 },
+  "1br": { "0": 570, "1": 570, "2": 570, "3": 570 },
+  "2br": { "0": 722, "1": 722, "2": 722, "3": 722 },
+  "3br": { "0": 1353.75, "1": 1353.75, "2": 1353.75, "3": 1353.75 },
+  "4br": { "0": 2052, "1": 2052, "2": 2052, "3": 2052 },
+  "5br+": { "0": 2584, "1": 2584, "2": 2584, "3": 2584 },
 };
 
 export interface JunkTier {
@@ -29,11 +31,11 @@ export interface JunkTier {
 }
 
 export const JUNK_TIERS: JunkTier[] = [
-  { code: "tiny", label: "Tiny Load", shortLabel: "Tiny", loadFraction: "≤ 1/8 truck", weightCap: "≤ 300 lbs", price: 95 },
-  { code: "small", label: "Small Load", shortLabel: "Small", loadFraction: "1/4 truck", weightCap: "≤ 600 lbs", price: 175 },
-  { code: "medium", label: "Medium Load", shortLabel: "Medium", loadFraction: "1/2 truck", weightCap: "≤ 1200 lbs", price: 325 },
-  { code: "large", label: "Large Load", shortLabel: "Large", loadFraction: "3/4 truck", weightCap: "≤ 1800 lbs", price: 475 },
-  { code: "xlarge", label: "X-Large Load", shortLabel: "X-Large", loadFraction: "Full truck", weightCap: "≤ 2400 lbs", price: 625 },
+  { code: "tiny", label: "Tiny Load", shortLabel: "Tiny", loadFraction: "≤ 1/8 truck", weightCap: "≤ 300 lbs", price: 125 },
+  { code: "small", label: "Small Load", shortLabel: "Small", loadFraction: "1/4 truck", weightCap: "≤ 600 lbs", price: 225 },
+  { code: "medium", label: "Medium Load", shortLabel: "Medium", loadFraction: "1/2 truck", weightCap: "≤ 1200 lbs", price: 375 },
+  { code: "large", label: "Large Load", shortLabel: "Large", loadFraction: "3/4 truck", weightCap: "≤ 1800 lbs", price: 525 },
+  { code: "xlarge", label: "X-Large Load", shortLabel: "X-Large", loadFraction: "Full truck", weightCap: "≤ 2400 lbs", price: 675 },
 ];
 
 /** Bedroom → canonical crew size for moving matrix. Mirrors the labor
@@ -61,7 +63,7 @@ export function quoteMovingFromTable(opts: { bedrooms?: string; stairs?: number 
   const lt = String(opts.loadType || "local");
   const base = MOVING_BASE_MATRIX[br]?.[stairs] ?? MOVING_BASE_MATRIX["1br"]["0"];
   const multiplier = MOVING_LOAD_TYPE_MULTIPLIER[lt] ?? 1;
-  const amount = Math.round(base * multiplier);
+  const amount = Math.round(base * multiplier * 100) / 100;
   // Canonical labor tuple: crew is fixed by bedroom tier, hours derived
   // so crew × hours × $85 ≈ amount (within $1 due to 2-decimal hour
   // rounding — matrix amounts like $1365 are not divisible by $85, so
@@ -86,8 +88,9 @@ export function quoteJunkFromTable(tierCode: string): { amount: number; tier: Ju
 }
 
 // ── Moving crew-rate / truck-add tables (display on /pricing) ────────────
-export const MOVER_RATE_PER_HOUR = 85;
-export const MOVER_TRUCK_ADD_PER_HOUR = 40;
+export const MOVER_RATE_PER_HOUR = CANONICAL_PRICING_2026_08.labor.workerHourlyRate;
+/** @deprecated Trucks are flat equipment lines, not hourly add-ons. */
+export const MOVER_TRUCK_ADD_PER_HOUR = 0;
 export const MOVING_MIN_HOURS: Record<number, number> = {
   1: 2, 2: 2, 3: 2, 4: 3, 5: 4,
 };
@@ -101,9 +104,9 @@ export interface WindowTier {
   desc: string;
 }
 export const WINDOW_TIERS: WindowTier[] = [
-  { label: "4 Windows",   price: 20,   desc: "Minimum booking" },
-  { label: "8 Windows",   price: 40,   desc: "Average home" },
-  { label: "12 Windows",  price: 60,   desc: "Larger home" },
+  { label: "Minimum",     price: 125,  desc: "Per visit" },
+  { label: "One Side",    price: 5,    desc: "Per pane" },
+  { label: "Both Sides",  price: 8,    desc: "Per pane" },
   { label: "20+ Windows", price: null, desc: "Custom quote" },
 ];
 
@@ -114,10 +117,10 @@ export interface TrashPlan {
   perVisit: string;
 }
 export const TRASH_PLANS: TrashPlan[] = [
-  { label: "1 Can",   mo: 30,   perVisit: "~$7.50" },
-  { label: "2 Cans",  mo: 36,   perVisit: "~$9" },
-  { label: "3 Cans",  mo: 42,   perVisit: "~$10.50" },
-  { label: "4+ Cans", mo: null, perVisit: "Custom" },
+  { label: "1 Can",   mo: 35,   perVisit: "Monthly plan" },
+  { label: "2 Cans",  mo: 42,   perVisit: "Monthly plan" },
+  { label: "3 Cans",  mo: 49,   perVisit: "Monthly plan" },
+  { label: "4+ Cans", mo: null, perVisit: "+$7/can" },
 ];
 
 // ── Lawn-care package matrix (by property size) ──────────────────────────
@@ -130,10 +133,10 @@ export interface LawnPackage {
   popular?: boolean;
 }
 export const LAWN_PACKAGES: LawnPackage[] = [
-  { label: "Mowing",       small: 45, medium: 65,  large: 95,  xlarge: 145 },
+  { label: "Mowing",       small: 55, medium: 75,  large: 105, xlarge: 155 },
   { label: "Trimming",     small: 35, medium: 55,  large: 80,  xlarge: 120 },
   { label: "Yard Cleanup", small: 50, medium: 75,  large: 110, xlarge: 160 },
-  { label: "Full Service", small: 85, medium: 120, large: 175, xlarge: 250, popular: true },
+  { label: "Full Service", small: 100, medium: 140, large: 195, xlarge: 275, popular: true },
 ];
 export const LAWN_ADDONS: Array<{ label: string; price: number }> = [
   { label: "Edging",          price: 15 },
@@ -152,22 +155,25 @@ export const LAWN_ADDONS: Array<{ label: string; price: number }> = [
 //    can show the same floors without a server round-trip. Keep these
 //    numbers in sync with server/services/bookingPricing.ts. */
 export const SERVICE_LINE_FLOORS: Record<string, number> = {
-  cleaning:       300,
+  cleaning:       125,
   move_cleaning:  300,   // Task #169 — new distinct service code
-  handyman:       150,
-  labor:          200,
-  delivery:       100,
-  snow_removal:    50,
-  demolition:     300,
-  roofing:        500,
-  lawn_care:       50,
-  junk_removal:    95,   // tiny-tier floor
-  moving:         285,   // studio / no-stairs floor
-  window_cleaning: 20,   // 4-window minimum
-  trash_valet:     30,   // monthly minimum
+  deep_clean_turnover: 300,
+  handyman:       190,
+  labor:          300,
+  delivery:       225,
+  assembly:       190,
+  assembly_finish: 95,
+  snow_removal:    65,
+  demolition:     450,
+  roofing:        750,
+  lawn_care:       55,
+  junk_removal:   125,
+  moving:         300,
+  window_cleaning: 125,
+  trash_valet:     35,
   jump_start:      50,
   painting:       500,
-  flooring:       800,
+  flooring:       500,
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -183,7 +189,7 @@ export const SERVICE_LINE_FLOORS: Record<string, number> = {
  *  Aliased to MOVER_RATE_PER_HOUR so the moving matrices and the labor-
  *  hours helper can never drift. Bumping this is the one knob that
  *  changes the platform-wide hourly rate. */
-export const LABOR_RATE_PER_HOUR = MOVER_RATE_PER_HOUR; // 85
+export const LABOR_RATE_PER_HOUR = MOVER_RATE_PER_HOUR;
 
 /** Per-service crew × hours defaults for the labor-hours pricing model.
  *  Source of truth for every "X movers × Y hrs" string the customer sees.
@@ -365,7 +371,9 @@ export function quoteByLaborHours(
   crewSize = Math.max(1, Math.round(crewSize));
   laborHours = Math.max(0.25, +laborHours.toFixed(2));
   const totalLaborHours = +(crewSize * laborHours).toFixed(2);
-  let amount = +(totalLaborHours * LABOR_RATE_PER_HOUR).toFixed(2);
+  let amount = serviceCode === "moving" || serviceCode === "labor"
+    ? calculateMovingLabor({ workers: crewSize, hours: laborHours }).total
+    : +(totalLaborHours * LABOR_RATE_PER_HOUR).toFixed(2);
   // Catalog-driven clamp per spec step 2: suggestedMin/suggestedMax
   // bound the returned amount so a missing or undersized catalog value
   // can't produce an estimate that undercuts a real-world minimum or

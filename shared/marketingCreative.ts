@@ -67,6 +67,10 @@ export type MarketingCreativeResult = {
   generatedAt: string;
   feedAssetUrl?: string;
   ogAssetUrl?: string;
+  overlay?: {
+    offerLine?: string;
+    secondaryLine?: string;
+  };
 };
 
 export function approvedMarketingPhoto(key: string | null | undefined) {

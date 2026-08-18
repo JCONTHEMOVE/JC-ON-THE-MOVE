@@ -35,6 +35,8 @@ const SERVICE_TO_CAPS: Record<string, string[]> = {
 export async function getEligibleCrew(opts: {
   serviceType: string;
   excludeIds?: string[];
+  leadId?: string;
+  serviceDate?: string | null;
 }): Promise<CrewCandidate[]> {
   const skip = new Set(opts.excludeIds ?? []);
 
@@ -66,8 +68,70 @@ export async function getEligibleCrew(opts: {
     );
 
   // Count today's jobs per candidate (raw SQL — index hits are fine here).
-  const ids = roster.map(r => r.id).filter(id => !skip.has(id));
+  let ids = roster.map(r => r.id).filter(id => !skip.has(id));
   if (ids.length === 0) return [];
+
+  // Never offer two overlapping jobs to the same mover. Exact-time online
+  // bookings use their hold windows; legacy jobs without a window reserve
+  // the service day conservatively until staff supplies a schedule.
+  if (opts.leadId && opts.serviceDate) {
+    try {
+      const target = await pool.query<{ start_at: Date | null; end_at: Date | null }>(
+        `SELECT h.start_at,
+                h.start_at + (h.duration_minutes * INTERVAL '1 minute') AS end_at
+           FROM booking_slot_holds h
+          WHERE h.lead_id = $1 AND h.status IN ('pending_review','awaiting_deposit','confirmed')
+          ORDER BY h.created_at DESC LIMIT 1`,
+        [opts.leadId],
+      );
+      const startAt = target.rows[0]?.start_at || null;
+      const endAt = target.rows[0]?.end_at || null;
+      const conflicts = await pool.query<{ uid: string }>(
+        `SELECT DISTINCT uid
+           FROM leads l
+           CROSS JOIN LATERAL unnest(COALESCE(l.crew_members, '{}')) uid
+           LEFT JOIN LATERAL (
+             SELECT h.start_at,
+                    h.start_at + (h.duration_minutes * INTERVAL '1 minute') AS end_at
+               FROM booking_slot_holds h
+              WHERE h.lead_id = l.id AND h.status IN ('pending_review','awaiting_deposit','confirmed')
+              ORDER BY h.created_at DESC LIMIT 1
+           ) scheduled ON true
+          WHERE l.id <> $1
+            AND l.archived_at IS NULL
+            AND l.status NOT IN ('completed','cancelled','archived')
+            AND substring(COALESCE(l.confirmed_date, l.move_date, ''), 1, 10) = $2
+            AND uid = ANY($3::text[])
+            AND (
+              $4::timestamptz IS NULL OR $5::timestamptz IS NULL
+              OR scheduled.start_at IS NULL OR scheduled.end_at IS NULL
+              OR (scheduled.start_at < $5::timestamptz AND scheduled.end_at > $4::timestamptz)
+            )`,
+        [opts.leadId, opts.serviceDate, ids, startAt, endAt],
+      );
+      const blocked = new Set(conflicts.rows.map((row) => row.uid));
+      ids = ids.filter((id) => !blocked.has(id));
+      if (ids.length === 0) return [];
+    } catch (error) {
+      // Older databases may not have the hold table until the booking route
+      // initializes. Fall back to a same-day conflict check and fail closed
+      // for workers already assigned to another active job.
+      console.warn("[dispatch.crew] exact schedule check unavailable; using date conflict fallback:", error instanceof Error ? error.message : error);
+      const conflicts = await pool.query<{ uid: string }>(
+        `SELECT DISTINCT uid
+           FROM leads l, unnest(COALESCE(l.crew_members, '{}')) uid
+          WHERE l.id <> $1
+            AND l.archived_at IS NULL
+            AND l.status NOT IN ('completed','cancelled','archived')
+            AND substring(COALESCE(l.confirmed_date, l.move_date, ''), 1, 10) = $2
+            AND uid = ANY($3::text[])`,
+        [opts.leadId, opts.serviceDate, ids],
+      );
+      const blocked = new Set(conflicts.rows.map((row) => row.uid));
+      ids = ids.filter((id) => !blocked.has(id));
+      if (ids.length === 0) return [];
+    }
+  }
 
   const todayRows = await pool.query(
     `SELECT uid, COUNT(*)::int AS c
@@ -99,7 +163,7 @@ export async function getEligibleCrew(opts: {
   const required = SERVICE_TO_CAPS[opts.serviceType] ?? [];
 
   const candidates: CrewCandidate[] = roster
-    .filter(r => !skip.has(r.id))
+    .filter(r => ids.includes(r.id))
     .map(r => ({
       id: r.id,
       firstName: r.firstName,

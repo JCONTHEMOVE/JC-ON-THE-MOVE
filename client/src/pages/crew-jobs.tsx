@@ -4,7 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
   MapPin, Calendar, Coins, Loader2, Truck, Trash2, Snowflake, Wrench,
-  CheckCircle, Users, UserCheck, Power
+  CheckCircle, Users, UserCheck, Power, LockKeyhole
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -20,6 +20,17 @@ interface JobLead {
   crewSize?: number;
   tokenAllocation?: string;
   acceptedByEmployees?: string[];
+  workerVisibility?: {
+    tier: string;
+    context: "board" | "claimed" | "assigned" | "task" | "admin";
+    customerIdentity: boolean;
+    customerContact: boolean;
+    exactLocation: boolean;
+    pricing: boolean;
+    payment: boolean;
+    privateOperations: boolean;
+    locked: Array<{ key: string; label: string; unlockAt: string }>;
+  };
 }
 
 const SERVICE_ICONS: Record<string, { icon: LucideIcon; color: string; bg: string; label: string }> = {
@@ -167,6 +178,11 @@ export default function CrewJobsPage() {
                             <Calendar className="h-3 w-3" /> {new Date(job.moveDate).toLocaleDateString()}
                           </p>
                         )}
+                        {!job.workerVisibility?.customerContact && (
+                          <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                            <LockKeyhole className="h-3 w-3" /> Customer contact unlocks at Silver
+                          </p>
+                        )}
                       </div>
                       <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
                         ACCEPTED
@@ -216,13 +232,13 @@ export default function CrewJobsPage() {
                           </div>
                         )}
                       </div>
-                      <p className="text-xs text-zinc-500 mt-0.5">
-                        {job.firstName} {job.lastName}
+                      <p className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500">
+                        <LockKeyhole className="h-3 w-3" /> Customer details protected until assignment
                       </p>
                       {job.fromAddress && (
                         <p className="text-xs text-zinc-400 flex items-center gap-1 mt-1">
                           <MapPin className="h-3 w-3 flex-shrink-0" />
-                          <span className="truncate">{job.fromAddress}</span>
+                          <span className="truncate">General area: {job.fromAddress}</span>
                         </p>
                       )}
                       <div className="flex items-center gap-3 mt-1">

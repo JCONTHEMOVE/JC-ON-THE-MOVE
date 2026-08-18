@@ -32,6 +32,7 @@ const MyJobsPage = lazy(() => import("@/pages/my-jobs"));
 // Task #169 — PostJobPage retired (route redirects to /book?worker=1)
 const CustomerBookPage = lazy(() => import("@/pages/customer/book"));
 const InstantBookingPage = lazy(() => import("@/pages/instant-booking"));
+const JobCloseoutPage = lazy(() => import("@/pages/job-closeout"));
 const CustomerWalletPage = lazy(() => import("@/pages/customer/wallet"));
 const WalletAddCreditPage = lazy(() => import("@/pages/wallet-add-credit"));
 const CustomerEarnPage = lazy(() => import("@/pages/customer/earn"));
@@ -78,6 +79,7 @@ const QuotePage = lazy(() => import("@/pages/quote"));
 const PublicQuoteOrderPage = lazy(() => import("@/pages/public-quote-order"));
 const SponsorsPage = lazy(() => import("@/pages/sponsors"));
 const ServicesPage = lazy(() => import("@/pages/services"));
+const GiftCardsPage = lazy(() => import("@/pages/gift-cards"));
 const RouteDaysPage = lazy(() => import("@/pages/route-days"));
 const GalleryPage = lazy(() => import("@/pages/gallery"));
 const ReviewsPage = lazy(() => import("@/pages/reviews"));
@@ -117,11 +119,13 @@ const AdminMarketplacePlaybookPage = lazy(() => import("@/pages/admin/marketplac
 const AdminSystemPage = lazy(() => import("@/pages/admin/system"));
 const AdminPricingPage = lazy(() => import("@/pages/admin/pricing"));
 const AdminDispatchPage = lazy(() => import("@/pages/admin/dispatch"));
+const AdminRegionalAutomationPage = lazy(() => import("@/pages/admin/regional-automation"));
 const AdminSponsorsPage = lazy(() => import("@/pages/admin/sponsors"));
 const AdminAnalyticsPage = lazy(() => import("@/pages/admin/analytics"));
 const AdminBookingAnalyticsPage = lazy(() => import("@/pages/admin/booking-analytics"));
 const AdminMarketingNetworkPage = lazy(() => import("@/pages/admin/marketing-network"));
 const AdminMarketingWebhooksPage = lazy(() => import("@/pages/admin/marketing-webhooks"));
+const AdminMarketingBotPage = lazy(() => import("@/pages/admin/marketing-bot"));
 const AdminPaymentsPage = lazy(() => import("@/pages/admin/AdminPaymentsPage"));
 const AdminWalletLedgerPage = lazy(() => import("@/pages/admin/AdminWalletLedgerPage"));
 const AdminCashoutsPage = lazy(() => import("@/pages/admin/AdminCashoutsPage"));
@@ -545,6 +549,7 @@ function AuthenticatedApp() {
               <Route path="/admin/overview"><AdminOverviewPage /></Route>
               <Route path="/admin/ops-board"><AdminOpsBoardPage /></Route>
               <Route path="/admin/dispatch"><AdminDispatchPage /></Route>
+              <Route path="/admin/regional-automation"><AdminRegionalAutomationPage /></Route>
               <Route path="/admin/jobs"><PlannerLegacyRedirect plannerPath="/admin/schedule" /></Route>
               <Route path="/admin/people"><AdminPeoplePage /></Route>
               <Route path="/admin/finance"><AdminFinancePage /></Route>
@@ -556,6 +561,7 @@ function AuthenticatedApp() {
               <Route path="/admin/analytics"><AdminAnalyticsPage /></Route>
               <Route path="/admin/booking-analytics"><AdminBookingAnalyticsPage /></Route>
               <Route path="/admin/marketing-network"><AdminMarketingNetworkPage /></Route>
+              <Route path="/admin/marketing"><AdminMarketingBotPage /></Route>
               <Route path="/admin/marketing-webhooks"><AdminMarketingWebhooksPage /></Route>
               <Route path="/admin/payments"><AdminPaymentsPage /></Route>
               <Route path="/admin/wallet-ledger"><AdminWalletLedgerPage /></Route>
@@ -810,6 +816,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/privacy",
   "/quote",
   "/quote-order",
+  "/job-closeout",
   "/book",
   "/trash-valet",
   "/window-cleaning",
@@ -819,6 +826,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/demolition",
   "/sponsors",
   "/services",
+  "/gift-cards",
   "/route-days",
   "/pricing",
   "/gallery",
@@ -880,6 +888,7 @@ function Router() {
       {/* Quote page - accessible to all */}
       <Route path="/quote" component={QuotePage} />
       <Route path="/quote-order/:id" component={PublicQuoteOrderPage} />
+      <Route path="/job-closeout/:token" component={JobCloseoutPage} />
       
       {/* Book page - accessible to all users, authenticated or not */}
       <Route path="/book" component={InstantBookingPage} />
@@ -908,6 +917,7 @@ function Router() {
       
       {/* Services page - accessible to all */}
       <Route path="/services" component={ServicesPage} />
+      <Route path="/gift-cards" component={GiftCardsPage} />
       <Route path="/route-days" component={RouteDaysPage} />
       <Route path="/route-days/:slug" component={RouteDaysPage} />
       <Route path="/pricing" component={PricingPage} />
