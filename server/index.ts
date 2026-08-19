@@ -568,6 +568,27 @@ server.listen(port, '0.0.0.0', () => {
     await registerRoutes(app, server);
     console.log('Application routes registered successfully');
 
+    // Square eGift purchase bonuses remain pending for 14 days, then become
+    // spendable. The database advisory lock inside the sweep keeps multiple
+    // Railway instances from crediting the same reward concurrently.
+    if (process.env.GIFT_CARD_BONUS_ENABLED === "true") {
+      const GIFT_BONUS_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+      const tick = async () => {
+        try {
+          const { runGiftCardBonusSweep } = await import("./services/giftCardBonuses");
+          const result = await runGiftCardBonusSweep();
+          if (result.assigned || result.fellBack || result.released) {
+            console.log(`[gift-card-bonus] assigned=${result.assigned} fallback=${result.fellBack} released=${result.released}`);
+          }
+        } catch (error) {
+          console.error("[gift-card-bonus] sweep error:", error);
+        }
+      };
+      setTimeout(tick, 90_000);
+      setInterval(tick, GIFT_BONUS_SWEEP_INTERVAL_MS);
+      console.log("✅ Gift-card bonus sweep scheduled (every 15 min)");
+    }
+
     // Task #175 — mount the consolidated payment + launch-checklist routes.
     {
       const { default: paymentsRouter } = await import('./routes/payments-task175');

@@ -56,6 +56,8 @@ export default function PrivacyPolicy() {
               <li>Staking positions and reward records</li>
               <li>Solana wallet address (if provided for token withdrawals)</li>
               <li>Fitness activity logs (push-ups, sit-ups) used for mining speed boosts</li>
+              <li>Square order, payment, and gift-card activity references used to verify eGift purchase bonuses</li>
+              <li>Purchaser and selected recipient email addresses used to assign or invite the owner of a gift-card purchase bonus</li>
             </ul>
             <h3 className="font-medium text-slate-200 mb-2">Device & Usage Data</h3>
             <ul className="list-disc pl-6 space-y-1">
@@ -75,6 +77,7 @@ export default function PrivacyPolicy() {
               <li>To distribute JCMOVES token rewards for completed jobs, referrals, and platform activity</li>
               <li>To operate the token mining system and calculate staking rewards</li>
               <li>To process payments (via Square) for services rendered</li>
+              <li>To verify, assign, hold, release, and reverse Square eGift purchase bonuses</li>
               <li>To send push notifications about mining sessions, job opportunities, and important updates</li>
               <li>To maintain platform security and prevent fraudulent activity</li>
               <li>To comply with legal obligations</li>
@@ -103,6 +106,7 @@ export default function PrivacyPolicy() {
               <li><strong className="text-white">Employees:</strong> Job-relevant customer contact information is shared with assigned crew members to fulfill service requests</li>
               <li><strong className="text-white">Legal Requirements:</strong> We may disclose information if required by law or to protect the rights and safety of our users and company</li>
             </ul>
+            <p className="mt-3 text-sm text-slate-400">Square remains the system of record for eGift-card delivery and balance. We do not store the gift-card number or access code.</p>
           </section>
 
           <section>

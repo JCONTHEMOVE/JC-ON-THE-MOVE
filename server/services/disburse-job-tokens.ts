@@ -35,6 +35,7 @@ import type { Lead } from "@shared/schema";
 import { EARN_RATE_PER_DOLLAR } from "../../shared/rewards";
 import { getJobRateCard } from "./jobRateCard";
 import { emitJobEvent } from "./jobEventBus";
+import { calculateCustomerRewardBase } from "../../shared/giftCardBonuses";
 
 const TOKEN_PRICE            = 0.00000508432;
 const HOURS_RATE             = 25;    // JCMOVES per confirmed hour per crew member
@@ -299,6 +300,15 @@ async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUs
     return null;
   }
   const poolTokens = Math.round(quoteTotal * rateCard.jcmovesPerDollar);
+  const giftCardTenderResult = await pool.query<{ gift_card_funded_usd: string }>(
+    `SELECT COALESCE(SUM(gift_card_paid_amount), 0)::text AS gift_card_funded_usd
+       FROM square_invoices
+      WHERE lead_id=$1 AND status='paid'`,
+    [leadId],
+  );
+  const giftCardFundedUsd = Math.min(quoteTotal, Number(giftCardTenderResult.rows[0]?.gift_card_funded_usd || 0));
+  const customerEligibleQuoteTotal = calculateCustomerRewardBase(quoteTotal, giftCardFundedUsd);
+  const customerPoolTokens = Math.round(customerEligibleQuoteTotal * rateCard.jcmovesPerDollar);
   const crewAllocation = calculateCrewPoolAllocation(poolTokens, [
     ...(Array.isArray(lead.crewMembers) ? lead.crewMembers : []),
     ...(lead.assignedToUserId ? [lead.assignedToUserId] : []),
@@ -317,6 +327,7 @@ async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUs
     recipientLabel: string;
     rewardKind: string;
     amount: number;
+    quoteTotalUsd?: number;
     metadata: Record<string, unknown>;
   }) {
     const result = await pool.query<{ id: number }>(
@@ -325,7 +336,7 @@ async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUs
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
        ON CONFLICT DO NOTHING
        RETURNING id`,
-      [leadId, input.recipientType, input.recipientUserId, input.recipientLabel, input.rewardKind, input.amount, quoteTotal, rateCard.jcmovesPerDollar, JSON.stringify(input.metadata)],
+      [leadId, input.recipientType, input.recipientUserId, input.recipientLabel, input.rewardKind, input.amount, input.quoteTotalUsd ?? quoteTotal, rateCard.jcmovesPerDollar, JSON.stringify(input.metadata)],
     );
     if (result.rows[0]) return result.rows[0];
     const { rows } = await pool.query<{ id: number }>(
@@ -349,18 +360,29 @@ async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUs
     recipientUserId: customer?.id || null,
     recipientLabel: customer?.email?.trim().toLowerCase() || normalizedCustomerEmail || "Customer",
     rewardKind: customerRewardKind,
-    amount: poolTokens,
-    metadata: { source: "rate_card", paid: true, completed: true, pendingCustomerClaim: !customer },
+    amount: customerPoolTokens,
+    quoteTotalUsd: customerEligibleQuoteTotal,
+    metadata: {
+      source: "rate_card",
+      paid: true,
+      completed: true,
+      pendingCustomerClaim: !customer,
+      finalizedQuoteUsd: quoteTotal,
+      giftCardFundedUsd,
+      customerEligibleQuoteUsd: customerEligibleQuoteTotal,
+      giftCardDoubleEarnExcluded: giftCardFundedUsd > 0,
+    },
   });
-  if (customer) {
+  if (customer && customerPoolTokens > 0) {
     await settleJobLedgerRecipient({
       ledgerId: customerLedger.id,
       leadId,
       userId: customer.id,
       rewardType: "customer_paid_completed_pool",
-      amount: poolTokens,
-      quoteTotal,
+      amount: customerPoolTokens,
+      quoteTotal: customerEligibleQuoteTotal,
       ratePerDollar: rateCard.jcmovesPerDollar,
+      metadata: { finalizedQuoteUsd: quoteTotal, giftCardFundedUsd, customerEligibleQuoteUsd: customerEligibleQuoteTotal },
     });
   }
 
@@ -390,7 +412,7 @@ async function disburseRateCardJcMoves(leadId: string, lead: Lead & { crewLeadUs
 
   await storage.updateLeadQuote(leadId, { completionRewardedAt: now, tokensDisbursedAt: now });
   return {
-    customerTokens: poolTokens,
+    customerTokens: customerPoolTokens,
     perCrewFlatTokens: 0,
     perCrewHoursTokens: 0,
     crewIds,

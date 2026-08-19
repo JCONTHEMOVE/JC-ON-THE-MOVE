@@ -80,6 +80,7 @@ const PublicQuoteOrderPage = lazy(() => import("@/pages/public-quote-order"));
 const SponsorsPage = lazy(() => import("@/pages/sponsors"));
 const ServicesPage = lazy(() => import("@/pages/services"));
 const GiftCardsPage = lazy(() => import("@/pages/gift-cards"));
+const GiftCardBonusPage = lazy(() => import("@/pages/gift-card-bonus"));
 const RouteDaysPage = lazy(() => import("@/pages/route-days"));
 const GalleryPage = lazy(() => import("@/pages/gallery"));
 const ReviewsPage = lazy(() => import("@/pages/reviews"));
@@ -130,6 +131,7 @@ const AdminPaymentsPage = lazy(() => import("@/pages/admin/AdminPaymentsPage"));
 const AdminWalletLedgerPage = lazy(() => import("@/pages/admin/AdminWalletLedgerPage"));
 const AdminCashoutsPage = lazy(() => import("@/pages/admin/AdminCashoutsPage"));
 const AdminLaunchChecklistPage = lazy(() => import("@/pages/admin/AdminLaunchChecklistPage"));
+const AdminGiftCardBonusesPage = lazy(() => import("@/pages/admin/gift-card-bonuses"));
 const JobPlannerPage = lazy(() => import("@/pages/job-planner"));
 const BookLawnCarePage = lazy(() => import("@/pages/book-lawn-care"));
 const AdminLawnCarePage = lazy(() => import("@/pages/admin-lawn-care"));
@@ -553,6 +555,7 @@ function AuthenticatedApp() {
               <Route path="/admin/jobs"><PlannerLegacyRedirect plannerPath="/admin/schedule" /></Route>
               <Route path="/admin/people"><AdminPeoplePage /></Route>
               <Route path="/admin/finance"><AdminFinancePage /></Route>
+              <Route path="/admin/gift-card-bonuses"><AdminGiftCardBonusesPage /></Route>
               <Route path="/admin/pricing"><AdminPricingPage /></Route>
               <Route path="/admin/marketplace"><AdminMarketplacePage /></Route>
               <Route path="/admin/marketplace-playbook"><AdminMarketplacePlaybookPage /></Route>
@@ -917,6 +920,7 @@ function Router() {
       
       {/* Services page - accessible to all */}
       <Route path="/services" component={ServicesPage} />
+      <Route path="/gift-cards/bonus" component={GiftCardBonusPage} />
       <Route path="/gift-cards" component={GiftCardsPage} />
       <Route path="/route-days" component={RouteDaysPage} />
       <Route path="/route-days/:slug" component={RouteDaysPage} />

@@ -111,6 +111,8 @@ import pricingV2Router from "./routes/pricingV2";
 import regionalAutomationRouter from "./routes/regionalAutomation";
 import pipelineRouter from "./routes/pipeline";
 import aiBookingRouter from "./routes/aiBooking";
+import giftCardBonusesRouter from "./routes/giftCardBonuses";
+import { ensureGiftCardBonusTables } from "./services/giftCardBonuses";
 import { ensureBookingCatalogSeeded } from "./services/bookingCatalogSeed";
 import { getActivePricingSnapshot } from "./services/pricingVersions";
 import {
@@ -23652,7 +23654,7 @@ Thank you for your business!
         ? event.event_id
         : typeof event.id === "string" ? event.id : "";
       if (!webhookEventId) return res.status(400).json({ error: "Square event id is required" });
-      const eventObject = (data?.invoice || data?.payment) as Record<string, unknown> | undefined;
+      const eventObject = (data?.invoice || data?.payment || data?.refund || data?.dispute || data?.gift_card_activity) as Record<string, unknown> | undefined;
       const squareObjectId = typeof eventObject?.id === "string" ? eventObject.id : null;
       const { claimSquareWebhookEvent, completeSquareWebhookEvent } = await import("./services/squareWebhookIdempotency");
       const webhookClaim = await claimSquareWebhookEvent({ eventId: webhookEventId, eventType, squareObjectId, rawBody: bodyStr });
@@ -23669,7 +23671,16 @@ Thank you for your business!
 
       const { squareInvoiceService } = await import("./services/square-invoice");
 
-      if (eventType === "invoice.payment_made" || eventType === "invoice.paid") {
+      if (eventType === "gift_card.activity.created" || eventType === "gift_card.activity.updated") {
+        const { handleSquareGiftCardActivityEvent } = await import("./services/giftCardBonuses");
+        await handleSquareGiftCardActivityEvent(data?.gift_card_activity || data?.giftCardActivity);
+      } else if (eventType === "refund.updated") {
+        const { handleSquareGiftCardRefundEvent } = await import("./services/giftCardBonuses");
+        await handleSquareGiftCardRefundEvent(data?.refund);
+      } else if (eventType === "dispute.created" || eventType === "dispute.updated") {
+        const { handleSquareGiftCardDisputeEvent } = await import("./services/giftCardBonuses");
+        await handleSquareGiftCardDisputeEvent(data?.dispute);
+      } else if (eventType === "invoice.payment_made" || eventType === "invoice.paid") {
         const invoice = (data?.invoice as Record<string, unknown> | undefined);
         const squareInvoiceId = typeof invoice?.id === "string" ? invoice.id : undefined;
 
@@ -23729,6 +23740,16 @@ Thank you for your business!
           if (localInvoice) {
             await storage.updateSquareInvoiceStatus(squareInvoiceId, "paid", new Date());
             console.log(`[Square webhook] Invoice ${squareInvoiceId} marked as paid`);
+
+            if (localInvoice.squareOrderId) {
+              try {
+                const { recordSquareGiftCardTenderForOrder } = await import("./services/giftCardBonuses");
+                await recordSquareGiftCardTenderForOrder(localInvoice.squareOrderId);
+              } catch (tenderError) {
+                console.error("[Square webhook] Gift-card tender accounting failed:", (tenderError as Error).message);
+                throw tenderError;
+              }
+            }
 
             if (localInvoice.leadId) {
               const lead = await storage.getLead(localInvoice.leadId);
@@ -23900,6 +23921,14 @@ Thank you for your business!
           const orderId = typeof payment?.order_id === "string" ? payment.order_id : undefined;
           const paymentId = typeof payment?.id === "string" ? payment.id : undefined;
           if (status === "COMPLETED" && orderId && paymentId) {
+            try {
+              const { handleSquareGiftCardPaymentEvent, recordSquareGiftCardTenderForOrder } = await import("./services/giftCardBonuses");
+              await handleSquareGiftCardPaymentEvent(payment);
+              await recordSquareGiftCardTenderForOrder(orderId);
+            } catch (giftCardError) {
+              console.error("[Square webhook] Gift-card bonus/tender handling failed:", (giftCardError as Error).message);
+              throw giftCardError;
+            }
             const { rows } = await pool.query(
               `SELECT id, user_id, amount_usd, status, pack_id, bonus_tokens, bonus_awarded_at
                FROM prepaid_credit_intents WHERE square_order_id = $1 LIMIT 1`,
@@ -23922,6 +23951,7 @@ Thank you for your business!
           }
         } catch (prepaidErr) {
           console.error("[Square webhook] Prepaid credit handling failed:", prepaidErr);
+          throw prepaidErr;
         }
       } else if (eventType === "invoice.updated") {
         const invoice = (data?.invoice as Record<string, unknown> | undefined);
@@ -32386,6 +32416,8 @@ Thank you for your business!
   app.use("/api", pricingV2Router);
   app.use("/api", regionalAutomationRouter);
   app.use("/api", aiBookingRouter);
+  await ensureGiftCardBonusTables();
+  app.use("/api", giftCardBonusesRouter);
   // Task #170 — unified orchestrator endpoint. Shadow mode is wired inside
   // the legacy /api/bookings/quote handler so both paths run in parallel
   // until parity is confirmed.

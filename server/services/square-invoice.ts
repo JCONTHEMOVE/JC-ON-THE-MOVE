@@ -211,7 +211,7 @@ export class SquareInvoiceService {
         acceptedPaymentMethods: {
           card: true,
           bankAccount: true,
-          squareGiftCard: false,
+          squareGiftCard: true,
           buyNowPayLater: false,
           cashAppPay: true,
         },
@@ -312,7 +312,7 @@ export class SquareInvoiceService {
         acceptedPaymentMethods: {
           card: true,
           bankAccount: true,
-          squareGiftCard: false,
+          squareGiftCard: true,
           buyNowPayLater: false,
           cashAppPay: true,
         },
@@ -473,7 +473,7 @@ export class SquareInvoiceService {
         primaryRecipient: { customerId },
         paymentRequests: [{ requestType: "BALANCE", dueDate: dueDate || this.getDefaultDueDate() }],
         deliveryMethod: squareDelivery,
-        acceptedPaymentMethods: { card: true, bankAccount: true, squareGiftCard: false, buyNowPayLater: false, cashAppPay: true },
+        acceptedPaymentMethods: { card: true, bankAccount: true, squareGiftCard: true, buyNowPayLater: false, cashAppPay: true },
         title: `Invoice - JC ON THE MOVE`,
         description: `Moving service for ${customerName}`,
       },

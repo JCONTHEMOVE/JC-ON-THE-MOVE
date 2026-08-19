@@ -1900,6 +1900,7 @@ export const squareInvoices = pgTable("square_invoices", {
   customerEmail: text("customer_email").notNull(),
   customerName: text("customer_name").notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(), // Invoice amount in dollars
+  giftCardPaidAmount: decimal("gift_card_paid_amount", { precision: 10, scale: 2 }).notNull().default("0.00"),
   currency: varchar("currency").notNull().default("USD"),
   description: text("description"),
   status: text("status").notNull().default("draft"), // 'draft', 'sent', 'paid', 'canceled', 'failed'
@@ -1928,6 +1929,70 @@ export const insertSquareInvoiceSchema = createInsertSchema(squareInvoices).omit
 
 export type SquareInvoice = typeof squareInvoices.$inferSelect;
 export type InsertSquareInvoice = z.infer<typeof insertSquareInvoiceSchema>;
+
+// Bonus JCMOVES earned for purchasing a Square eGift card. Square remains the
+// source of truth for card delivery, balances, and redemption; these tables
+// intentionally store no gift-card number, GAN, or secret card credential.
+export const giftCardBonusPurchases = pgTable("gift_card_bonus_purchases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  squareOrderId: text("square_order_id").notNull().unique(),
+  squarePaymentId: text("square_payment_id").unique(),
+  squareLocationId: text("square_location_id"),
+  buyerEmail: text("buyer_email"),
+  faceValueCents: integer("face_value_cents").notNull().default(0),
+  paidCents: integer("paid_cents").notNull().default(0),
+  tokenRate: decimal("token_rate", { precision: 10, scale: 4 }).notNull().default("25"),
+  tokenAmount: decimal("token_amount", { precision: 18, scale: 8 }).notNull().default("0"),
+  redeemRateSnapshot: decimal("redeem_rate_snapshot", { precision: 18, scale: 8 }).notNull().default("500"),
+  refundedCents: integer("refunded_cents").notNull().default(0),
+  reversedTokens: decimal("reversed_tokens", { precision: 18, scale: 8 }).notNull().default("0"),
+  status: text("status").notNull().default("awaiting_payment"),
+  claimTokenHash: text("claim_token_hash").unique(),
+  recipientClaimTokenHash: text("recipient_claim_token_hash").unique(),
+  claimEmailSentAt: timestamp("claim_email_sent_at"),
+  targetEmail: text("target_email"),
+  targetUserId: varchar("target_user_id").references(() => users.id),
+  targetSelectedAt: timestamp("target_selected_at"),
+  recipientInviteExpiresAt: timestamp("recipient_invite_expires_at"),
+  purchasedAt: timestamp("purchased_at"),
+  eligibleAt: timestamp("eligible_at"),
+  creditedAt: timestamp("credited_at"),
+  goldEligible: boolean("gold_eligible").notNull().default(false),
+  metadata: jsonb("metadata").notNull().default("{}"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_gift_card_bonus_status_eligible").on(table.status, table.eligibleAt),
+  index("idx_gift_card_bonus_target_user").on(table.targetUserId),
+  index("idx_gift_card_bonus_buyer_email").on(table.buyerEmail),
+]);
+
+export const giftCardBonusActivations = pgTable("gift_card_bonus_activations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  squareActivityId: text("square_activity_id").notNull().unique(),
+  squareOrderId: text("square_order_id").notNull(),
+  lineItemUid: text("line_item_uid"),
+  amountCents: integer("amount_cents").notNull(),
+  activatedAt: timestamp("activated_at").notNull(),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_gift_card_bonus_activation_order").on(table.squareOrderId),
+]);
+
+export const giftCardBonusAdjustments = pgTable("gift_card_bonus_adjustments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  purchaseId: varchar("purchase_id").notNull().references(() => giftCardBonusPurchases.id),
+  squareAdjustmentId: text("square_adjustment_id").notNull().unique(),
+  adjustmentType: text("adjustment_type").notNull(),
+  amountCents: integer("amount_cents").notNull().default(0),
+  status: text("status").notNull(),
+  metadata: jsonb("metadata").notNull().default("{}"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_gift_card_bonus_adjustment_purchase").on(table.purchaseId),
+]);
+
+export type GiftCardBonusPurchase = typeof giftCardBonusPurchases.$inferSelect;
 
 // Regional automation policy and audit records. These tables deliberately
 // reference the existing pricing/route identifiers instead of duplicating

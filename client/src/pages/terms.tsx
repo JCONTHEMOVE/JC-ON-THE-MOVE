@@ -119,6 +119,20 @@ export default function TermsOfService() {
             </div>
           </section>
 
+          <section className="mb-10 p-6 bg-emerald-900/20 border border-emerald-500/30 rounded-lg">
+            <h2 className="text-2xl font-semibold mb-4 text-emerald-300">Square eGift Cards & Purchase Bonuses</h2>
+            <ul className="list-disc pl-6 space-y-2 text-slate-300">
+              <li>Square manages eGift-card payment, delivery, balances, and redemption. All gift-card sales are final and nonrefundable. Cards have no expiration or inactivity fee, and no cash back or cash refund is provided except where required by law.</li>
+              <li>Cards may be applied toward eligible JC ON THE MOVE services; normal quotes, minimums, availability, scheduling, and service-area rules still apply.</li>
+              <li>Eligible initial activations of $50 or more earn 25 bonus JCMOVES per gift-card dollar—a current 5% service-credit reward—after a 14-day hold. Reloads and discounted gift-card purchases do not qualify.</li>
+              <li>If JC approves an adjustment for service paid with a gift card, the value is returned to the original Square gift card or issued as Square eGift/store credit where supported, rather than cash, except where law requires another remedy.</li>
+              <li>The purchaser may assign the bonus to themself or the gift recipient. An unclaimed recipient invitation returns to the purchaser after 30 days.</li>
+              <li>Refunds and lost payment disputes reverse the bonus proportionally. If the bonus has already been spent, future JCMOVES earnings first offset the resulting reward debt.</li>
+              <li>The portion of a service invoice paid by gift card does not also earn the normal customer per-dollar reward. Flat completion bonuses and crew rewards are unaffected.</li>
+              <li>The current redemption rate is 500 JCMOVES per $1 of eligible service credit and may change prospectively under the rewards program. A $5,000 Gold Bundle earns 125,000 JCMOVES, currently $250 of service credit. It does not change the face value of the separate Square gift cards.</li>
+            </ul>
+          </section>
+
           <section className="mb-10 p-6 bg-amber-900/30 border border-amber-500/30 rounded-lg">
             <h2 className="text-2xl font-semibold mb-4 text-amber-300">Cancellation & Refund Policy</h2>
             <p className="mb-4">
