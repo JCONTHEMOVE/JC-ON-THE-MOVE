@@ -208,7 +208,9 @@ export async function initDispatchModule(): Promise<void> {
   }
   if (retryHandle) clearInterval(retryHandle);
   retryHandle = setInterval(() => {
-    void dispatchRetryTick();
+    void dispatchRetryTick().catch((error) => {
+      console.error("[dispatch] retry cron failed:", error);
+    });
   }, 2 * 60 * 1000);
   console.log("[dispatch] initialized — retry cron every 2min");
 }

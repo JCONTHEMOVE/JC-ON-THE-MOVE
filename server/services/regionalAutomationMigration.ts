@@ -1,10 +1,11 @@
 import { pool } from "../db";
+import { ensureQuoteRevisionInfrastructure } from "./quoteRevisions";
 
 let migrationPromise: Promise<void> | null = null;
 
 export function ensureRegionalAutomationSchema(): Promise<void> {
   if (migrationPromise) return migrationPromise;
-  migrationPromise = runMigration().catch((error) => {
+  migrationPromise = ensureQuoteRevisionInfrastructure().then(runMigration).catch((error) => {
     migrationPromise = null;
     throw error;
   });
