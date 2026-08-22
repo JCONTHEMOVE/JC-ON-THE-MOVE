@@ -92,6 +92,15 @@ type Dashboard = {
   readiness: Array<{ channel: string; ready: boolean; missing: string[]; note: string }>;
   scheduler: { enabled: boolean; proposalTime: string; autoPublish: boolean };
   ai: { model: string; ready: boolean };
+  representatives: Array<{
+    id: string;
+    slug: string;
+    displayName: string;
+    promoCode?: string | null;
+    pilotAllowed: boolean;
+    connection: { status: string; pageId: string; pageName: string; lastVerifiedAt?: string | null; lastError?: string | null } | null;
+    publications: { published: number; failed: number; lastPublishedAt?: string | null };
+  }>;
 };
 
 const serviceLabels: Record<string, string> = {
@@ -228,7 +237,7 @@ export default function AdminMarketingBotPage() {
 
   const companyVariants = campaign?.variants.filter((variant) => variant.is_company) || [];
   const shareKits = campaign?.variants.filter((variant) => !variant.is_company) || [];
-  const allProvidersReady = Boolean(dashboard?.readiness.every((entry) => entry.ready));
+  const facebookReady = Boolean(dashboard?.readiness.find((entry) => entry.channel === "facebook")?.ready);
   const dirty = Boolean(campaign) && (
     edit.headline !== campaign?.headline ||
     edit.facebookCaption !== campaign?.facebook_caption ||
@@ -246,6 +255,8 @@ export default function AdminMarketingBotPage() {
   };
 
   const publicationByChannel = useMemo(() => new Map((campaign?.publications || []).map((publication) => [publication.channel, publication])), [campaign?.publications]);
+  const representativeBySlug = useMemo(() => new Map((dashboard?.representatives || []).map((rep) => [rep.slug, rep])), [dashboard?.representatives]);
+  const facebookPublication = publicationByChannel.get("facebook");
 
   if (dashboardQuery.isLoading) {
     return <div className="min-h-[60vh] grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-blue-400" /></div>;
@@ -357,10 +368,10 @@ export default function AdminMarketingBotPage() {
                   <Button variant="outline" className="border-slate-700" disabled={!dirty || action.isPending || campaign.status === "published"} onClick={() => action.mutate({ method: "PATCH", url: `/api/admin/marketing-bot/campaigns/${campaign.id}`, body: edit, success: "Edits saved; approval reset" })}>Save edits</Button>
                   <Button className="bg-emerald-600 hover:bg-emerald-500" disabled={action.isPending || Boolean(campaign.approved_at) || campaign.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/approve`, success: "Campaign approved" })}><Check className="mr-2 h-4 w-4" />Approve</Button>
                   <Button variant="outline" className="border-slate-700" disabled={action.isPending || campaign.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/skip`, body: { reason: "Skipped from approval queue" }, success: "Campaign skipped" })}>Skip</Button>
-                  <Button className="bg-blue-600 hover:bg-blue-500" disabled={action.isPending || !campaign.approved_at || !allProvidersReady || campaign.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/publish`, success: "Publish run completed" })}><Send className="mr-2 h-4 w-4" />Post everywhere</Button>
-                  {campaign.status === "partially_published" || campaign.status === "failed" ? <Button variant="outline" className="border-amber-500/40 text-amber-100" disabled={action.isPending} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/retry`, success: "Failed channels retried" })}><RefreshCw className="mr-2 h-4 w-4" />Retry failed</Button> : null}
+                  <Button className="bg-blue-600 hover:bg-blue-500" disabled={action.isPending || !campaign.approved_at || !facebookReady || facebookPublication?.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/publish`, body: { channels: ["facebook"] }, success: "JC Facebook post published" })}><Send className="mr-2 h-4 w-4" />Post to JC Facebook</Button>
+                  {facebookPublication?.status === "failed" ? <Button variant="outline" className="border-amber-500/40 text-amber-100" disabled={action.isPending} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/retry`, body: { channels: ["facebook"] }, success: "Facebook post retried" })}><RefreshCw className="mr-2 h-4 w-4" />Retry Facebook</Button> : null}
                 </div>
-                {!allProvidersReady && <p className="mt-3 flex items-start gap-2 text-xs text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Post everywhere unlocks when Facebook, Instagram, and Google Business are connected. You can generate, edit, and approve now.</p>}
+                {!facebookReady && <p className="mt-3 flex items-start gap-2 text-xs text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Configure the JC Facebook Page connection before publishing. Instagram and Google are not required for this rollout.</p>}
 
                 <div className="mt-6 grid gap-3 md:grid-cols-3">
                   {companyVariants.map((variant) => {
@@ -383,7 +394,10 @@ export default function AdminMarketingBotPage() {
         <TabsContent value="share-kits" className="mt-0">
           <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-100"><Users className="mr-2 inline h-4 w-4" />Each kit has a unique tracked URL and the employee's promo code. These are for employee sharing; company channels publish only the canonical company versions.</div>
           <div className="grid gap-4 lg:grid-cols-2">
-            {shareKits.map((variant) => <article key={variant.id} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4"><div className="flex items-center justify-between"><div><h3 className="font-bold text-white">{variant.rep_slug || "Employee"}</h3><p className="text-xs text-slate-500">Code {variant.promo_code || "none"}</p></div><Button size="sm" variant="outline" className="border-slate-700" onClick={() => copyText(variant.caption, variant.rep_slug || "Share kit")}><Clipboard className="mr-2 h-3.5 w-3.5" />Copy</Button></div><p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{variant.caption}</p></article>)}
+            {shareKits.map((variant) => {
+              const representative = variant.rep_slug ? representativeBySlug.get(variant.rep_slug) : null;
+              return <article key={variant.id} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4"><div className="flex items-center justify-between gap-3"><div><h3 className="font-bold text-white">{variant.rep_slug || "Employee"}</h3><p className="text-xs text-slate-500">Code {variant.promo_code || "none"}</p>{representative?.pilotAllowed && <p className="mt-1 text-xs text-blue-300">{representative.connection?.status === "connected" ? `Connected: ${representative.connection.pageName}` : "Matt pilot: Page not connected"} · {representative.publications.published} published</p>}</div><Button size="sm" variant="outline" className="border-slate-700" onClick={() => copyText(variant.caption, variant.rep_slug || "Share kit")}><Clipboard className="mr-2 h-3.5 w-3.5" />Copy</Button></div><p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{variant.caption}</p></article>;
+            })}
             {!shareKits.length && <div className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">Select a campaign with active marketing representatives.</div>}
           </div>
         </TabsContent>

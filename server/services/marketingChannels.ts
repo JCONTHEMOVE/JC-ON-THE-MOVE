@@ -21,6 +21,22 @@ export type ChannelReadiness = {
   note: string;
 };
 
+export class MarketingProviderError extends Error {
+  status: number;
+  providerCode?: number;
+
+  constructor(message: string, status: number, providerCode?: number) {
+    super(message);
+    this.name = "MarketingProviderError";
+    this.status = status;
+    this.providerCode = providerCode;
+  }
+
+  get requiresReauthorization() {
+    return this.status === 401 || [102, 190, 200].includes(Number(this.providerCode || 0));
+  }
+}
+
 function required(names: string[]) {
   return names.filter((name) => !process.env[name]?.trim());
 }
@@ -78,7 +94,11 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs = 30_000) {
     try { body = text ? JSON.parse(text) : {}; } catch { body = { detail: text.slice(0, 500) }; }
     if (!response.ok) {
       const message = body?.error?.message || body?.error_description || body?.message || body?.detail || `HTTP ${response.status}`;
-      throw new Error(String(message).slice(0, 500));
+      throw new MarketingProviderError(
+        String(message).slice(0, 500),
+        response.status,
+        body?.error?.code == null ? undefined : Number(body.error.code),
+      );
     }
     return body;
   } finally {
@@ -86,25 +106,46 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs = 30_000) {
   }
 }
 
-async function publishFacebook(input: MarketingPublishInput): Promise<MarketingPublishResult> {
+export async function publishFacebookPage(
+  input: MarketingPublishInput,
+  credentials: { pageId: string; accessToken: string },
+): Promise<MarketingPublishResult> {
   assertPublicMediaUrl(input.imageUrl);
-  const version = process.env.META_GRAPH_API_VERSION!.trim();
-  const pageId = process.env.META_PAGE_ID!.trim();
-  const token = process.env.META_PAGE_ACCESS_TOKEN!.trim();
+  const version = process.env.META_GRAPH_API_VERSION?.trim();
+  if (!version) throw new Error("META_GRAPH_API_VERSION is not configured");
+  const pageId = credentials.pageId.trim();
+  const token = credentials.accessToken.trim();
+  if (!pageId || !token) throw new Error("Facebook Page credentials are incomplete");
   const body = new URLSearchParams({
     url: input.imageUrl,
     caption: input.caption,
     published: "true",
-    access_token: token,
   });
   const result = await fetchJson(`https://graph.facebook.com/${encodeURIComponent(version)}/${encodeURIComponent(pageId)}/photos`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
   const externalId = String(result.post_id || result.id || "");
   if (!externalId) throw new Error("Meta returned no Facebook post identifier");
-  return { externalId, externalUrl: `https://www.facebook.com/${externalId}` };
+  let externalUrl = `https://www.facebook.com/${externalId}`;
+  try {
+    const post = await fetchJson(
+      `https://graph.facebook.com/${encodeURIComponent(version)}/${encodeURIComponent(externalId)}?fields=permalink_url`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (post.permalink_url) externalUrl = String(post.permalink_url);
+  } catch (error) {
+    if (error instanceof MarketingProviderError && error.requiresReauthorization) throw error;
+  }
+  return { externalId, externalUrl, metadata: { pageId } };
+}
+
+async function publishFacebook(input: MarketingPublishInput): Promise<MarketingPublishResult> {
+  return publishFacebookPage(input, {
+    pageId: process.env.META_PAGE_ID!.trim(),
+    accessToken: process.env.META_PAGE_ACCESS_TOKEN!.trim(),
+  });
 }
 
 async function publishInstagram(input: MarketingPublishInput): Promise<MarketingPublishResult> {

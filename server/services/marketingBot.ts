@@ -156,11 +156,96 @@ export function ensureMarketingBotSchema() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS marketing_meta_oauth_sessions (
+        id UUID PRIMARY KEY,
+        state_hash TEXT NOT NULL UNIQUE,
+        user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        rep_id VARCHAR NOT NULL REFERENCES marketing_reps(id) ON DELETE CASCADE,
+        redirect_uri TEXT NOT NULL,
+        encrypted_user_token TEXT,
+        token_expires_at TIMESTAMPTZ,
+        expires_at TIMESTAMPTZ NOT NULL,
+        selection_expires_at TIMESTAMPTZ,
+        used_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        consumed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS marketing_meta_connections (
+        id UUID PRIMARY KEY,
+        rep_id VARCHAR NOT NULL REFERENCES marketing_reps(id) ON DELETE CASCADE,
+        user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        meta_user_id TEXT NOT NULL,
+        page_id TEXT NOT NULL,
+        page_name TEXT NOT NULL,
+        encrypted_page_token TEXT,
+        granted_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        status TEXT NOT NULL DEFAULT 'connected',
+        token_expires_at TIMESTAMPTZ,
+        data_access_expires_at TIMESTAMPTZ,
+        connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_verified_at TIMESTAMPTZ,
+        last_error TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS marketing_bot_rep_variant_revisions (
+        id UUID PRIMARY KEY,
+        variant_id UUID NOT NULL REFERENCES marketing_bot_variants(id) ON DELETE CASCADE,
+        campaign_revision INTEGER NOT NULL,
+        revision INTEGER NOT NULL,
+        caption TEXT NOT NULL,
+        safety JSONB NOT NULL DEFAULT '{}'::jsonb,
+        edited_by_user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (variant_id, campaign_revision, revision)
+      );
+
+      CREATE TABLE IF NOT EXISTS marketing_bot_rep_publications (
+        id UUID PRIMARY KEY,
+        campaign_id UUID NOT NULL REFERENCES marketing_bot_campaigns(id) ON DELETE CASCADE,
+        variant_id UUID NOT NULL REFERENCES marketing_bot_variants(id) ON DELETE CASCADE,
+        rep_id VARCHAR NOT NULL REFERENCES marketing_reps(id) ON DELETE CASCADE,
+        connection_id UUID NOT NULL REFERENCES marketing_meta_connections(id) ON DELETE RESTRICT,
+        target_page_id TEXT NOT NULL,
+        campaign_revision INTEGER NOT NULL,
+        rep_revision INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        actor_user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        external_id TEXT,
+        external_url TEXT,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_message TEXT,
+        published_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (variant_id, campaign_revision, rep_revision, target_page_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS marketing_bot_audit_events (
+        id BIGSERIAL PRIMARY KEY,
+        actor_user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        rep_id VARCHAR REFERENCES marketing_reps(id) ON DELETE SET NULL,
+        action TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_marketing_bot_campaigns_date ON marketing_bot_campaigns(local_date DESC);
       CREATE INDEX IF NOT EXISTS idx_marketing_bot_campaigns_status ON marketing_bot_campaigns(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_marketing_bot_variants_campaign ON marketing_bot_variants(campaign_id);
       CREATE INDEX IF NOT EXISTS idx_marketing_bot_publications_campaign ON marketing_bot_publications(campaign_id, status);
       CREATE INDEX IF NOT EXISTS idx_marketing_bot_events_campaign ON marketing_bot_events(campaign_id, event_type, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_marketing_meta_oauth_user ON marketing_meta_oauth_sessions(user_id, rep_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_marketing_meta_connection_status ON marketing_meta_connections(status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_marketing_meta_connection_rep ON marketing_meta_connections(rep_id, connected_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_marketing_rep_revisions_variant ON marketing_bot_rep_variant_revisions(variant_id, campaign_revision, revision DESC);
+      CREATE INDEX IF NOT EXISTS idx_marketing_rep_publications_campaign ON marketing_bot_rep_publications(campaign_id, status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_marketing_bot_audit_actor ON marketing_bot_audit_events(actor_user_id, created_at DESC);
     `).then(() => undefined).catch((error) => {
       schemaReady = null;
       throw error;
@@ -604,16 +689,7 @@ export async function setMarketingCampaignDecision(id: string, decision: "approv
   return result.rows[0] || null;
 }
 
-export async function publishMarketingBotCampaign(id: string, actorId: string, retryFailedOnly = false) {
-  await ensureMarketingBotSchema();
-  const campaign = await getMarketingBotCampaign(id);
-  if (!campaign) return null;
-  if (!campaign.approved_at) throw new Error("Approve the campaign before publishing");
-  if (!campaign.safety?.passed) throw new Error("Campaign safety checks are not passing");
-  const publishCopy = [campaign.headline, campaign.facebook_caption, campaign.instagram_caption, campaign.google_business_summary, campaign.short_caption].join("\n");
-  if (!/dispatched from (?:its |our )?Ironwood operation/i.test(publishCopy)) {
-    throw new Error("Regional campaigns must disclose that service is dispatched from the Ironwood operation. Edit and re-save this campaign before publishing.");
-  }
+export async function assertMarketingTerritoryAdsEnabled(territory: MarketingBotTerritory) {
   await ensureRegionalAutomationSchema();
   const capabilityCode: Partial<Record<MarketingBotTerritory, string>> = {
     ironwood_hurley: "IRONWOOD_50_MILE",
@@ -623,21 +699,42 @@ export async function publishMarketingBotCampaign(id: string, actorId: string, r
     eagle_river: "EAGLE_RIVER_REGION",
     up_northwoods: "UP_NORTHWOODS_CORRIDOR",
   };
-  const areaCode = capabilityCode[campaign.territory as MarketingBotTerritory];
+  const areaCode = capabilityCode[territory];
   const capability = areaCode
     ? await pool.query<{ ads_enabled: boolean }>(`SELECT ads_enabled FROM service_area_capabilities WHERE code=$1`, [areaCode])
     : null;
   if (!areaCode || capability?.rows[0]?.ads_enabled !== true) {
     throw new Error("Advertising is paused for this operating area. Enable it under Admin → Regional after capability review.");
   }
-  const variants = campaign.variants.filter((variant: any) => variant.is_company && MARKETING_BOT_CHANNELS.includes(variant.channel));
+}
+
+export async function publishMarketingBotCampaign(
+  id: string,
+  actorId: string,
+  retryFailedOnly = false,
+  channels: MarketingBotChannel[] = ["facebook"],
+) {
+  await ensureMarketingBotSchema();
+  const campaign = await getMarketingBotCampaign(id);
+  if (!campaign) return null;
+  if (!campaign.approved_at) throw new Error("Approve the campaign before publishing");
+  if (!campaign.safety?.passed) throw new Error("Campaign safety checks are not passing");
+  const publishCopy = [campaign.headline, campaign.facebook_caption, campaign.instagram_caption, campaign.google_business_summary, campaign.short_caption].join("\n");
+  if (!/dispatched from (?:its |our )?Ironwood operation/i.test(publishCopy)) {
+    throw new Error("Regional campaigns must disclose that service is dispatched from the Ironwood operation. Edit and re-save this campaign before publishing.");
+  }
+  await assertMarketingTerritoryAdsEnabled(campaign.territory as MarketingBotTerritory);
+  const selectedChannels = [...new Set(channels)].filter((channel) => MARKETING_BOT_CHANNELS.includes(channel));
+  if (!selectedChannels.length) throw new Error("Select at least one supported publishing channel");
+  const variants = campaign.variants.filter((variant: any) => variant.is_company && selectedChannels.includes(variant.channel));
+  if (!variants.length) throw new Error("No company variant exists for the selected channel");
   await pool.query("UPDATE marketing_bot_campaigns SET status='publishing', updated_at=NOW() WHERE id=$1", [id]);
 
   await Promise.all(variants.map(async (variant: any) => {
     const existingResult = await pool.query("SELECT * FROM marketing_bot_publications WHERE variant_id=$1 AND revision=$2 LIMIT 1", [variant.id, campaign.revision]);
     const existing = existingResult.rows[0];
     if (existing?.status === "published") return;
-    if (retryFailedOnly && existing && existing.status !== "failed") return;
+    if (retryFailedOnly && (!existing || existing.status !== "failed")) return;
     const publicationId = existing?.id || crypto.randomUUID();
     await pool.query(`
       INSERT INTO marketing_bot_publications (id,campaign_id,variant_id,channel,revision,status,attempts)
@@ -653,13 +750,17 @@ export async function publishMarketingBotCampaign(id: string, actorId: string, r
         cta: campaign.cta,
       });
       await pool.query(`UPDATE marketing_bot_publications SET status='published',external_id=$2,external_url=$3,metadata=$4::jsonb,error_message=NULL,published_at=NOW(),updated_at=NOW() WHERE id=$1`, [publicationId, result.externalId, result.externalUrl || null, cleanJson(result.metadata)]);
+      await pool.query(`
+        INSERT INTO marketing_bot_audit_events (actor_user_id, action, target_type, target_id, metadata)
+        VALUES ($1,'company_variant_published','marketing_bot_publication',$2,$3::jsonb)
+      `, [actorId, publicationId, cleanJson({ campaignRevision: campaign.revision, channel: variant.channel, externalId: result.externalId, externalUrl: result.externalUrl || null })]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown publishing error";
       await pool.query("UPDATE marketing_bot_publications SET status='failed',error_message=$2,updated_at=NOW() WHERE id=$1", [publicationId, message.slice(0, 500)]);
     }
   }));
 
-  const counts = await pool.query(`SELECT COUNT(*) FILTER (WHERE status='published')::int AS published, COUNT(*) FILTER (WHERE status='failed')::int AS failed, COUNT(*)::int AS total FROM marketing_bot_publications WHERE campaign_id=$1 AND revision=$2`, [id, campaign.revision]);
+  const counts = await pool.query(`SELECT COUNT(*) FILTER (WHERE status='published')::int AS published, COUNT(*) FILTER (WHERE status='failed')::int AS failed, COUNT(*)::int AS total FROM marketing_bot_publications WHERE campaign_id=$1 AND revision=$2 AND channel=ANY($3::text[])`, [id, campaign.revision, selectedChannels]);
   const state = counts.rows[0] || {};
   const nextStatus = Number(state.published) === variants.length ? "published" : Number(state.published) > 0 ? "partially_published" : "failed";
   await pool.query(`UPDATE marketing_bot_campaigns SET status=$2, published_at=CASE WHEN $2='published' THEN NOW() ELSE published_at END, updated_at=NOW() WHERE id=$1`, [id, nextStatus]);

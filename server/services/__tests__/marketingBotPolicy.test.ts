@@ -52,6 +52,14 @@ const safety = validateCampaignSafety({
 });
 assert.equal(safety.passed, true);
 assert.equal(validateCampaignSafety({ ...safetyInput(trusted, campaignUrl), duplicate: true }).passed, false);
+assert.equal(validateCampaignSafety({
+  ...safetyInput({ ...trusted, facebookCaption: `${trusted.facebookCaption}\nOnly $99 today.` }, campaignUrl),
+  duplicate: false,
+}).passed, false, "representative copy must not introduce an unverified price");
+assert.equal(validateCampaignSafety({
+  ...safetyInput({ ...trusted, facebookCaption: `${trusted.facebookCaption}\nVisit our Houghton office.` }, campaignUrl),
+  duplicate: false,
+}).passed, false, "representative copy must not claim a local office");
 
 const local = marketingLocalParts(new Date("2026-08-17T12:00:00Z"));
 assert.equal(local.localDate, "2026-08-17");

@@ -21,6 +21,7 @@ import MarketplaceActionMatrix from "@/components/MarketplaceActionMatrix";
 import MarketplaceProcessGuide from "@/components/MarketplaceProcessGuide";
 import { WalletChoiceModal } from "@/components/WalletChoiceModal";
 import { MarketingLaunchCard } from "@/components/MarketingLaunchCard";
+import { MarketingBotRepCard } from "@/components/MarketingBotRepCard";
 import {
   ROUTE_DAY_PROMO_PACKAGES,
   ROUTE_DAY_SCHEDULE,
@@ -645,6 +646,8 @@ export default function CrewEarningsPage({ marketingOnly = false }: { marketingO
       )}
 
       {marketingMode && <MarketingLaunchCard />}
+
+      {marketingMode && marketingRep?.slug.toLowerCase() === "matt" && <MarketingBotRepCard />}
 
       <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4">
         <div className="flex items-start justify-between gap-3">

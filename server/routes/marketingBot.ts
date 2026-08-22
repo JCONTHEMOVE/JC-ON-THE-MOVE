@@ -3,6 +3,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
+  marketingBotChannelSchema,
   marketingBotEditSchema,
   marketingBotServiceSchema,
   marketingBotTerritorySchema,
@@ -10,6 +11,7 @@ import {
 import { users } from "@shared/schema";
 import { db } from "../db";
 import { escapeMarketingCampaignHtml } from "../services/marketingCampaignPolicy";
+import { ipRateLimit } from "../lib/persistentRateLimit";
 import {
   generateMarketingBotCampaign,
   generateMarketingWeeklyReport,
@@ -22,6 +24,22 @@ import {
   startMarketingBotScheduler,
   updateMarketingBotCampaign,
 } from "../services/marketingBot";
+import {
+  MarketingRepAccessError,
+  beginMetaOAuth,
+  completeMetaOAuthCallback,
+  disconnectMetaPage,
+  getRepMarketingBotDashboard,
+  listMetaManagedPages,
+  listOwnerRepPublishingOverview,
+  marketingCrewRedirect,
+  publishRepVariant,
+  repCaptionInputSchema,
+  saveRepVariantCaption,
+  selectMetaManagedPage,
+  selectMetaPageInputSchema,
+  verifyMetaPageConnection,
+} from "../services/marketingRepMeta";
 
 const router = Router();
 
@@ -43,13 +61,57 @@ async function requireMarketingAdmin(req: Request, res: Response, next: NextFunc
   }
 }
 
+async function requireMarketingEmployee(req: Request, res: Response, next: NextFunction) {
+  try {
+    const sessionUser = (req as any).user || (req as any).currentUser;
+    const sessionUserId = (req.session as any)?.userId;
+    const user = sessionUser || (sessionUserId
+      ? (await db.select().from(users).where(eq(users.id, sessionUserId)).limit(1))[0]
+      : null);
+    if (!user || !["employee", "admin", "business_owner"].includes(user.role || "")) {
+      return res.status(403).json({ error: "Crew access required" });
+    }
+    (req as any).marketingActor = user;
+    return next();
+  } catch (error) {
+    console.error("[marketing-bot] crew auth failed:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ error: "Unable to verify crew access" });
+  }
+}
+
 function actorId(req: Request) {
   return String((req as any).marketingActor?.id || "");
 }
 
+function repError(res: Response, error: unknown, fallback: string) {
+  if (error instanceof z.ZodError) return res.status(400).json({ error: fallback, issues: error.issues });
+  const status = error instanceof MarketingRepAccessError ? error.status : 409;
+  return res.status(status).json({ error: error instanceof Error ? error.message : fallback });
+}
+
+const oauthRateLimit = ipRateLimit({
+  scope: "marketing-meta-oauth",
+  windowMs: 60 * 60 * 1000,
+  maxHits: 12,
+  message: "Too many Facebook connection attempts. Try again later.",
+  identifier: (req) => actorId(req) || req.ip || "unknown",
+});
+
+const publishRateLimit = ipRateLimit({
+  scope: "marketing-meta-publish",
+  windowMs: 10 * 60 * 1000,
+  maxHits: 12,
+  message: "Too many Facebook publishing attempts. Try again shortly.",
+  identifier: (req) => actorId(req) || req.ip || "unknown",
+});
+
 router.get("/admin/marketing-bot/dashboard", requireMarketingAdmin, async (_req, res) => {
   try {
-    res.json(await listMarketingBotDashboard());
+    const [dashboard, representatives] = await Promise.all([
+      listMarketingBotDashboard(),
+      listOwnerRepPublishingOverview(),
+    ]);
+    res.json({ ...dashboard, representatives });
   } catch (error) {
     console.error("[marketing-bot] dashboard failed:", error instanceof Error ? error.message : error);
     res.status(500).json({ error: "Failed to load Marketing Bot" });
@@ -129,7 +191,8 @@ router.post("/admin/marketing-bot/campaigns/:id/skip", requireMarketingAdmin, as
 router.post("/admin/marketing-bot/campaigns/:id/publish", requireMarketingAdmin, async (req, res) => {
   try {
     const id = z.string().uuid().parse(req.params.id);
-    const campaign = await publishMarketingBotCampaign(id, actorId(req), false);
+    const input = z.object({ channels: z.array(marketingBotChannelSchema).min(1).max(3).default(["facebook"]) }).parse(req.body || {});
+    const campaign = await publishMarketingBotCampaign(id, actorId(req), false, input.channels);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     res.json({ campaign });
   } catch (error) {
@@ -141,12 +204,98 @@ router.post("/admin/marketing-bot/campaigns/:id/publish", requireMarketingAdmin,
 router.post("/admin/marketing-bot/campaigns/:id/retry", requireMarketingAdmin, async (req, res) => {
   try {
     const id = z.string().uuid().parse(req.params.id);
-    const campaign = await publishMarketingBotCampaign(id, actorId(req), true);
+    const input = z.object({ channels: z.array(marketingBotChannelSchema).min(1).max(3).default(["facebook"]) }).parse(req.body || {});
+    const campaign = await publishMarketingBotCampaign(id, actorId(req), true, input.channels);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     res.json({ campaign });
   } catch (error) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: "Invalid campaign" });
     res.status(409).json({ error: error instanceof Error ? error.message : "Retry failed" });
+  }
+});
+
+router.get("/crew/marketing-bot/dashboard", requireMarketingEmployee, async (req, res) => {
+  try {
+    res.json(await getRepMarketingBotDashboard(actorId(req)));
+  } catch (error) {
+    repError(res, error, "Could not load your Marketing Bot campaigns");
+  }
+});
+
+router.get("/crew/marketing-bot/meta/connect", requireMarketingEmployee, oauthRateLimit, async (req, res) => {
+  try {
+    res.json(await beginMetaOAuth(actorId(req)));
+  } catch (error) {
+    repError(res, error, "Could not start the Facebook connection");
+  }
+});
+
+router.get("/crew/marketing-bot/meta/callback", requireMarketingEmployee, oauthRateLimit, async (req, res) => {
+  try {
+    const denied = z.string().max(100).optional().parse(req.query.error);
+    if (denied) return res.redirect(302, marketingCrewRedirect({ meta_error: "Facebook access was not granted" }));
+    const input = z.object({
+      state: z.string().min(20).max(500),
+      code: z.string().min(5).max(2000),
+    }).parse(req.query);
+    await completeMetaOAuthCallback(actorId(req), input.state, input.code);
+    return res.redirect(302, marketingCrewRedirect({ meta: "choose" }));
+  } catch (error) {
+    console.error("[marketing-bot] Meta OAuth callback failed:", error instanceof Error ? error.message : error);
+    return res.redirect(302, marketingCrewRedirect({ meta_error: "Facebook connection could not be completed. Please try again." }));
+  }
+});
+
+router.get("/crew/marketing-bot/meta/pages", requireMarketingEmployee, oauthRateLimit, async (req, res) => {
+  try {
+    res.json({ pages: await listMetaManagedPages(actorId(req)) });
+  } catch (error) {
+    repError(res, error, "Could not load Facebook Pages");
+  }
+});
+
+router.post("/crew/marketing-bot/meta/select-page", requireMarketingEmployee, oauthRateLimit, async (req, res) => {
+  try {
+    const input = selectMetaPageInputSchema.parse(req.body || {});
+    res.json({ connection: await selectMetaManagedPage(actorId(req), input.pageId) });
+  } catch (error) {
+    repError(res, error, "Could not connect that Facebook Page");
+  }
+});
+
+router.post("/crew/marketing-bot/meta/verify", requireMarketingEmployee, oauthRateLimit, async (req, res) => {
+  try {
+    res.json({ connection: await verifyMetaPageConnection(actorId(req)) });
+  } catch (error) {
+    repError(res, error, "Could not verify the Facebook Page connection");
+  }
+});
+
+router.delete("/crew/marketing-bot/meta/connection", requireMarketingEmployee, oauthRateLimit, async (req, res) => {
+  try {
+    res.json(await disconnectMetaPage(actorId(req)));
+  } catch (error) {
+    repError(res, error, "Could not disconnect the Facebook Page");
+  }
+});
+
+router.patch("/crew/marketing-bot/variants/:id", requireMarketingEmployee, async (req, res) => {
+  try {
+    const id = z.string().uuid().parse(req.params.id);
+    const input = repCaptionInputSchema.parse(req.body || {});
+    res.json({ revision: await saveRepVariantCaption(actorId(req), id, input.caption) });
+  } catch (error) {
+    repError(res, error, "Could not save campaign copy");
+  }
+});
+
+router.post("/crew/marketing-bot/variants/:id/publish", requireMarketingEmployee, publishRateLimit, async (req, res) => {
+  try {
+    const id = z.string().uuid().parse(req.params.id);
+    const input = z.object({ retry: z.boolean().default(false) }).parse(req.body || {});
+    res.json({ publication: await publishRepVariant(actorId(req), id, input.retry) });
+  } catch (error) {
+    repError(res, error, "Facebook Page publishing failed");
   }
 });
 
