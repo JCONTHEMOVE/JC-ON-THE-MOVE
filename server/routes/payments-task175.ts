@@ -11,8 +11,16 @@ import { isAuthenticated } from "../auth";
 import { storage } from "../storage";
 import { deriveLeadPaymentStatus } from "../services/paymentStatus";
 import { listScenarios, runAllScenarios, runScenario } from "../services/launchChecklist";
+import {
+  reconcilePaidCompletedJcMoves,
+  startPaidCompletedJcMovesReconciliation,
+} from "../services/reconcilePaidCompletedJcMoves";
 
 const router = Router();
+
+// Safety-net for jobs that complete before their final payment arrives. The
+// feature flag defaults off, so deploying this code alone cannot issue tokens.
+startPaidCompletedJcMovesReconciliation();
 
 async function requireAdmin(req: any, res: Response): Promise<boolean> {
   const userId = req.user?.id || (req.session as any)?.userId;
@@ -204,6 +212,20 @@ router.get("/admin/square-invoices", isAuthenticated, async (req: any, res: Resp
     res.json({ invoices: rows });
   } catch (e) {
     res.json({ invoices: [], note: "square_invoices not present" });
+  }
+});
+
+// Owner-only manual reconciliation is intentionally available even while the
+// automatic scheduler flag is off. This gives us a controlled production test
+// path before enabling recurring automatic reward issuance.
+router.post("/admin/rewards-reconciliation/paid-completed", isAuthenticated, async (req: any, res: Response) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const limit = Math.min(100, Math.max(1, Number(req.body?.limit) || 25));
+    const result = await reconcilePaidCompletedJcMoves(limit);
+    res.json({ ok: result.failed === 0, result });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
 
