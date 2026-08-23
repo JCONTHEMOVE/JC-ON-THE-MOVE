@@ -100,6 +100,7 @@ function configuredStartAt(): Date | null {
 
 export function getGiftCardBonusReadiness() {
   const requested = process.env.GIFT_CARD_BONUS_ENABLED === "true";
+  const publicMarketingRequested = process.env.GIFT_CARD_BONUS_PUBLIC_MARKETING_ENABLED === "true";
   const startAt = configuredStartAt();
   const blockers: string[] = [];
   if (!requested) blockers.push("GIFT_CARD_BONUS_ENABLED must be true");
@@ -114,14 +115,17 @@ export function getGiftCardBonusReadiness() {
     blockers.push("SQUARE_WEBHOOK_URL must be a valid HTTPS URL");
   }
   const enabled = blockers.length === 0;
-  return { enabled, requested, startAt: startAt?.toISOString() || null, blockers };
+  const publicMarketingEnabled = enabled && publicMarketingRequested;
+  return { enabled, requested, publicMarketingRequested, publicMarketingEnabled, startAt: startAt?.toISOString() || null, blockers };
 }
 
 export function getPublicGiftCardBonusConfig() {
   const readiness = getGiftCardBonusReadiness();
   return {
-    enabled: readiness.enabled,
-    startAt: readiness.startAt,
+    // Bonus processing and public advertising are deliberately separate so
+    // the owner can complete a controlled live purchase before launch copy is visible.
+    enabled: readiness.publicMarketingEnabled,
+    startAt: readiness.publicMarketingEnabled ? readiness.startAt : null,
     tokensPerDollar: GIFT_CARD_BONUS_TOKENS_PER_DOLLAR,
     minimumAmountUsd: GIFT_CARD_BONUS_MINIMUM_CENTS / 100,
     holdDays: GIFT_CARD_BONUS_HOLD_DAYS,
