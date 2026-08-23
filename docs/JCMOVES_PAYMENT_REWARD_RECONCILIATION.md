@@ -19,6 +19,10 @@ It then calls the existing `disburseJobTokens()` service. It does not calculate 
 
 The existing disbursement service remains the authority for reward amounts, gift-card-funded exclusions, JCMOVES ledger writes, advisory locking, wallet credits, and duplicate prevention.
 
+## Route-bootstrap investigation
+
+The earlier concern that `server/routes.ts` had been emptied was a retrieval artifact. Comparing current `main` with the earlier known-good commit showed the route file remained present with only small changes. No route restoration is part of this fix.
+
 ## Rollout controls
 
 Automatic reconciliation is disabled unless:
