@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -34,6 +35,8 @@ type Publication = {
   external_url?: string | null;
   error_message?: string | null;
   attempts: number;
+  target_page_id?: string | null;
+  target_page_name?: string | null;
 };
 
 type Campaign = {
@@ -92,6 +95,15 @@ type Dashboard = {
   readiness: Array<{ channel: string; ready: boolean; missing: string[]; note: string }>;
   scheduler: { enabled: boolean; proposalTime: string; autoPublish: boolean };
   ai: { model: string; ready: boolean };
+  companyConnections: Array<{
+    id: string;
+    pageId: string;
+    pageName: string;
+    status: string;
+    connectedAt: string;
+    lastVerifiedAt?: string | null;
+    lastError?: string | null;
+  }>;
   representatives: Array<{
     id: string;
     slug: string;
@@ -170,12 +182,26 @@ export default function AdminMarketingBotPage() {
   const [generateTerritory, setGenerateTerritory] = useState("auto");
   const [attributionVariant, setAttributionVariant] = useState("");
   const [attributionNote, setAttributionNote] = useState("");
+  const [selectedFacebookConnectionIds, setSelectedFacebookConnectionIds] = useState<string[]>([]);
 
   const dashboardQuery = useQuery<Dashboard>({
     queryKey: ["/api/admin/marketing-bot/dashboard"],
     refetchInterval: 30_000,
   });
   const dashboard = dashboardQuery.data;
+  const connectedFacebookPages = useMemo(
+    () => (dashboard?.companyConnections || []).filter((connection) => connection.status === "connected"),
+    [dashboard?.companyConnections],
+  );
+  const connectedFacebookPageKey = connectedFacebookPages.map((connection) => connection.id).join(",");
+
+  useEffect(() => {
+    const available = new Set(connectedFacebookPages.map((connection) => connection.id));
+    setSelectedFacebookConnectionIds((current) => {
+      const retained = current.filter((id) => available.has(id));
+      return retained.length > 0 ? retained : connectedFacebookPages.map((connection) => connection.id);
+    });
+  }, [connectedFacebookPageKey]);
 
   useEffect(() => {
     if (!selectedId && dashboard?.active?.id) setSelectedId(dashboard.active.id);
@@ -237,7 +263,7 @@ export default function AdminMarketingBotPage() {
 
   const companyVariants = campaign?.variants.filter((variant) => variant.is_company) || [];
   const shareKits = campaign?.variants.filter((variant) => !variant.is_company) || [];
-  const facebookReady = Boolean(dashboard?.readiness.find((entry) => entry.channel === "facebook")?.ready);
+  const facebookReady = connectedFacebookPages.length > 0;
   const dirty = Boolean(campaign) && (
     edit.headline !== campaign?.headline ||
     edit.facebookCaption !== campaign?.facebook_caption ||
@@ -254,9 +280,20 @@ export default function AdminMarketingBotPage() {
     toast({ title: `${label} copied` });
   };
 
-  const publicationByChannel = useMemo(() => new Map((campaign?.publications || []).map((publication) => [publication.channel, publication])), [campaign?.publications]);
+  const publicationByChannel = useMemo(() => new Map((campaign?.publications || []).filter((publication) => publication.channel !== "facebook").map((publication) => [publication.channel, publication])), [campaign?.publications]);
+  const facebookPublicationByPage = useMemo(() => new Map(
+    (campaign?.publications || [])
+      .filter((publication) => publication.channel === "facebook" && publication.target_page_id)
+      .map((publication) => [publication.target_page_id as string, publication]),
+  ), [campaign?.publications]);
   const representativeBySlug = useMemo(() => new Map((dashboard?.representatives || []).map((rep) => [rep.slug, rep])), [dashboard?.representatives]);
-  const facebookPublication = publicationByChannel.get("facebook");
+  const selectedFacebookPublications = connectedFacebookPages
+    .filter((page) => selectedFacebookConnectionIds.includes(page.id))
+    .map((page) => facebookPublicationByPage.get(page.pageId));
+  const selectedFacebookPublished = selectedFacebookConnectionIds.length > 0
+    && selectedFacebookPublications.length === selectedFacebookConnectionIds.length
+    && selectedFacebookPublications.every((publication) => publication?.status === "published");
+  const selectedFacebookFailed = selectedFacebookPublications.some((publication) => publication?.status === "failed");
 
   if (dashboardQuery.isLoading) {
     return <div className="min-h-[60vh] grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-blue-400" /></div>;
@@ -364,19 +401,59 @@ export default function AdminMarketingBotPage() {
                   </div>
                 </div>
 
-                <div className="mt-6 flex flex-wrap gap-2 border-t border-slate-800 pt-5">
+                <div className="mt-6 border-t border-slate-800 pt-5">
+                  <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-bold text-white">JC Facebook Page targets</h3>
+                        <p className="mt-1 text-xs text-blue-100/70">Each checked Page requires its own explicit publish result and permalink.</p>
+                      </div>
+                      <Badge variant="outline" className="border-blue-400/30 text-blue-100">{selectedFacebookConnectionIds.length} selected</Badge>
+                    </div>
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      {connectedFacebookPages.map((page) => {
+                        const publication = facebookPublicationByPage.get(page.pageId);
+                        const checked = selectedFacebookConnectionIds.includes(page.id);
+                        return (
+                          <label key={page.id} className="flex cursor-pointer items-start gap-3 rounded-lg border border-blue-400/15 bg-slate-950/40 p-3">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(value) => setSelectedFacebookConnectionIds((current) => value
+                                ? [...new Set([...current, page.id])]
+                                : current.filter((id) => id !== page.id))}
+                              aria-label={`Publish to ${page.pageName}`}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-bold text-white">{page.pageName}</span>
+                              <span className="mt-1 block text-[11px] text-slate-400">Page {page.pageId}</span>
+                              {publication?.status === "published" && <span className="mt-1 block text-[11px] text-emerald-300">Already published for revision {campaign.revision}</span>}
+                              {publication?.status === "failed" && <span className="mt-1 block text-[11px] text-amber-200">Retry available</span>}
+                            </span>
+                          </label>
+                        );
+                      })}
+                      {!connectedFacebookPages.length && <p className="text-sm text-amber-200">No healthy JC Facebook Page connection is available.</p>}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
                   <Button variant="outline" className="border-slate-700" disabled={!dirty || action.isPending || campaign.status === "published"} onClick={() => action.mutate({ method: "PATCH", url: `/api/admin/marketing-bot/campaigns/${campaign.id}`, body: edit, success: "Edits saved; approval reset" })}>Save edits</Button>
                   <Button className="bg-emerald-600 hover:bg-emerald-500" disabled={action.isPending || Boolean(campaign.approved_at) || campaign.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/approve`, success: "Campaign approved" })}><Check className="mr-2 h-4 w-4" />Approve</Button>
                   <Button variant="outline" className="border-slate-700" disabled={action.isPending || campaign.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/skip`, body: { reason: "Skipped from approval queue" }, success: "Campaign skipped" })}>Skip</Button>
-                  <Button className="bg-blue-600 hover:bg-blue-500" disabled={action.isPending || !campaign.approved_at || !facebookReady || facebookPublication?.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/publish`, body: { channels: ["facebook"] }, success: "JC Facebook post published" })}><Send className="mr-2 h-4 w-4" />Post to JC Facebook</Button>
-                  {facebookPublication?.status === "failed" ? <Button variant="outline" className="border-amber-500/40 text-amber-100" disabled={action.isPending} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/retry`, body: { channels: ["facebook"] }, success: "Facebook post retried" })}><RefreshCw className="mr-2 h-4 w-4" />Retry Facebook</Button> : null}
+                  <Button className="bg-blue-600 hover:bg-blue-500" disabled={action.isPending || !campaign.approved_at || !facebookReady || selectedFacebookConnectionIds.length === 0 || selectedFacebookPublished} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/publish`, body: { channels: ["facebook"], facebookConnectionIds: selectedFacebookConnectionIds }, success: "Selected JC Facebook Pages published" })}><Send className="mr-2 h-4 w-4" />Post to selected JC Pages</Button>
+                  {selectedFacebookFailed ? <Button variant="outline" className="border-amber-500/40 text-amber-100" disabled={action.isPending || selectedFacebookConnectionIds.length === 0} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/retry`, body: { channels: ["facebook"], facebookConnectionIds: selectedFacebookConnectionIds }, success: "Selected Facebook Page failures retried" })}><RefreshCw className="mr-2 h-4 w-4" />Retry selected Pages</Button> : null}
+                  </div>
                 </div>
                 {!facebookReady && <p className="mt-3 flex items-start gap-2 text-xs text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Configure the JC Facebook Page connection before publishing. Instagram and Google are not required for this rollout.</p>}
 
                 <div className="mt-6 grid gap-3 md:grid-cols-3">
-                  {companyVariants.map((variant) => {
+                  {companyVariants.filter((variant) => variant.channel !== "facebook").map((variant) => {
                     const publication = publicationByChannel.get(variant.channel);
                     return <div key={variant.id} className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><div className="flex items-center justify-between gap-2"><span className="text-sm font-bold text-white">{channelLabels[variant.channel]}</span><StatusBadge status={publication?.status || "not posted"} /></div>{publication?.error_message && <p className="mt-2 text-xs text-red-300">{publication.error_message}</p>}{publication?.external_url && <a className="mt-2 inline-flex items-center gap-1 text-xs text-blue-300" href={publication.external_url} target="_blank" rel="noreferrer">Open post <ExternalLink className="h-3 w-3" /></a>}</div>;
+                  })}
+                  {connectedFacebookPages.map((page) => {
+                    const publication = facebookPublicationByPage.get(page.pageId);
+                    return <div key={page.id} className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-bold text-white">{page.pageName}</span><StatusBadge status={publication?.status || "not posted"} /></div>{publication?.error_message && <p className="mt-2 text-xs text-red-300">{publication.error_message}</p>}{publication?.external_url && <a className="mt-2 inline-flex items-center gap-1 text-xs text-blue-300" href={publication.external_url} target="_blank" rel="noreferrer">Open post <ExternalLink className="h-3 w-3" /></a>}</div>;
                   })}
                 </div>
               </section>
@@ -424,6 +501,35 @@ export default function AdminMarketingBotPage() {
         </TabsContent>
 
         <TabsContent value="connections" className="mt-0">
+          <div className="mb-5 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-white">JC Facebook Pages</h3>
+                <p className="mt-1 text-sm text-blue-100/70">Company credentials are encrypted separately from Matt’s Page connection. Tokens are never shown here.</p>
+              </div>
+              <Badge variant="outline" className="border-blue-400/30 text-blue-100">{connectedFacebookPages.length} connected</Badge>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {(dashboard?.companyConnections || []).map((connection) => (
+                <div key={connection.id} className="rounded-xl border border-blue-400/15 bg-slate-950/50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-white">{connection.pageName}</p>
+                      <p className="mt-1 text-[11px] text-slate-500">Page {connection.pageId}</p>
+                    </div>
+                    <StatusBadge status={connection.status} />
+                  </div>
+                  {connection.lastVerifiedAt && <p className="mt-3 text-xs text-slate-400">Verified {new Date(connection.lastVerifiedAt).toLocaleString()}</p>}
+                  {connection.lastError && <p className="mt-2 text-xs text-amber-200">{connection.lastError}</p>}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" className="border-slate-700" disabled={action.isPending || connection.status === "disconnected"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/meta/connections/${connection.id}/verify`, success: `${connection.pageName} verified` })}>Verify</Button>
+                    <Button size="sm" variant="outline" className="border-red-500/30 text-red-200" disabled={action.isPending || connection.status === "disconnected"} onClick={() => action.mutate({ method: "DELETE", url: `/api/admin/marketing-bot/meta/connections/${connection.id}`, success: `${connection.pageName} disconnected` })}>Disconnect</Button>
+                  </div>
+                </div>
+              ))}
+              {!dashboard?.companyConnections.length && <p className="text-sm text-amber-200">No company Facebook Pages are connected yet.</p>}
+            </div>
+          </div>
           <div className="grid gap-4 md:grid-cols-3">
             {(dashboard?.readiness || []).map((connection) => <div key={connection.channel} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><div className="flex items-center justify-between"><h3 className="font-bold text-white">{channelLabels[connection.channel]}</h3>{connection.ready ? <CheckCircle2 className="h-5 w-5 text-emerald-400" /> : <AlertTriangle className="h-5 w-5 text-amber-400" />}</div><p className="mt-3 text-sm text-slate-400">{connection.note}</p>{connection.missing.length > 0 && <div className="mt-3 space-y-1">{connection.missing.map((name) => <code key={name} className="block rounded bg-slate-950 px-2 py-1 text-[11px] text-slate-400">{name}</code>)}</div>}</div>)}
           </div>
