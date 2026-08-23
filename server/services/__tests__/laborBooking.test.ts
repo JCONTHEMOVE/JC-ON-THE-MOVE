@@ -13,33 +13,38 @@ function test(name: string, run: () => void) {
 
 console.log("laborBooking()");
 
-test("prices the easy two-mover menu exactly", () => {
-  assert.equal(calculateLaborBooking({ crewSize: 2, hours: 1 }).laborTotal, 175);
-  assert.equal(calculateLaborBooking({ crewSize: 2, hours: 2 }).laborTotal, 350);
+test("uses the canonical $95 worker-hour rate and two-hour minimum", () => {
+  assert.equal(calculateLaborBooking({ crewSize: 2, hours: 1 }).laborTotal, 380);
+  assert.equal(calculateLaborBooking({ crewSize: 2, hours: 2 }).laborTotal, 380);
 });
 
-test("discounts only the third and fourth mover", () => {
-  assert.equal(calculateLaborBooking({ crewSize: 3, hours: 1 }).laborTotal, 249.38);
-  assert.equal(calculateLaborBooking({ crewSize: 4, hours: 1 }).laborTotal, 323.75);
+test("prices every selected mover from the same canonical rate", () => {
+  assert.equal(calculateLaborBooking({ crewSize: 3, hours: 1 }).laborTotal, 570);
+  assert.equal(calculateLaborBooking({ crewSize: 4, hours: 1 }).laborTotal, 760);
 });
 
 test("doubles labor hours for a load and unload job", () => {
   const quote = calculateLaborBooking({ crewSize: 2, hours: 2, workScope: "load_unload" });
   assert.equal(quote.billableHours, 4);
-  assert.equal(quote.laborTotal, 700);
+  assert.equal(quote.longBookingDiscountPct, 5);
+  assert.equal(quote.discountAmount, 38);
+  assert.equal(quote.laborTotal, 722);
 });
 
-test("uses the fallback long-booking rate after the fourth hour", () => {
+test("uses the canonical long-job discount tier", () => {
   const quote = calculateLaborBooking({ crewSize: 2, hours: 5 });
-  assert.equal(quote.discountedHours, 1);
-  assert.equal(quote.laborTotal, 857.5);
+  assert.equal(quote.longBookingDiscountPct, 5);
+  assert.equal(quote.discountedHours, 5);
+  assert.equal(quote.laborTotal, 902.5);
 });
 
 test("enforces the oversized minimum and applies a zone multiplier", () => {
   const quote = calculateLaborBooking({ crewSize: 2, hours: 1, oversized: true, zoneMultiplier: 1.2 });
   assert.equal(quote.crewSize, 3);
   assert.equal(quote.billableHours, 2);
-  assert.equal(quote.laborTotal, 598.5);
+  assert.equal(quote.laborBeforeZone, 570);
+  assert.equal(quote.zoneAdjustment, 114);
+  assert.equal(quote.laborTotal, 684);
 });
 
 test("recommends crew and hours from truck size", () => {

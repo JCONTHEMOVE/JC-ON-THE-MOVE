@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import {
+  CANONICAL_PRICING_2026_08,
   CANONICAL_PRICING_2026_08_1,
+  CANONICAL_PRICING_2026_08_3,
   applyGeographicQuotePolicy,
   assertQuoteApprovalAllowed,
+  buildMovingHelperSpecialPricingSnapshot,
   calculateMarketplaceFlatRate,
   calculateRateCardLine,
+  marketplaceRateCardApplies,
   type MarketplaceHourlyServiceCode,
 } from "@shared/canonicalPricing";
 
@@ -84,6 +88,120 @@ test("U-Box, piano, and safe flat/mileage prices match the attached card", () =>
   assert.equal(calculateMarketplaceFlatRate({ serviceCode: "ubox_delivery_only", boxes: 2, miles: 10 }), 1040);
   assert.equal(calculateMarketplaceFlatRate({ serviceCode: "piano", quantity: 2 }), 1600);
   assert.equal(calculateMarketplaceFlatRate({ serviceCode: "safe" }), 800);
+});
+
+const specialRows: Array<{
+  serviceCode: MarketplaceHourlyServiceCode;
+  crewSize: number;
+  beforeHours: number;
+  beforeTotal: number;
+  thresholdHours: number;
+  thresholdTotal: number;
+}> = [
+  { serviceCode: "load_unload", crewSize: 1, beforeHours: 2, beforeTotal: 500, thresholdHours: 3, thresholdTotal: 600 },
+  { serviceCode: "load_unload", crewSize: 2, beforeHours: 4, beforeTotal: 1120, thresholdHours: 5, thresholdTotal: 1000 },
+  { serviceCode: "load_unload", crewSize: 3, beforeHours: 4, beforeTotal: 1600, thresholdHours: 5, thresholdTotal: 1500 },
+  { serviceCode: "load_unload", crewSize: 4, beforeHours: 4, beforeTotal: 2000, thresholdHours: 5, thresholdTotal: 2000 },
+  { serviceCode: "cleaning", crewSize: 2, beforeHours: 2, beforeTotal: 500, thresholdHours: 3, thresholdTotal: 600 },
+];
+
+for (const row of specialRows) {
+  test(`Special ${row.serviceCode} ${row.crewSize} helper(s) switches the whole booking at the inclusive threshold`, () => {
+    const before = calculateRateCardLine({
+      serviceCode: row.serviceCode,
+      crewSize: row.crewSize,
+      hours: row.beforeHours,
+      snapshot: CANONICAL_PRICING_2026_08_3,
+    })!;
+    const threshold = calculateRateCardLine({
+      serviceCode: row.serviceCode,
+      crewSize: row.crewSize,
+      hours: row.thresholdHours,
+      snapshot: CANONICAL_PRICING_2026_08_3,
+    })!;
+    assert.equal(before.subtotal, row.beforeTotal);
+    assert.equal(threshold.subtotal, row.thresholdTotal);
+    assert.equal(threshold.regularHours, 0);
+    assert.equal(threshold.discountedHours, row.thresholdHours);
+    assert.equal(threshold.discountMode, "whole_booking");
+    assert.equal(
+      threshold.crewSize * threshold.billableHours * threshold.effectiveWorkerHourlyRate,
+      threshold.subtotal,
+    );
+  });
+}
+
+test("Special hourly services enforce the two-hour minimum and reject unsupported combinations", () => {
+  assert.equal(calculateRateCardLine({ serviceCode: "pack_unpack", crewSize: 2, hours: 1, snapshot: CANONICAL_PRICING_2026_08_3 })!.subtotal, 400);
+  assert.equal(calculateRateCardLine({ serviceCode: "pack_unpack", crewSize: 3, hours: 1, snapshot: CANONICAL_PRICING_2026_08_3 })!.subtotal, 600);
+  assert.equal(calculateRateCardLine({ serviceCode: "pack_unpack", crewSize: 1, hours: 3, snapshot: CANONICAL_PRICING_2026_08_3 }), null);
+  assert.equal(calculateRateCardLine({ serviceCode: "cleaning", crewSize: 1, hours: 3, snapshot: CANONICAL_PRICING_2026_08_3 }), null);
+  assert.equal(calculateRateCardLine({ serviceCode: "load_unload", crewSize: 5, hours: 5, snapshot: CANONICAL_PRICING_2026_08_3 }), null);
+});
+
+test("Special U-Box mileage is one-way and first/additional box pricing is exact", () => {
+  assert.equal(calculateMarketplaceFlatRate({ serviceCode: "ubox_load_unload", boxes: 2, snapshot: CANONICAL_PRICING_2026_08_3 }), 1300);
+  assert.equal(calculateMarketplaceFlatRate({ serviceCode: "ubox_delivery_load_unload", boxes: 2, miles: 10, snapshot: CANONICAL_PRICING_2026_08_3 }), 1650);
+  assert.equal(calculateMarketplaceFlatRate({ serviceCode: "ubox_delivery_only", boxes: 2, miles: 10, snapshot: CANONICAL_PRICING_2026_08_3 }), 630);
+  assert.equal(calculateMarketplaceFlatRate({ serviceCode: "piano", quantity: 2, snapshot: CANONICAL_PRICING_2026_08_3 }), 700);
+  assert.equal(calculateMarketplaceFlatRate({ serviceCode: "safe", snapshot: CANONICAL_PRICING_2026_08_3 }), 500);
+});
+
+test("Special card applies only when any stop is beyond the inclusive 50-mile local boundary", () => {
+  const atBoundary = applyGeographicQuotePolicy({
+    baseSubtotal: 500,
+    serviceDate: "2026-08-22",
+    stopCoordinates: [stopNorth(50)],
+    routeVerified: true,
+    oneWayMiles: 50,
+    oneWayMinutes: 60,
+    snapshot: CANONICAL_PRICING_2026_08_3,
+  })!;
+  const outside = applyGeographicQuotePolicy({
+    baseSubtotal: 500,
+    serviceDate: "2026-08-22",
+    stopCoordinates: [stopNorth(10), stopNorth(50.01)],
+    routeVerified: true,
+    oneWayMiles: 50.01,
+    oneWayMinutes: 60,
+    snapshot: CANONICAL_PRICING_2026_08_3,
+  })!;
+  assert.equal(atBoundary.pricingAdjustments.insideBubble, true);
+  assert.equal(marketplaceRateCardApplies(CANONICAL_PRICING_2026_08_3, atBoundary.pricingAdjustments.insideBubble), false);
+  assert.equal(outside.pricingAdjustments.insideBubble, false);
+  assert.equal(marketplaceRateCardApplies(CANONICAL_PRICING_2026_08_3, outside.pricingAdjustments.insideBubble), true);
+  assert.equal(marketplaceRateCardApplies(CANONICAL_PRICING_2026_08_3, null), true);
+  assert.equal(outside.pricingAdjustments.geographicMultiplier, 1);
+  assert.equal(outside.pricingAdjustments.weekendMultiplier, 1);
+  assert.equal(outside.finalPreTaxTotal, 500);
+});
+
+test("Special draft overlays only the supplied live snapshot", () => {
+  const liveSnapshot = {
+    ...CANONICAL_PRICING_2026_08,
+    labor: { ...CANONICAL_PRICING_2026_08.labor, workerHourlyRate: 101 },
+  };
+  const draft = buildMovingHelperSpecialPricingSnapshot(liveSnapshot);
+  assert.equal(draft.labor.workerHourlyRate, 101);
+  assert.equal(draft.operationsPolicy, undefined);
+  assert.equal(draft.version, "2026.08.3");
+});
+
+test("Special pricing preserves extended-route minimums and review/decline cutoffs", () => {
+  const specialEligibility = (subtotal: number, minutes: number) => applyGeographicQuotePolicy({
+    baseSubtotal: subtotal,
+    serviceDate: "2026-08-19",
+    stopCoordinates: [stopNorth(51)],
+    routeVerified: true,
+    oneWayMiles: 51,
+    oneWayMinutes: minutes,
+    snapshot: CANONICAL_PRICING_2026_08_3,
+  })!.travelEligibility;
+  assert.equal(specialEligibility(2000, 180).status, "extended_auto");
+  assert.equal(specialEligibility(1999.99, 180).status, "owner_review");
+  assert.equal(specialEligibility(2000, 181).status, "owner_review");
+  assert.equal(specialEligibility(2000, 240).status, "owner_review");
+  assert.equal(specialEligibility(2000, 240.01).status, "out_of_range");
 });
 
 for (const [label, miles, date, expected] of [

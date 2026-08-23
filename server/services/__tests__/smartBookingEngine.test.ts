@@ -36,8 +36,8 @@ test("infers a moving quote shape from one customer sentence", () => {
   assert.equal(inferred.selectedMovingRecHours, "2");
   assert.equal(inferred.selectedMovingRecLabel, "3 movers / 2 hours");
   assert.equal(inferred.selectedMovingRec, "moving_3m_2h");
-  assert.equal(inferred.selectedMovingRecTotalMin, "498.75");
-  assert.equal(inferred.selectedMovingRecTotalMax, "498.75");
+  assert.equal(inferred.selectedMovingRecTotalMin, "570");
+  assert.equal(inferred.selectedMovingRecTotalMax, "570");
 });
 
 test("applies smart answers without overwriting explicit crew choices", () => {
@@ -84,8 +84,8 @@ test("infers JC truck and common 2 mover / 3 hour package", () => {
   assert.equal(patch.answers.truckSituation, "JC ON THE MOVE provides truck");
   assert.equal(patch.answers.selectedMovingRecLabel, "2 movers / 3 hours");
   assert.equal(patch.answers.selectedMovingRec, "moving_2m_3h");
-  assert.equal(patch.answers.selectedMovingRecTotalMin, "525");
-  assert.equal(patch.answers.selectedMovingRecTotalMax, "525");
+  assert.equal(patch.answers.selectedMovingRecTotalMin, "570");
+  assert.equal(patch.answers.selectedMovingRecTotalMax, "570");
 });
 
 test("understands compact crew/hour shorthand for fast booking", () => {
@@ -103,8 +103,8 @@ test("understands compact crew/hour shorthand for fast booking", () => {
   assert.equal(patch.answers.selectedMovingRecCrew, "3");
   assert.equal(patch.answers.selectedMovingRecHours, "2");
   assert.equal(patch.answers.selectedMovingRec, "moving_3m_2h");
-  assert.equal(patch.answers.selectedMovingRecTotalMin, "498.75");
-  assert.equal(patch.answers.selectedMovingRecTotalMax, "498.75");
+  assert.equal(patch.answers.selectedMovingRecTotalMin, "570");
+  assert.equal(patch.answers.selectedMovingRecTotalMax, "570");
 });
 
 test("guides a partial moving card to the next missing smart-booking step", () => {

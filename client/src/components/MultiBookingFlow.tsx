@@ -34,6 +34,12 @@ import {
   JC_TRUCK_EXTRA_MILE_RATE,
   JC_TRUCK_INCLUDED_MILES,
 } from "@shared/movingTruckPricing";
+import {
+  CANONICAL_PRICING_2026_08,
+  calculateMovingLabor,
+  calculateRateCardLine,
+  type CanonicalPricingSnapshot,
+} from "@shared/canonicalPricing";
 
 export interface CatalogService {
   id: string;
@@ -223,6 +229,21 @@ export interface QuoteResult {
     discountPercent: number;
     priceMultiplier?: number;
   };
+  pricingAdjustments?: {
+    insideBubble: boolean | null;
+    rateSource?: "local_canonical" | "movinghelper_special";
+    geographicMultiplier: number;
+    geographicAmount: number;
+    weekendMultiplier: number;
+    weekendAmount: number;
+    compoundedMultiplier: number;
+  };
+  travelEligibility?: {
+    status: "local" | "extended_auto" | "owner_review" | "out_of_range" | "unverified";
+    requiresOwner: boolean;
+    canApprove: boolean;
+    reasons: string[];
+  };
   items: Array<{ serviceCode: string; lineSubtotal: number; laborMeta?: QuoteLaborMeta }>;
   tokenRedemption?: { tokens: number; discountUsd: number };
 }
@@ -230,6 +251,8 @@ export interface QuoteResult {
 interface DriveEstimateResult {
   miles: number;
   estimatedMinutes?: number;
+  farthestStopMilesFromIronwood?: number;
+  insideBubble?: boolean;
   note?: string;
   error?: string;
 }
@@ -1148,11 +1171,24 @@ export function MovingJunkPackagePicker({
   onServiceAddressChange?: (value: string) => void;
 }) {
   const isMoving = item.serviceCode === "moving";
-  const { data: pricingConfig } = useQuery<{ ratePerMoverHour: number }>({
-    queryKey: ["/api/pricing"],
+  const { data: pricingSnapshot } = useQuery<CanonicalPricingSnapshot>({
+    queryKey: ["/api/pricing/v2"],
     staleTime: 5 * 60 * 1000,
   });
-  const rate    = pricingConfig?.ratePerMoverHour ?? 85;
+  const activePricing = pricingSnapshot ?? CANONICAL_PRICING_2026_08;
+  const rate = activePricing.labor.workerHourlyRate;
+  const movingLaborTotal = (crewSize: number, hours: number, useSpecialRate = false) => {
+    if (useSpecialRate) {
+      const line = calculateRateCardLine({
+        serviceCode: "load_unload",
+        crewSize,
+        hours,
+        snapshot: activePricing,
+      });
+      if (line) return line.subtotal;
+    }
+    return calculateMovingLabor({ workers: crewSize, hours, snapshot: activePricing }).total;
+  };
   const trimmedPickupAddress = serviceAddress.trim();
   const needsDropoffAddress = isMoving && /both|load \+ unload/i.test(item.details.loadType || "");
   const trimmedDropoffAddress = needsDropoffAddress ? (item.details.dropoffAddress || "").trim() : "";
@@ -1203,14 +1239,22 @@ export function MovingJunkPackagePicker({
   const quote = useMemo(() => {
     if (!item.details.jobSize) return null;
     return isMoving
-      ? computeMovingQuote(answers, rate, verifiedDriveMiles)
+      ? computeMovingQuote(
+          answers,
+          rate,
+          verifiedDriveMiles,
+          0,
+          activePricing,
+          driveEstimateQuery.data?.insideBubble,
+        )
       : computeJunkQuote(answers, rate);
-  }, [answers, isMoving, rate, item.details.jobSize, verifiedDriveMiles]);
+  }, [answers, isMoving, rate, item.details.jobSize, verifiedDriveMiles, activePricing.version, driveEstimateQuery.data?.insideBubble]);
 
   const packages: CrewPackage[] = useMemo(() => {
-    const base = quote ? buildCrewPackages(answers, quote, rate) : [];
+    const base = quote ? buildCrewPackages(answers, quote, rate, activePricing) : [];
     if (isMoving && quote) {
       const movingQuote = quote as any;
+      const useSpecialRate = movingQuote.rateSource === "movinghelper_special";
       const surcharge = Number(movingQuote.specialSurcharge || 0);
       const travel = Number(movingQuote.travelCharge || 0);
       const packageNote = travel > 0 ? ` · +$${travel} travel` : "";
@@ -1218,9 +1262,9 @@ export function MovingJunkPackagePicker({
         {
           id: "pkg_move_1_2m_2h",
           label: "2 movers / 2 hours",
-          desc: `Small local load, unload, delivery, or 1-2 item help · 4 labor hours${packageNote}`,
-          minPrice: 300 + surcharge + travel,
-          maxPrice: 425 + surcharge + travel,
+          desc: `${useSpecialRate ? "Farther-client" : "Local"} load, unload, delivery, or 1-2 item help · 4 labor hours${packageNote}`,
+          minPrice: movingLaborTotal(2, 2, useSpecialRate) + surcharge + travel,
+          maxPrice: movingLaborTotal(2, 2, useSpecialRate) + surcharge + travel,
           crew: 2,
           hours: 2,
           tag: "Quick job",
@@ -1228,9 +1272,9 @@ export function MovingJunkPackagePicker({
         {
           id: "pkg_move_2_2m_3h",
           label: "2 movers / 3 hours",
-          desc: `Most common local moving-help package · good for U-Haul load, unload, or small apartment${packageNote}`,
-          minPrice: 400 + surcharge + travel,
-          maxPrice: 500 + surcharge + travel,
+          desc: `Most common ${useSpecialRate ? "farther-client" : "local"} moving-help package · good for U-Haul load, unload, or small apartment${packageNote}`,
+          minPrice: movingLaborTotal(2, 3, useSpecialRate) + surcharge + travel,
+          maxPrice: movingLaborTotal(2, 3, useSpecialRate) + surcharge + travel,
           crew: 2,
           hours: 3,
           tag: "Most common",
@@ -1239,8 +1283,8 @@ export function MovingJunkPackagePicker({
           id: "pkg_move_3_3m_2h",
           label: "3 movers / 2 hours",
           desc: `Faster crew for stairs, heavier pieces, or tight unload windows · 6 labor hours${packageNote}`,
-          minPrice: 400 + surcharge + travel,
-          maxPrice: 550 + surcharge + travel,
+          minPrice: movingLaborTotal(3, 2, useSpecialRate) + surcharge + travel,
+          maxPrice: movingLaborTotal(3, 2, useSpecialRate) + surcharge + travel,
           crew: 3,
           hours: 2,
           tag: "Faster crew",
@@ -1249,8 +1293,8 @@ export function MovingJunkPackagePicker({
           id: "pkg_move_4_quote_review",
           label: "Quote review / large crew",
           desc: `Large home, multiple stops, heavy access, or longer route · coordinator confirms crew and final price${packageNote}`,
-          minPrice: 725 + surcharge + travel,
-          maxPrice: 1200 + surcharge + travel,
+          minPrice: movingLaborTotal(4, 4, useSpecialRate) + surcharge + travel,
+          maxPrice: movingLaborTotal(4, 4, useSpecialRate) + surcharge + travel,
           crew: 4,
           hours: 4,
           tag: "Review",
@@ -1295,6 +1339,7 @@ export function MovingJunkPackagePicker({
     quote,
     answers,
     rate,
+    activePricing.version,
     isMoving,
     item.details.junkExtraFeeEstimate,
     item.details.junkConstructionReview,

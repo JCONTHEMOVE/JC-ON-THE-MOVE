@@ -3,6 +3,13 @@
  * a customer request, staff quote, and marketplace-zone preview cannot drift.
  */
 
+import {
+  CANONICAL_PRICING_2026_08,
+  calculateMovingLabor,
+  roundCurrency,
+  type CanonicalPricingSnapshot,
+} from "./canonicalPricing";
+
 export type LaborWorkScope = "load_only" | "unload_only" | "load_unload";
 
 export type LaborBookingInput = {
@@ -11,7 +18,10 @@ export type LaborBookingInput = {
   workScope?: LaborWorkScope | string | null;
   oversized?: boolean;
   zoneMultiplier?: number | null;
+  snapshot?: CanonicalPricingSnapshot;
+  /** @deprecated Discounts come from the canonical pricing snapshot. */
   longBookingDiscountPct?: number | null;
+  /** @deprecated Discounts come from the canonical pricing snapshot. */
   longBookingDiscountAfterHours?: number | null;
 };
 
@@ -27,15 +37,18 @@ export type LaborBookingQuote = {
   regularHours: number;
   discountedHours: number;
   longBookingDiscountPct: number;
+  laborSubtotal: number;
+  discountAmount: number;
   laborBeforeZone: number;
+  zoneAdjustment: number;
   laborTotal: number;
 };
 
-export const TWO_MOVER_HOURLY_RATE = 175;
-export const BASE_MOVER_HOURLY_RATE = TWO_MOVER_HOURLY_RATE / 2;
-export const ADDITIONAL_MOVER_HOURLY_RATE = BASE_MOVER_HOURLY_RATE * 0.85;
-export const DEFAULT_LONG_BOOKING_DISCOUNT_PCT = 10;
-export const DEFAULT_LONG_BOOKING_DISCOUNT_AFTER_HOURS = 4;
+export const BASE_MOVER_HOURLY_RATE = CANONICAL_PRICING_2026_08.labor.workerHourlyRate;
+export const TWO_MOVER_HOURLY_RATE = BASE_MOVER_HOURLY_RATE * 2;
+export const ADDITIONAL_MOVER_HOURLY_RATE = BASE_MOVER_HOURLY_RATE;
+export const DEFAULT_LONG_BOOKING_DISCOUNT_PCT = 0;
+export const DEFAULT_LONG_BOOKING_DISCOUNT_AFTER_HOURS = CANONICAL_PRICING_2026_08.labor.minimumHours;
 
 function numberFrom(value: unknown, fallback: number) {
   const parsed = Number(value);
@@ -56,21 +69,25 @@ export function normalizeLaborWorkScope(value: unknown): LaborWorkScope {
 }
 
 export function calculateLaborBooking(input: LaborBookingInput = {}): LaborBookingQuote {
+  const snapshot = input.snapshot ?? CANONICAL_PRICING_2026_08;
   const oversized = Boolean(input.oversized);
   const requestedCrew = Math.round(numberFrom(input.crewSize, 2));
   const requestedHours = Math.max(1, numberFrom(input.hours, oversized ? 2 : 1));
   const crewSize = Math.max(2, oversized ? 3 : 2, Math.min(4, requestedCrew || 2));
   const baseHours = Math.max(oversized ? 2 : 1, requestedHours);
   const workScope = normalizeLaborWorkScope(input.workScope);
-  const billableHours = workScope === "load_unload" ? baseHours * 2 : baseHours;
+  const scopedHours = workScope === "load_unload" ? baseHours * 2 : baseHours;
+  const billableHours = Math.max(snapshot.labor.minimumHours, scopedHours);
   const zoneMultiplier = Math.max(0, numberFrom(input.zoneMultiplier, 1) || 1);
-  const threshold = Math.max(0, numberFrom(input.longBookingDiscountAfterHours, DEFAULT_LONG_BOOKING_DISCOUNT_AFTER_HOURS));
-  const longBookingDiscountPct = Math.max(0, Math.min(100, numberFrom(input.longBookingDiscountPct, DEFAULT_LONG_BOOKING_DISCOUNT_PCT)));
-  const regularHourlyRate = TWO_MOVER_HOURLY_RATE + Math.max(0, crewSize - 2) * ADDITIONAL_MOVER_HOURLY_RATE;
+  const labor = calculateMovingLabor({ workers: crewSize, hours: billableHours, snapshot });
+  const longBookingDiscountPct = labor.discountPercent;
+  const regularHourlyRate = crewSize * labor.ratePerWorkerHour;
   const discountedHourlyRate = regularHourlyRate * (1 - longBookingDiscountPct / 100);
-  const regularHours = Math.min(billableHours, threshold);
-  const discountedHours = Math.max(0, billableHours - threshold);
-  const laborBeforeZone = money(regularHours * regularHourlyRate + discountedHours * discountedHourlyRate);
+  const regularHours = longBookingDiscountPct > 0 ? 0 : billableHours;
+  const discountedHours = longBookingDiscountPct > 0 ? billableHours : 0;
+  const laborBeforeZone = labor.total;
+  const laborTotal = roundCurrency(laborBeforeZone * zoneMultiplier);
+  const zoneAdjustment = roundCurrency(laborTotal - laborBeforeZone);
 
   return {
     crewSize,
@@ -84,8 +101,11 @@ export function calculateLaborBooking(input: LaborBookingInput = {}): LaborBooki
     regularHours,
     discountedHours,
     longBookingDiscountPct,
+    laborSubtotal: labor.beforeDiscount,
+    discountAmount: labor.discountAmount,
     laborBeforeZone,
-    laborTotal: money(laborBeforeZone * zoneMultiplier),
+    zoneAdjustment,
+    laborTotal,
   };
 }
 

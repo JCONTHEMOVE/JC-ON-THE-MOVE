@@ -102,62 +102,32 @@ export type SmartBookingGuidance = {
   companyControl: string;
 };
 
+function canonicalSmartMovingPackage(
+  id: string,
+  crew: number,
+  hours: number,
+  notes: string,
+): SmartMovingPackage {
+  const total = calculateLaborBooking({ crewSize: crew, hours }).laborTotal;
+  return {
+    id,
+    label: `${crew} movers / ${numberText(hours)} hours`,
+    crew,
+    hours,
+    localMin: total,
+    localMax: total,
+    outsideMin: total,
+    outsideMax: total,
+    notes,
+  };
+}
+
 export const SMART_MOVING_PACKAGES: SmartMovingPackage[] = [
-  {
-    id: "moving_2m_2h",
-    label: "2 movers / 2 hours",
-    crew: 2,
-    hours: 2,
-    localMin: 350,
-    localMax: 350,
-    outsideMin: 350,
-    outsideMax: 350,
-    notes: "Small load, unload, apartment, or quick truck help.",
-  },
-  {
-    id: "moving_2m_3h",
-    label: "2 movers / 3 hours",
-    crew: 2,
-    hours: 3,
-    localMin: 525,
-    localMax: 525,
-    outsideMin: 525,
-    outsideMax: 525,
-    notes: "Common local moving-help package.",
-  },
-  {
-    id: "moving_3m_2h",
-    label: "3 movers / 2 hours",
-    crew: 3,
-    hours: 2,
-    localMin: 498.75,
-    localMax: 498.75,
-    outsideMin: 498.75,
-    outsideMax: 498.75,
-    notes: "Fast unload/load path when speed matters more than total hours.",
-  },
-  {
-    id: "moving_3m_3h",
-    label: "3 movers / 3 hours",
-    crew: 3,
-    hours: 3,
-    localMin: 748.13,
-    localMax: 748.13,
-    outsideMin: 748.13,
-    outsideMax: 748.13,
-    notes: "Medium move or heavier access path.",
-  },
-  {
-    id: "moving_4m_4h",
-    label: "4 movers / 4 hours",
-    crew: 4,
-    hours: 4,
-    localMin: 1295,
-    localMax: 1295,
-    outsideMin: 1295,
-    outsideMax: 1295,
-    notes: "Large move, heavy access, or full-house quote-review path.",
-  },
+  canonicalSmartMovingPackage("moving_2m_2h", 2, 2, "Small load, unload, apartment, or quick truck help."),
+  canonicalSmartMovingPackage("moving_2m_3h", 2, 3, "Common local moving-help package."),
+  canonicalSmartMovingPackage("moving_3m_2h", 3, 2, "Fast unload/load path when speed matters more than total hours."),
+  canonicalSmartMovingPackage("moving_3m_3h", 3, 3, "Medium move or heavier access path."),
+  canonicalSmartMovingPackage("moving_4m_4h", 4, 4, "Large move, heavy access, or full-house quote-review path."),
 ];
 
 function text(value: unknown): string {
@@ -181,7 +151,9 @@ function firstNumber(value: unknown): number | null {
 }
 
 function toNumber(value: unknown): number | null {
-  const parsed = Number(text(value).replace(/[^\d.]/g, ""));
+  const parsed = typeof value === "number"
+    ? value
+    : Number(text(value).replace(/[^\d.]/g, ""));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 

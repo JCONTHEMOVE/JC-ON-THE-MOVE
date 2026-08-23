@@ -33,14 +33,12 @@ import MarketplaceNextStepFlow from "@/components/MarketplaceNextStepFlow";
 import SmartRequestShapePicker from "@/components/SmartRequestShapePicker";
 import SmartBookingGuidanceCard from "@/components/SmartBookingGuidanceCard";
 import ServicePriceMenu from "@/components/ServicePriceMenu";
-import {
-  marketplaceEstimateLabel,
-  marketplacePreviewBillableHours,
-  marketplacePreviewCrewSize,
-  marketplacePreviewZoneName,
-  type MarketplaceQuotePreview,
-} from "@/lib/marketplaceQuotePreview";
 import type { User } from "@shared/schema";
+import {
+  CANONICAL_PRICING_2026_08,
+  type CanonicalPricingSnapshot,
+} from "@shared/canonicalPricing";
+import { calculateLaborBooking } from "@shared/laborBooking";
 import {
   getMarketplaceRequestShape,
   getMarketplaceShapeForServiceCode,
@@ -119,7 +117,7 @@ const FALLBACK_SERVICE_CATALOG: CatalogService[] = [
     name: "Labor",
     category: "core",
     defaultPriceMode: "hourly",
-    defaultPrice: "85",
+    defaultPrice: String(CANONICAL_PRICING_2026_08.labor.workerHourlyRate),
     suggestedMin: "170",
     suggestedMax: "1000",
     discountEligible: true,
@@ -668,14 +666,6 @@ function zipFromAddress(value: string) {
   return match?.[0]?.slice(0, 5) || "";
 }
 
-function marketplaceServiceCodeForMoving(item: SelectedItem) {
-  const path = item.details.movingPath || "";
-  const loadType = item.details.loadType || "";
-  if (path === "packing_assembly") return "pack_unpack";
-  if (/delivery/i.test(loadType)) return "delivery";
-  return "load_unload";
-}
-
 function normalizeMarketplaceShapeId(value?: string | null): MarketplaceRequestShapeId | null {
   if (value === "fast_quote" || value === "moving_help" || value === "delivery_reuse" || value === "repeat_loop") {
     return value;
@@ -704,19 +694,24 @@ function priceMenuScope(task: ServicePriceMenuTask) {
   return `${task.label}: ${task.description} Typical range ${formatServicePriceRange(task)} (${task.priceUnit}). Need: ${needs}.`;
 }
 
-function movingPackageDetails(crew: number, hours: number, label: string): Partial<SelectedItem["details"]> {
-  const baseEstimate = crew * hours * 85;
+function movingPackageDetails(
+  crew: number,
+  hours: number,
+  label: string,
+  snapshot: CanonicalPricingSnapshot = CANONICAL_PRICING_2026_08,
+): Partial<SelectedItem["details"]> {
+  const baseEstimate = calculateLaborBooking({ crewSize: crew, hours, snapshot }).laborTotal;
   return {
     packageId: `smart_${crew}m_${String(hours).replace(".", "p")}h`,
     packageLabel: label,
     crew,
     hours,
-    minPrice: Math.round(baseEstimate * 0.8),
-    maxPrice: Math.round(baseEstimate * 1.15),
+    minPrice: baseEstimate,
+    maxPrice: baseEstimate,
     inventoryCrewRecommendation: crew,
     inventoryLaborHours: hours,
-    inventoryPriceMin: Math.round(baseEstimate * 0.8),
-    inventoryPriceMax: Math.round(baseEstimate * 1.15),
+    inventoryPriceMin: baseEstimate,
+    inventoryPriceMax: baseEstimate,
     quoteConfidence: "medium" as const,
   };
 }
@@ -1471,21 +1466,6 @@ export default function MultiServiceBookPage() {
     smartStartSummary,
     smartStartText,
   ]);
-  const marketplacePreviewInput = useMemo(() => {
-    const moving = items.find((item) => item.serviceCode === "moving");
-    if (!moving) return null;
-    const zip = addressZip || zipFromAddress(serviceAddress);
-    const crewSize = Number(moving.details.crew || moving.details.inventoryCrewRecommendation || 2);
-    const hours = Number(moving.details.hours || moving.details.inventoryLaborHours || 3);
-    if (!zip || !crewSize || !hours) return null;
-    return {
-      zip,
-      serviceCode: marketplaceServiceCodeForMoving(moving),
-      crewSize,
-      hours,
-      distanceMiles: Number(moving.details.verifiedDriveMiles || 0),
-    };
-  }, [items, addressZip, serviceAddress]);
   const [bookingMode, setBookingMode] = useState<BookingMode>(() => {
     if (typeof window === "undefined") return "choose";
     const sp = new URLSearchParams(window.location.search);
@@ -1502,6 +1482,12 @@ export default function MultiServiceBookPage() {
   const services: CatalogService[] = catalogData?.services?.length
     ? catalogData.services
     : FALLBACK_SERVICE_CATALOG;
+
+  const { data: pricingSnapshot } = useQuery<CanonicalPricingSnapshot>({
+    queryKey: ["/api/pricing/v2"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const activePricing = pricingSnapshot ?? CANONICAL_PRICING_2026_08;
 
   const { data: bundlesData } = useQuery<{ slots: BundleSlots; bundles: FeaturedBundle[] }>({
     queryKey: ["/api/bundles/featured"],
@@ -1577,15 +1563,6 @@ export default function MultiServiceBookPage() {
             tokenEstimate: quote.tokenEstimate,
           }
         : null,
-      marketplacePreview: marketplacePreviewQuery.data
-        ? {
-            matched: marketplacePreviewQuery.data.matched,
-            zone: marketplacePreviewQuery.data.quote.zone?.name || null,
-            estimateLabel: marketplaceEstimateLabel(marketplacePreviewQuery.data),
-            minEstimate: marketplacePreviewQuery.data.quote.minEstimate,
-            maxEstimate: marketplacePreviewQuery.data.quote.maxEstimate,
-          }
-        : null,
       continueReason: canContinueReason(),
       tokenError,
     };
@@ -1625,17 +1602,6 @@ export default function MultiServiceBookPage() {
     }).catch(() => {});
   }
 
-  const marketplacePreviewQuery = useQuery<MarketplaceQuotePreview | null>({
-    queryKey: ["/api/marketplace/quote-preview", marketplacePreviewInput],
-    enabled: !!marketplacePreviewInput && hasMovingService && stepIndex(step) >= stepIndex("configure"),
-    staleTime: 30_000,
-    queryFn: async () => {
-      if (!marketplacePreviewInput) return null;
-      const res = await apiRequest("POST", "/api/marketplace/quote-preview", marketplacePreviewInput);
-      return res.json() as Promise<MarketplaceQuotePreview>;
-    },
-  });
-
   // Task #181 — normalize the requested redemption whenever the tier cap
   // (driven by quote.subtotal) or wallet token balance shrinks. Without
   // this, the slider's rendered value clamps but state remains stale and
@@ -1667,8 +1633,6 @@ export default function MultiServiceBookPage() {
     workerFields.internalNotes,
     JSON.stringify(items),
     quote?.finalTotal,
-    marketplacePreviewQuery.data?.quote.minEstimate,
-    marketplacePreviewQuery.data?.quote.maxEstimate,
     tokenError,
     confirmation,
   ]);
@@ -1714,6 +1678,9 @@ export default function MultiServiceBookPage() {
     mutationFn: async (payload: { seq: number; sig: string; payloadItems: SelectedItem[]; applyTokens: number }) => {
       const body: Record<string, unknown> = {
         serviceAddress: serviceAddress.trim() || undefined,
+        requestedDate: payload.payloadItems
+          .map((item) => item.details.requestedDate)
+          .find(Boolean) || undefined,
         promoCode: attribution.promoCode || undefined,
         items: payload.payloadItems.map(i => ({
           serviceCode: i.serviceCode,
@@ -1774,7 +1741,14 @@ export default function MultiServiceBookPage() {
     }, 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(items), applyTokens]);
+  }, [
+    JSON.stringify(items),
+    applyTokens,
+    serviceAddress,
+    attribution.promoCode,
+    customerTier,
+    activePricing.version,
+  ]);
 
   // ── Item helpers
   const selectedCodes = useMemo(() => new Set(items.map(i => i.serviceCode)), [items]);
@@ -1823,7 +1797,9 @@ export default function MultiServiceBookPage() {
 
       const existing = prev.find((item) => item.serviceCode === svc.code);
       const baseItem = existing || makeItem(svc);
-      const baseEstimate = shapeId === "moving_help" ? 2 * 3 * 85 : 0;
+      const baseEstimate = shapeId === "moving_help"
+        ? calculateLaborBooking({ crewSize: 2, hours: 3, snapshot: activePricing }).laborTotal
+        : 0;
       const shapedDetails: SelectedItem["details"] = {
         ...detailsWithMarketplaceShape(baseItem.details, shapeId),
         ...(shapeId === "moving_help" && !baseItem.details.packageId
@@ -1832,12 +1808,12 @@ export default function MultiServiceBookPage() {
               packageLabel: "Common moving help package",
               crew: baseItem.details.crew || 2,
               hours: baseItem.details.hours || 3,
-              minPrice: baseItem.details.minPrice || Math.round(baseEstimate * 0.8),
-              maxPrice: baseItem.details.maxPrice || Math.round(baseEstimate * 1.15),
+              minPrice: baseItem.details.minPrice || baseEstimate,
+              maxPrice: baseItem.details.maxPrice || baseEstimate,
               inventoryCrewRecommendation: baseItem.details.inventoryCrewRecommendation || 2,
               inventoryLaborHours: baseItem.details.inventoryLaborHours || 3,
-              inventoryPriceMin: baseItem.details.inventoryPriceMin || Math.round(baseEstimate * 0.8),
-              inventoryPriceMax: baseItem.details.inventoryPriceMax || Math.round(baseEstimate * 1.15),
+              inventoryPriceMin: baseItem.details.inventoryPriceMin || baseEstimate,
+              inventoryPriceMax: baseItem.details.inventoryPriceMax || baseEstimate,
               quoteConfidence: baseItem.details.quoteConfidence || ("medium" as const),
             }
           : {}),
@@ -2096,7 +2072,7 @@ export default function MultiServiceBookPage() {
       if (normalized.includes("2 movers / 3")) {
         applyMovingQuickPatch(
           {
-            ...movingPackageDetails(2, 3, "2 movers / 3 hours"),
+            ...movingPackageDetails(2, 3, "2 movers / 3 hours", activePricing),
             jobSize: "Standard moving help",
           },
           "Common 2 movers / 3 hours package selected.",
@@ -2106,7 +2082,7 @@ export default function MultiServiceBookPage() {
       if (normalized.includes("3 movers / 2")) {
         applyMovingQuickPatch(
           {
-            ...movingPackageDetails(3, 2, "3 movers / 2 hours"),
+            ...movingPackageDetails(3, 2, "3 movers / 2 hours", activePricing),
             jobSize: "Standard moving help",
           },
           "Faster 3 movers / 2 hours package selected.",
@@ -2116,7 +2092,7 @@ export default function MultiServiceBookPage() {
       if (normalized.includes("2 movers / 2")) {
         applyMovingQuickPatch(
           {
-            ...movingPackageDetails(2, 2, "2 movers / 2 hours"),
+            ...movingPackageDetails(2, 2, "2 movers / 2 hours", activePricing),
             jobSize: "Small moving help",
           },
           "Small 2 movers / 2 hours package selected.",
@@ -2208,7 +2184,9 @@ export default function MultiServiceBookPage() {
     const hours = serviceCode === "moving"
       ? (Number.isFinite(explicitHours) && explicitHours > 0 ? explicitHours : movingPlan?.hours || 3)
       : undefined;
-    const baseEstimate = crew && hours ? crew * hours * 85 : 0;
+    const baseEstimate = crew && hours
+      ? calculateLaborBooking({ crewSize: crew, hours, snapshot: activePricing }).laborTotal
+      : 0;
 
     setItems((prev) => {
       const existing = prev.find((item) => item.serviceCode === svc.code);
@@ -2229,12 +2207,12 @@ export default function MultiServiceBookPage() {
                   packageTier: undefined,
                   crew,
                   hours,
-                  minPrice: Math.round(baseEstimate * 0.8),
-                  maxPrice: Math.round(baseEstimate * 1.15),
+                  minPrice: baseEstimate,
+                  maxPrice: baseEstimate,
                   inventoryCrewRecommendation: crew,
                   inventoryLaborHours: hours,
-                  inventoryPriceMin: Math.round(baseEstimate * 0.8),
-                  inventoryPriceMax: Math.round(baseEstimate * 1.15),
+                  inventoryPriceMin: baseEstimate,
+                  inventoryPriceMax: baseEstimate,
                   quoteConfidence: "medium" as const,
                 }
               : {}),
@@ -2292,7 +2270,9 @@ export default function MultiServiceBookPage() {
         || services.find((svc) => svc.code === "moving");
       if (service) {
         const item = makeItem(service);
-        const baseEstimate = selectedMarketplaceShapeId === "moving_help" ? 2 * 3 * 85 : 0;
+        const baseEstimate = selectedMarketplaceShapeId === "moving_help"
+          ? calculateLaborBooking({ crewSize: 2, hours: 3, snapshot: activePricing }).laborTotal
+          : 0;
         setItems([{
           ...item,
           details: {
@@ -2303,12 +2283,12 @@ export default function MultiServiceBookPage() {
                   packageLabel: "Common moving help package",
                   crew: 2,
                   hours: 3,
-                  minPrice: Math.round(baseEstimate * 0.8),
-                  maxPrice: Math.round(baseEstimate * 1.15),
+                  minPrice: baseEstimate,
+                  maxPrice: baseEstimate,
                   inventoryCrewRecommendation: 2,
                   inventoryLaborHours: 3,
-                  inventoryPriceMin: Math.round(baseEstimate * 0.8),
-                  inventoryPriceMax: Math.round(baseEstimate * 1.15),
+                  inventoryPriceMin: baseEstimate,
+                  inventoryPriceMax: baseEstimate,
                   quoteConfidence: "medium" as const,
                 }
               : {}),
@@ -2525,7 +2505,6 @@ export default function MultiServiceBookPage() {
         referralSlug: attribution.referralSlug || undefined,
         marketingCampaignId: attribution.marketingCampaignId || undefined,
         marketingTracking: attribution.marketingTracking,
-        marketplaceQuotePreview: marketplacePreviewQuery.data || undefined,
         ...((() => {
           // Re-clamp at submit so a stale state value can never bypass
           // the slider's tier/wallet cap (defense in depth — the effect
@@ -2693,9 +2672,7 @@ export default function MultiServiceBookPage() {
                       )}
                     </span>
                     <span className="font-semibold text-right whitespace-nowrap">
-                      {approvalOnlyConfirmation
-                        ? "Quote review"
-                        : resolvedLineSubtotal !== null
+                      {resolvedLineSubtotal !== null
                         ? `$${resolvedLineSubtotal.toFixed(2)}`
                         : fallbackLinePrice.text}
                       {(approvalOnlyConfirmation || fallbackLinePrice.isEstimate) && (
@@ -2733,9 +2710,12 @@ export default function MultiServiceBookPage() {
               </div>}
               {approvalOnlyConfirmation && (
                 <div className="rounded-lg border border-blue-500/25 bg-blue-500/10 p-3 text-sm">
-                  <p className="font-black text-blue-300">Quote being reviewed</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-black text-blue-300">Saved estimate</p>
+                    <p className="text-lg font-black text-white">${finalTotal.toFixed(2)}</p>
+                  </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Your details are locked in. A specialist confirms the final quote before scheduling.
+                    This saved estimate uses the same canonical pricing calculation shown on review. A specialist confirms scope before scheduling.
                   </p>
                 </div>
               )}
@@ -3353,7 +3333,7 @@ export default function MultiServiceBookPage() {
                             )}
                           </span>
                           <span className="font-semibold whitespace-nowrap text-right">
-                            {approvalOnlyLine ? "Quote review" : linePrice.text}
+                            {approvalOnlyLine && !quoteLine ? "Quote review" : linePrice.text}
                             {(approvalOnlyLine || linePrice.isEstimate) && (
                               <span className="block text-[10px] font-normal text-muted-foreground">estimate · crew confirms</span>
                             )}
@@ -3368,28 +3348,57 @@ export default function MultiServiceBookPage() {
                     <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/10 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-[10px] uppercase tracking-widest text-cyan-300">Marketplace estimate</p>
-                          {marketplacePreviewQuery.isLoading ? (
-                            <p className="mt-1 text-sm font-bold text-cyan-100">Checking zone pricing...</p>
-                          ) : marketplacePreviewQuery.data ? (
+                          <p className="text-[10px] uppercase tracking-widest text-cyan-300">Canonical booking estimate</p>
+                          {quoteMutation.isPending ? (
+                            <p className="mt-1 text-sm font-bold text-cyan-100">Updating the quote...</p>
+                          ) : quote ? (
                             <>
                               <p className="mt-1 text-lg font-black text-white">
-                                {marketplaceEstimateLabel(marketplacePreviewQuery.data)}
+                                ${quote.finalTotal.toFixed(2)}
                               </p>
-                              <p className="mt-1 text-[11px] text-muted-foreground">
-                                {marketplacePreviewZoneName(marketplacePreviewQuery.data)} - {marketplacePreviewCrewSize(marketplacePreviewQuery.data, marketplacePreviewInput?.crewSize ?? 2)} movers - {marketplacePreviewBillableHours(marketplacePreviewQuery.data, marketplacePreviewInput?.hours ?? 0)} billable hours
+                              <p className="mt-1 text-[11px] font-semibold text-cyan-100" data-testid="moving-rate-source">
+                                {quote.pricingAdjustments?.rateSource === "movinghelper_special"
+                                  ? quote.pricingAdjustments.insideBubble === false
+                                    ? "MovingHelper Special-zone pricing · beyond 50 miles"
+                                    : "MovingHelper Special-zone pricing · route verification pending"
+                                  : "Local canonical pricing"}
                               </p>
+                              {(() => {
+                                const movingIndex = items.findIndex((item) => item.serviceCode === "moving");
+                                const labor = movingIndex >= 0 ? quote.items[movingIndex]?.laborMeta : undefined;
+                                return labor ? (
+                                  <p className="mt-1 text-[11px] text-muted-foreground">
+                                    {labor.crewSize} movers - {labor.laborHours} billable hours - ${labor.ratePerHour}/mover/hr
+                                  </p>
+                                ) : null;
+                              })()}
+                              {(quote.discountTotal > 0 || quote.pricingAdjustments) && (
+                                <p className="mt-1 text-[11px] text-cyan-100/80">
+                                  {quote.discountTotal > 0 ? `Discounts -$${quote.discountTotal.toFixed(2)}` : "No discount"}
+                                  {quote.pricingAdjustments
+                                    ? ` - zone/weekend adjustment ${quote.pricingAdjustments.compoundedMultiplier.toFixed(3)}x`
+                                    : " - standard zone"}
+                                </p>
+                              )}
+                              {quote.travelEligibility?.requiresOwner && (
+                                <p className="mt-2 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[11px] font-semibold text-amber-100">
+                                  Manual review required before this estimate can become a final approved quote.
+                                  {quote.travelEligibility.reasons[quote.travelEligibility.reasons.length - 1]
+                                    ? ` ${quote.travelEligibility.reasons[quote.travelEligibility.reasons.length - 1]}`
+                                    : ""}
+                                </p>
+                              )}
                             </>
                           ) : (
                             <p className="mt-1 text-sm font-bold text-cyan-100">
-                              Zone estimate appears after ZIP, crew, and hours are selected.
+                              The estimate appears after crew, hours, and address details are selected.
                             </p>
                           )}
                         </div>
                         <MapPin className="h-5 w-5 shrink-0 text-cyan-300" />
                       </div>
                       <p className="mt-2 text-[11px] text-cyan-100/80">
-                        This range uses the current zone rate settings. A coordinator confirms final pricing, crew, and schedule on the job card.
+                        This is the same server-calculated quote that is recomputed and saved when you submit. A coordinator still confirms scope and schedule.
                       </p>
                     </div>
                   </div>

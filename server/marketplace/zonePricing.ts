@@ -1,6 +1,11 @@
 import { pool } from "../db";
 import { calculateLaborBooking, type LaborWorkScope } from "@shared/laborBooking";
-import { applyGeographicQuotePolicy, calculateRateCardLine, type MarketplaceHourlyServiceCode } from "@shared/canonicalPricing";
+import {
+  applyGeographicQuotePolicy,
+  calculateRateCardLine,
+  marketplaceRateCardApplies,
+  type MarketplaceHourlyServiceCode,
+} from "@shared/canonicalPricing";
 import { getActivePricingSnapshot } from "../services/pricingVersions";
 import { resolveQuoteRouteEvidence } from "../services/quoteGeography";
 
@@ -349,6 +354,7 @@ export async function previewZoneQuote(input: {
   lat?: number;
   lng?: number;
   zip?: string;
+  addresses?: string[];
   serviceCode?: string;
   crewSize?: number;
   hours?: number;
@@ -377,24 +383,40 @@ export async function previewZoneQuote(input: {
   const canonicalService = (["load_unload", "pack_unpack", "cleaning"] as string[]).includes(serviceCode)
     ? serviceCode as MarketplaceHourlyServiceCode
     : null;
-  const canonicalLine = canonicalService ? calculateRateCardLine({
+  const routeAddresses = (input.addresses || []).filter((address) => address.trim().length >= 4);
+  if (routeAddresses.length === 0 && input.zip) routeAddresses.push(`${input.zip}, USA`);
+  const routeEvidence = routeAddresses.length > 0
+    ? await resolveQuoteRouteEvidence({ addresses: routeAddresses, snapshot: activePricing.snapshot })
+    : {
+        verified: false as const,
+        provider: "unavailable" as const,
+        addresses: [] as string[],
+        stopCoordinates: lat != null && lng != null ? [{ lat, lng }] : [],
+        oneWayMiles: null,
+        oneWayMinutes: null,
+        reason: "A service address is required to verify routed drive time.",
+      };
+  const routeClassification = applyGeographicQuotePolicy({
+    baseSubtotal: 0,
+    automaticDiscountTotal: 0,
+    serviceDate: moveDate || undefined,
+    stopCoordinates: routeEvidence.stopCoordinates,
+    routeVerified: routeEvidence.verified,
+    oneWayMiles: routeEvidence.oneWayMiles,
+    oneWayMinutes: routeEvidence.oneWayMinutes,
+    snapshot: activePricing.snapshot,
+  });
+  const rateCardEnabled = marketplaceRateCardApplies(
+    activePricing.snapshot,
+    routeClassification?.pricingAdjustments.insideBubble ?? null,
+  );
+  const canonicalLine = rateCardEnabled && canonicalService ? calculateRateCardLine({
     serviceCode: canonicalService,
     crewSize,
     hours,
     snapshot: activePricing.snapshot,
   }) : null;
   if (canonicalLine) {
-    const routeEvidence = input.zip
-      ? await resolveQuoteRouteEvidence({ addresses: [`${input.zip}, USA`], snapshot: activePricing.snapshot })
-      : {
-          verified: false as const,
-          provider: "unavailable" as const,
-          addresses: [] as string[],
-          stopCoordinates: lat != null && lng != null ? [{ lat, lng }] : [],
-          oneWayMiles: null,
-          oneWayMinutes: null,
-          reason: "A service address is required to verify routed drive time.",
-        };
     const policy = applyGeographicQuotePolicy({
       baseSubtotal: canonicalLine.subtotal,
       automaticDiscountTotal: 0,
@@ -406,16 +428,41 @@ export async function previewZoneQuote(input: {
       snapshot: activePricing.snapshot,
     });
     const total = policy?.finalPreTaxTotal ?? canonicalLine.subtotal;
+    const rateCardLaborSubtotal = Math.round(
+      canonicalLine.billableHours * canonicalLine.regularHourlyRate * 100,
+    ) / 100;
     const canonicalQuote = {
       zone: null,
       rate: canonicalLine,
-      booking: null,
+      booking: {
+        crewSize: canonicalLine.crewSize,
+        requestedHours: canonicalLine.requestedHours,
+        billableHours: canonicalLine.billableHours,
+        workScope: serviceCode,
+        oversized: Boolean(input.oversized),
+        regularHourlyRate: canonicalLine.regularHourlyRate,
+        discountedHourlyRate: canonicalLine.discountedHourlyRate,
+        regularHours: canonicalLine.regularHours,
+        discountedHours: canonicalLine.discountedHours,
+        longBookingDiscountPct: rateCardLaborSubtotal > 0
+          ? Math.round((1 - canonicalLine.subtotal / rateCardLaborSubtotal) * 10_000) / 100
+          : 0,
+        laborSubtotal: rateCardLaborSubtotal,
+        discountAmount: Math.round((rateCardLaborSubtotal - canonicalLine.subtotal) * 100) / 100,
+        laborBeforeZone: canonicalLine.subtotal,
+        zoneMultiplier: 1,
+        zoneAdjustment: 0,
+        laborTotal: canonicalLine.subtotal,
+        rateSource: "movinghelper_special" as const,
+      },
       labor: canonicalLine.subtotal,
       travel: 0,
       subtotal: total,
       minEstimate: total,
       maxEstimate: total,
-      pricingAdjustments: policy?.pricingAdjustments ?? null,
+      pricingAdjustments: policy
+        ? { ...policy.pricingAdjustments, rateSource: "movinghelper_special" as const }
+        : { rateSource: "movinghelper_special" as const },
       travelEligibility: policy?.travelEligibility ?? null,
       routeEvidence,
       pricingVersion: activePricing.snapshot.version,
@@ -424,6 +471,109 @@ export async function previewZoneQuote(input: {
       matched: policy?.pricingAdjustments.insideBubble === true,
       quote: canonicalQuote,
       candidates: [canonicalQuote],
+      moveDate,
+      dayOfWeek,
+      dayName: dayOfWeek == null ? null : MARKETPLACE_RATE_DAYS[dayOfWeek],
+      coordinates: lat != null && lng != null ? { lat, lng } : null,
+      pricingVersion: activePricing.snapshot.version,
+    };
+  }
+  if (
+    rateCardEnabled
+    && activePricing.snapshot.marketplaceRateCard?.applicationScope === "outside_bubble"
+    && canonicalService
+  ) {
+    const reason = `MovingHelper Special-zone pricing does not support ${canonicalService} with ${crewSize} helper(s).`;
+    const policy = applyGeographicQuotePolicy({
+      baseSubtotal: 0,
+      automaticDiscountTotal: 0,
+      serviceDate: moveDate || undefined,
+      stopCoordinates: routeEvidence.stopCoordinates,
+      routeVerified: routeEvidence.verified,
+      oneWayMiles: routeEvidence.oneWayMiles,
+      oneWayMinutes: routeEvidence.oneWayMinutes,
+      snapshot: activePricing.snapshot,
+    });
+    const reviewQuote = {
+      zone: null,
+      rate: null,
+      booking: null,
+      labor: 0,
+      travel: 0,
+      subtotal: 0,
+      minEstimate: 0,
+      maxEstimate: 0,
+      pricingAdjustments: policy
+        ? { ...policy.pricingAdjustments, rateSource: "movinghelper_special" as const }
+        : { rateSource: "movinghelper_special" as const },
+      travelEligibility: policy
+        ? {
+            ...policy.travelEligibility,
+            eligibility: "owner_review" as const,
+            canApprove: false,
+            requiresOwner: true,
+            reasons: [...policy.travelEligibility.reasons, reason],
+          }
+        : {
+            eligibility: "owner_review" as const,
+            canApprove: false,
+            requiresOwner: true,
+            reasons: [reason],
+          },
+      pricingReviewReasons: [reason],
+      routeEvidence,
+      pricingVersion: activePricing.snapshot.version,
+    };
+    return {
+      matched: false,
+      quote: reviewQuote,
+      candidates: [reviewQuote],
+      moveDate,
+      dayOfWeek,
+      dayName: dayOfWeek == null ? null : MARKETPLACE_RATE_DAYS[dayOfWeek],
+      coordinates: lat != null && lng != null ? { lat, lng } : null,
+      pricingVersion: activePricing.snapshot.version,
+    };
+  }
+  if (activePricing.snapshot.geographicPolicy && serviceCode === "load_unload") {
+    const booking = calculateLaborBooking({
+      crewSize,
+      hours,
+      workScope: input.workScope,
+      oversized: input.oversized,
+      snapshot: activePricing.snapshot,
+    });
+    const policy = applyGeographicQuotePolicy({
+      baseSubtotal: booking.laborTotal,
+      automaticDiscountTotal: 0,
+      serviceDate: moveDate || undefined,
+      stopCoordinates: routeEvidence.stopCoordinates,
+      routeVerified: routeEvidence.verified,
+      oneWayMiles: routeEvidence.oneWayMiles,
+      oneWayMinutes: routeEvidence.oneWayMinutes,
+      snapshot: activePricing.snapshot,
+    });
+    const total = policy?.finalPreTaxTotal ?? booking.laborTotal;
+    const localQuote = {
+      zone: null,
+      rate: null,
+      booking,
+      labor: booking.laborTotal,
+      travel: 0,
+      subtotal: total,
+      minEstimate: total,
+      maxEstimate: total,
+      pricingAdjustments: policy
+        ? { ...policy.pricingAdjustments, rateSource: "local_canonical" as const }
+        : { rateSource: "local_canonical" as const },
+      travelEligibility: policy?.travelEligibility ?? null,
+      routeEvidence,
+      pricingVersion: activePricing.snapshot.version,
+    };
+    return {
+      matched: policy?.pricingAdjustments.insideBubble === true,
+      quote: localQuote,
+      candidates: [localQuote],
       moveDate,
       dayOfWeek,
       dayName: dayOfWeek == null ? null : MARKETPLACE_RATE_DAYS[dayOfWeek],
@@ -440,9 +590,6 @@ export async function previewZoneQuote(input: {
       r.active && r.serviceCode === serviceCode && r.crewSize === crewSize && r.dayOfWeek === dayOfWeek,
     ) || null;
     if (!rate && serviceCode !== "load_unload") return [];
-    const zoneDiscountPct = rate?.discountedHourlyRate != null && rate.hourlyRate > 0
-      ? Math.max(0, Math.min(100, (1 - rate.discountedHourlyRate / rate.hourlyRate) * 100))
-      : undefined;
     const booking = serviceCode === "load_unload"
       ? calculateLaborBooking({
           crewSize,
@@ -450,8 +597,7 @@ export async function previewZoneQuote(input: {
           workScope: input.workScope,
           oversized: input.oversized,
           zoneMultiplier: zone.laborMultiplier,
-          longBookingDiscountPct: zoneDiscountPct,
-          longBookingDiscountAfterHours: rate?.discountAfterHours ?? 4,
+          snapshot: activePricing.snapshot,
         })
       : null;
     const labor = booking ? booking.laborTotal : calculateHourly(rate!, hours);
@@ -482,7 +628,13 @@ export async function previewZoneQuote(input: {
     };
   }
   const booking = serviceCode === "load_unload"
-    ? calculateLaborBooking({ crewSize, hours, workScope: input.workScope, oversized: input.oversized })
+    ? calculateLaborBooking({
+        crewSize,
+        hours,
+        workScope: input.workScope,
+        oversized: input.oversized,
+        snapshot: activePricing.snapshot,
+      })
     : null;
   const fallbackSubtotal = booking ? booking.laborTotal : crewSize * Math.max(hours, 2) * 100;
   return {

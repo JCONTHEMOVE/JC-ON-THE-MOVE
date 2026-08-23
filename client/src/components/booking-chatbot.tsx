@@ -18,6 +18,12 @@ import { PlacesAutocomplete } from "@/components/places-autocomplete";
 import { buildBookingIntakeFromChatbot, type BookingIntakeResult } from "@shared/bookingIntake";
 import { calculateMovingTravelCharge, getMovingDistanceBracketFromMiles, getMovingTravelFeeForBracket } from "@shared/movingPricing";
 import { applySmartBookingAnswer, shouldSkipSmartBookingStep } from "@shared/smartBookingEngine";
+import {
+  CANONICAL_PRICING_2026_08,
+  calculateMovingLabor,
+  calculateRateCardLine,
+  type CanonicalPricingSnapshot,
+} from "@shared/canonicalPricing";
 
 // ─────────────────────────────────────────────
 // Service categories
@@ -26,6 +32,45 @@ const PRICEABLE_SERVICES = ["Moving", "Junk Removal", "Trash Valet", "Window Cle
 const QUOTE_ONLY_SERVICES = ["Painting", "Flooring", "Roofing", "Handyman", "Lawn Care", "Snow Removal", "Move-In/Out Cleaning", "Light Demolition"];
 const JUNK_TRAVEL_CHARGE_PER_TIER = 50;  // $50 per 25-mile band from Ironwood
 const JUNK_TRAVEL_TIER_MILES      = 25;  // miles per tier
+const CANONICAL_MOVING_RATE = CANONICAL_PRICING_2026_08.labor.workerHourlyRate;
+
+function canonicalMovingLaborTotal(
+  workers: number,
+  hours: number,
+  ratePerMoverHour = CANONICAL_MOVING_RATE,
+  pricingSnapshot: CanonicalPricingSnapshot = CANONICAL_PRICING_2026_08,
+  useMarketplaceRateCard = false,
+) {
+  if (useMarketplaceRateCard) {
+    const specialLine = calculateRateCardLine({
+      serviceCode: "load_unload",
+      crewSize: workers,
+      hours,
+      snapshot: pricingSnapshot,
+    });
+    if (specialLine) return specialLine.subtotal;
+  }
+  const snapshot = ratePerMoverHour === pricingSnapshot.labor.workerHourlyRate
+    ? pricingSnapshot
+    : {
+        ...pricingSnapshot,
+        labor: { ...pricingSnapshot.labor, workerHourlyRate: ratePerMoverHour },
+      };
+  return calculateMovingLabor({ workers, hours, snapshot }).total;
+}
+
+function movingRateCardAppliesForDistance(
+  distanceMiles: number,
+  pricingSnapshot: CanonicalPricingSnapshot,
+  insideBubble?: boolean | null,
+) {
+  const card = pricingSnapshot.marketplaceRateCard;
+  if (!card) return false;
+  if (card.applicationScope !== "outside_bubble") return true;
+  if (insideBubble != null) return !insideBubble;
+  const bubbleMiles = pricingSnapshot.geographicPolicy?.bubbleRadiusMiles ?? 50;
+  return Number.isFinite(distanceMiles) && distanceMiles > bubbleMiles;
+}
 
 // ─────────────────────────────────────────────
 // Types
@@ -183,6 +228,7 @@ export interface MovingQuote {
   stakingPerkApplied?: boolean;
   stakingPerkDiscount?: number;
   stakingPerkPct?: number;
+  rateSource?: "local_canonical" | "movinghelper_special";
 }
 
 interface TrashValetQuoteResult {
@@ -1458,6 +1504,8 @@ export function buildMovingRecommendations(
   a: Answers,
   distanceMiles: number,
   stakingPerkPct = 0,
+  pricingSnapshot: CanonicalPricingSnapshot = CANONICAL_PRICING_2026_08,
+  insideBubble?: boolean | null,
 ): MovingRecommendation[] {
   const bracket = getMovingDistanceBracket(distanceMiles, a.distanceReport);
   const jobSizeText = a.jobSize || "";
@@ -1659,24 +1707,29 @@ export function buildMovingRecommendations(
   }
 
   // ── LABOR ONLY ─────────────────────────────────────────────────────────────
-  // Map jobSize → crew + hours then apply $85/mover/hr + travel charge
+  // Map jobSize to crew/hours, then price it through the canonical labor policy.
   const loadTypeRaw = a.loadType || "";
   const isUnloadOnly = loadTypeRaw.includes("Unload only");
   const isLoadOnly = loadTypeRaw.includes("Load only");
   const isBoth = loadTypeRaw.includes("Both") || loadTypeRaw.includes("load + unload") || loadTypeRaw.includes("Load + unload");
   const isHouse = propertyText.includes("House");
   const isLargeLoad = is26 || jobSizeText.includes("4") || (isHouse && jobSizeText.includes("3")) || (a.homeSize || "").includes("4+");
-  const localLaborTotal = (base: number) => applyPerk(base) + oversizedQuote.fee;
+  const useMarketplaceRateCard = movingRateCardAppliesForDistance(distanceMiles, pricingSnapshot, insideBubble);
+  const localLaborTotal = (crew: number, hours: number) => applyPerk(
+    canonicalMovingLaborTotal(crew, hours, pricingSnapshot.labor.workerHourlyRate, pricingSnapshot),
+  ) + oversizedQuote.fee;
 
   if (bracket === "local" && isUnloadOnly) {
     if (isLargeLoad) {
-      const total = localLaborTotal(750);
+      const total2x5 = localLaborTotal(2, 5);
+      const total3x3 = localLaborTotal(3, 3);
+      const total4x2 = localLaborTotal(4, 2);
       const reason = `Large 26 ft unload. Drive time and gas are extra when applicable${oversizedNote}.`;
       return [
         {
           id: "unload_large_2x5",
           label: "2 movers - 5 hours",
-          price: `$${total}`,
+          price: `$${total2x5}`,
           priceNote: "large local unload",
           rateNote: "26 ft truck baseline",
           reason,
@@ -1684,14 +1737,14 @@ export function buildMovingRecommendations(
           customQuote: false,
           crew: 2,
           hours: 5,
-          totalMin: total,
-          totalMax: total,
-          notes: `Unload only · large 26 ft · 2 movers · 5 hours · local $750${perkNote}${oversizedNote}`,
+          totalMin: total2x5,
+          totalMax: total2x5,
+          notes: `Unload only · large 26 ft · 2 movers · 5 hours · canonical labor $${total2x5}${perkNote}${oversizedNote}`,
         },
         {
           id: "unload_large_3x3",
           label: "3 movers - 3 hours",
-          price: `$${total}`,
+          price: `$${total3x3}`,
           priceNote: "large local unload",
           rateNote: "faster crew",
           reason,
@@ -1699,14 +1752,14 @@ export function buildMovingRecommendations(
           customQuote: false,
           crew: 3,
           hours: 3,
-          totalMin: total,
-          totalMax: total,
-          notes: `Unload only · large 26 ft · 3 movers · 3 hours · local $750${perkNote}${oversizedNote}`,
+          totalMin: total3x3,
+          totalMax: total3x3,
+          notes: `Unload only · large 26 ft · 3 movers · 3 hours · canonical labor $${total3x3}${perkNote}${oversizedNote}`,
         },
         {
           id: "unload_large_4x2",
           label: "4 movers - 2 hours",
-          price: `$${total}`,
+          price: `$${total4x2}`,
           priceNote: "large local unload",
           rateNote: "fastest crew",
           reason,
@@ -1714,20 +1767,21 @@ export function buildMovingRecommendations(
           customQuote: false,
           crew: 4,
           hours: 2,
-          totalMin: total,
-          totalMax: total,
-          notes: `Unload only · large 26 ft · 4 movers · 2 hours · local $750${perkNote}${oversizedNote}`,
+          totalMin: total4x2,
+          totalMax: total4x2,
+          notes: `Unload only · large 26 ft · 4 movers · 2 hours · canonical labor $${total4x2}${perkNote}${oversizedNote}`,
         },
       ];
     }
 
     if (hasAnyStairs) {
-      const total = localLaborTotal(450);
+      const total2x3 = localLaborTotal(2, 3);
+      const total3x2 = localLaborTotal(3, 2);
       return [
         {
           id: "unload_stairs_2x3",
           label: "2 movers - 3 hours",
-          price: `$${total}`,
+          price: `$${total2x3}`,
           priceNote: "stairs minimum",
           rateNote: "small/medium local unload",
           reason: `Stairs add time on unload-only jobs${oversizedNote}.`,
@@ -1735,14 +1789,14 @@ export function buildMovingRecommendations(
           customQuote: false,
           crew: 2,
           hours: 3,
-          totalMin: total,
-          totalMax: total,
-          notes: `Unload only · stairs · 2 movers · 3 hours · local $450 minimum${perkNote}${oversizedNote}`,
+          totalMin: total2x3,
+          totalMax: total2x3,
+          notes: `Unload only · stairs · 2 movers · 3 hours · canonical labor $${total2x3}${perkNote}${oversizedNote}`,
         },
         {
           id: "unload_stairs_3x2",
           label: "3 movers - 2 hours",
-          price: `$${total}`,
+          price: `$${total3x2}`,
           priceNote: "stairs minimum",
           rateNote: "faster crew",
           reason: `A third mover keeps stair carries safer and quicker${oversizedNote}.`,
@@ -1750,38 +1804,39 @@ export function buildMovingRecommendations(
           customQuote: false,
           crew: 3,
           hours: 2,
-          totalMin: total,
-          totalMax: total,
-          notes: `Unload only · stairs · 3 movers · 2 hours · local $450 minimum${perkNote}${oversizedNote}`,
+          totalMin: total3x2,
+          totalMax: total3x2,
+          notes: `Unload only · stairs · 3 movers · 2 hours · canonical labor $${total3x2}${perkNote}${oversizedNote}`,
         },
       ];
     }
 
     const isMedium = jobSizeText.includes("2") || jobSizeText.includes("3") || (a.homeSize || "").includes("2") || (a.homeSize || "").includes("3");
-    const total = localLaborTotal(isMedium ? 450 : 300);
+    const hours = isMedium ? 3 : 2;
+    const total = localLaborTotal(2, hours);
     return [{
       id: isMedium ? "unload_medium_local" : "unload_small_no_stairs",
       label: isMedium ? "2 movers - 3 hours" : "2 movers - 2 hours",
       price: `$${total}`,
       priceNote: isMedium ? "small/medium local minimum" : "quick local unload",
-      rateNote: isMedium ? "$450 minimum" : "$300 minimum",
+      rateNote: `$${pricingSnapshot.labor.workerHourlyRate}/mover/hr`,
       reason: isMedium
         ? `Small/medium local unload with no stairs${oversizedNote}.`
         : `Small no-stairs unloads can be quick when parking/access is easy${oversizedNote}.`,
       isBestMatch: true,
       customQuote: false,
       crew: 2,
-      hours: isMedium ? 3 : 2,
+      hours,
       totalMin: total,
       totalMax: total,
       notes: isMedium
-        ? `Unload only · small/medium · no stairs · 2 movers · 3 hours · local $450 minimum${perkNote}${oversizedNote}`
-        : `Unload only · small · no stairs · 2 movers · 2 hours · local $300 minimum${perkNote}${oversizedNote}`,
+        ? `Unload only · small/medium · no stairs · 2 movers · 3 hours · canonical labor $${total}${perkNote}${oversizedNote}`
+        : `Unload only · small · no stairs · 2 movers · 2 hours · canonical labor $${total}${perkNote}${oversizedNote}`,
     }];
   }
 
   if (bracket === "local" && isBoth && is26) {
-    const total = localLaborTotal(1000);
+    const total = localLaborTotal(2, 8);
     return [{
       id: "local_26_load_unload_2x8",
       label: "2 movers - 8 hours",
@@ -1795,15 +1850,14 @@ export function buildMovingRecommendations(
       hours: 8,
       totalMin: total,
       totalMax: total,
-      notes: `Load + unload · 26 ft · 2 movers · 8 hours · local $1000${perkNote}${oversizedNote}`,
+      notes: `Load + unload · 26 ft · 2 movers · 8 hours · canonical labor $${total}${perkNote}${oversizedNote}`,
     }];
   }
 
   if (bracket === "local" && isLoadOnly) {
-    const loadBase = hasAnyStairs ? 800 : (is26 ? 600 : 450);
-    const total = localLaborTotal(loadBase);
     const crew = hasAnyStairs ? 3 : 2;
     const hours = 4;
+    const total = localLaborTotal(crew, hours);
     return [{
       id: hasAnyStairs ? "load_only_stairs_3x4" : is26 ? "load_only_26_2x4" : "load_only_15_2x4",
       label: `${crew} movers - ${hours} hours`,
@@ -1817,12 +1871,14 @@ export function buildMovingRecommendations(
       hours,
       totalMin: total,
       totalMax: total,
-      notes: `Load only · shrink-wrap/product handling factored · ${crew} movers · ${hours} hours · local $${loadBase}${perkNote}${oversizedNote}`,
+      notes: `Load only · shrink-wrap/product handling factored · ${crew} movers · ${hours} hours · canonical labor $${total}${perkNote}${oversizedNote}`,
     }];
   }
 
   if (bracket !== "local" && isBoth && hasAnyStairs) {
-    const travelCharge = distanceMiles > 0
+    const travelCharge = useMarketplaceRateCard
+      ? 0
+      : distanceMiles > 0
       ? calculateMovingTravelCharge(distanceMiles).fee
       : getMovingTravelFeeForBracket(bracket);
     const travelText = travelCharge > 0 ? ` + $${travelCharge} drive/gas` : "";
@@ -1833,14 +1889,45 @@ export function buildMovingRecommendations(
       { id: "oot_stairs_both_5x4", crew: 5, hours: 4 },
     ];
     return options.map((opt, index) => {
-      const labor = applyPerk(opt.crew * opt.hours * 85);
+      const supportedSpecialLine = useMarketplaceRateCard ? calculateRateCardLine({
+        serviceCode: "load_unload",
+        crewSize: opt.crew,
+        hours: opt.hours,
+        snapshot: pricingSnapshot,
+      }) : null;
+      if (useMarketplaceRateCard && !supportedSpecialLine) {
+        return {
+          id: opt.id,
+          label: `${opt.crew} movers - ${opt.hours} hours`,
+          price: "Manual review",
+          priceNote: "Special-zone crew combination",
+          rateNote: "Owner confirms the final rate",
+          reason: `The published farther-client card supports up to four helpers; this option needs owner review${oversizedNote}.`,
+          isBestMatch: false,
+          customQuote: true,
+          crew: opt.crew,
+          hours: opt.hours,
+          totalMin: 0,
+          totalMax: 0,
+          notes: `MovingHelper Special zone · unsupported ${opt.crew}-helper combination · manual review required${oversizedNote}`,
+        };
+      }
+      const labor = applyPerk(canonicalMovingLaborTotal(
+        opt.crew,
+        opt.hours,
+        pricingSnapshot.labor.workerHourlyRate,
+        pricingSnapshot,
+        useMarketplaceRateCard,
+      ));
       const total = labor + travelCharge + oversizedQuote.fee;
       return {
         id: opt.id,
         label: `${opt.crew} movers - ${opt.hours} hours`,
         price: `$${total.toLocaleString()}`,
         priceNote: `out-of-town stairs load + unload${travelText}`,
-        rateNote: `$85/mover/hr + drive time/gas${perkNote}`,
+        rateNote: useMarketplaceRateCard
+          ? `MovingHelper Special-zone crew rate${perkNote}`
+          : `$${CANONICAL_MOVING_RATE}/mover/hr + drive time/gas${perkNote}`,
         reason: `Out-of-town full moves with stairs need a longer booking window${oversizedNote}.`,
         isBestMatch: index === 1,
         customQuote: false,
@@ -1862,12 +1949,14 @@ export function buildMovingRecommendations(
     : jobSizeText.includes("4") ? "4+ bed"
     : "Studio";
   const { crew: lCrew, minHrs, maxHrs } = laborSizeMap[sizeKey];
-  const laborRate = 85;
-  const travelCharge = distanceMiles > 0
+  const laborRate = CANONICAL_MOVING_RATE;
+  const travelCharge = useMarketplaceRateCard
+    ? 0
+    : distanceMiles > 0
     ? calculateMovingTravelCharge(distanceMiles).fee
     : getMovingTravelFeeForBracket(bracket);
-  const laborMin = applyPerk(lCrew * minHrs * laborRate) + travelCharge + oversizedQuote.fee;
-  const laborMax = applyPerk(lCrew * maxHrs * laborRate) + travelCharge + oversizedQuote.fee;
+  const laborMin = applyPerk(canonicalMovingLaborTotal(lCrew, minHrs, laborRate, pricingSnapshot, useMarketplaceRateCard)) + travelCharge + oversizedQuote.fee;
+  const laborMax = applyPerk(canonicalMovingLaborTotal(lCrew, maxHrs, laborRate, pricingSnapshot, useMarketplaceRateCard)) + travelCharge + oversizedQuote.fee;
   const travelLabel = travelCharge > 0 ? ` + $${travelCharge} travel` : "";
   return [
     {
@@ -1875,14 +1964,18 @@ export function buildMovingRecommendations(
       label: `${lCrew} movers — labor only`,
       price: `$${laborMin.toLocaleString()}–$${laborMax.toLocaleString()}`,
       priceNote: travelCharge > 0 ? `Includes $${travelCharge} one-way travel charge` : `${minHrs}–${maxHrs}-hr estimate`,
-      rateNote: `$${laborRate}/mover/hr${perkNote}`,
+      rateNote: useMarketplaceRateCard
+        ? `MovingHelper Special-zone crew rate${perkNote}`
+        : `$${laborRate}/mover/hr${perkNote}`,
       reason: "You bring your own truck or rental. We load, move, and unload.",
       isBestMatch: true,
       customQuote: false,
       crew: lCrew,
       totalMin: laborMin,
       totalMax: laborMax,
-      notes: `Labor only · ${lCrew} movers · $${laborRate}/hr · ${travelCharge > 0 ? `$${travelCharge} travel charge` : "no travel charge"}${perkNote}`,
+      notes: useMarketplaceRateCard
+        ? `Labor only · ${lCrew} movers · MovingHelper Special-zone rate · no stacked travel surcharge${perkNote}`
+        : `Labor only · ${lCrew} movers · $${laborRate}/hr · ${travelCharge > 0 ? `$${travelCharge} travel charge` : "no travel charge"}${perkNote}`,
     },
   ];
 }
@@ -1890,7 +1983,14 @@ export function buildMovingRecommendations(
 // ─────────────────────────────────────────────
 // Moving Quote Engine
 // ─────────────────────────────────────────────
-export function computeMovingQuote(a: Answers, ratePerMoverHour = 85, distanceMiles = 0, stakingPerkPct = 0): MovingQuote {
+export function computeMovingQuote(
+  a: Answers,
+  ratePerMoverHour = CANONICAL_MOVING_RATE,
+  distanceMiles = 0,
+  stakingPerkPct = 0,
+  pricingSnapshot: CanonicalPricingSnapshot = CANONICAL_PRICING_2026_08,
+  insideBubble?: boolean | null,
+): MovingQuote {
   const RATE = ratePerMoverHour;
   const round5 = (n: number) => Math.ceil(n / 5) * 5;
 
@@ -2058,12 +2158,28 @@ export function computeMovingQuote(a: Answers, ratePerMoverHour = 85, distanceMi
   maxHrs = Math.max(minHrs, Math.round(maxHrs * 2) / 2);
 
   // ── Pricing ───────────────────────────────────────────────────────────────
-  const rawMin = round5(crew * minHrs * RATE) + specialSurcharge;
-  const rawMax = round5(crew * maxHrs * RATE) + specialSurcharge;
+  const useMarketplaceRateCard = movingRateCardAppliesForDistance(distanceMiles, pricingSnapshot, insideBubble);
+  const rawMin = round5(canonicalMovingLaborTotal(
+    crew,
+    minHrs,
+    RATE,
+    pricingSnapshot,
+    useMarketplaceRateCard,
+  )) + specialSurcharge;
+  const rawMax = round5(canonicalMovingLaborTotal(
+    crew,
+    maxHrs,
+    RATE,
+    pricingSnapshot,
+    useMarketplaceRateCard,
+  )) + specialSurcharge;
 
-  // Moving travel is one customer-facing table:
-  // local $0, ~1 hr $100, ~2 hrs $200, 3+ hrs $300 minimum/custom review.
-  const travelCharge = distanceMiles > 0
+  // The MovingHelper Special card is a complete farther-client labor price;
+  // the old travel table must not stack on it. Eligibility/minimum review is
+  // still enforced by the server's canonical geographic policy.
+  const travelCharge = useMarketplaceRateCard
+    ? 0
+    : distanceMiles > 0
     ? calculateMovingTravelCharge(distanceMiles).fee
     : getMovingTravelFeeForBracket(getMovingDistanceBracket(distanceMiles, a.distanceReport));
 
@@ -2103,13 +2219,14 @@ export function computeMovingQuote(a: Answers, ratePerMoverHour = 85, distanceMi
     stakingPerkApplied: stakingPerkApplied || undefined,
     stakingPerkDiscount: stakingDiscount || undefined,
     stakingPerkPct:     stakingPerkApplied ? stakingPerkPct : undefined,
+    rateSource: useMarketplaceRateCard ? "movinghelper_special" : "local_canonical",
   };
 }
 
 // ─────────────────────────────────────────────
 // Junk Removal Quote Engine
 // ─────────────────────────────────────────────
-export function computeJunkQuote(a: Answers, ratePerMoverHour = 85, distanceMiles = 0, stakingPerkPct = 0): JunkQuote {
+export function computeJunkQuote(a: Answers, ratePerMoverHour = CANONICAL_MOVING_RATE, distanceMiles = 0, stakingPerkPct = 0): JunkQuote {
   const RATE = ratePerMoverHour;
   const r5 = (n: number) => Math.ceil(n / 5) * 5;
 
@@ -2187,7 +2304,14 @@ export function computeJunkQuote(a: Answers, ratePerMoverHour = 85, distanceMile
 // ─────────────────────────────────────────────
 // Compute Quote for Any Service
 // ─────────────────────────────────────────────
-function computeQuoteForAnswers(a: Answers, ratePerMoverHour = 85, distanceMiles = 0, stakingPerkPct = 0): QuoteResult | null {
+function computeQuoteForAnswers(
+  a: Answers,
+  ratePerMoverHour = CANONICAL_MOVING_RATE,
+  distanceMiles = 0,
+  stakingPerkPct = 0,
+  pricingSnapshot: CanonicalPricingSnapshot = CANONICAL_PRICING_2026_08,
+  insideBubble?: boolean | null,
+): QuoteResult | null {
   const svc = getServiceLabel(a.serviceType || "");
 
   if (QUOTE_ONLY_SERVICES.includes(svc)) {
@@ -2265,13 +2389,18 @@ function computeQuoteForAnswers(a: Answers, ratePerMoverHour = 85, distanceMiles
   }
 
   // Moving or Junk
-  return computeMovingQuote(a, ratePerMoverHour, distanceMiles, stakingPerkPct);
+  return computeMovingQuote(a, ratePerMoverHour, distanceMiles, stakingPerkPct, pricingSnapshot, insideBubble);
 }
 
 // ─────────────────────────────────────────────
 // Build Crew Packages for priceable services
 // ─────────────────────────────────────────────
-export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMoverHour = 85): CrewPackage[] {
+export function buildCrewPackages(
+  a: Answers,
+  q: QuoteResult | null,
+  ratePerMoverHour = CANONICAL_MOVING_RATE,
+  pricingSnapshot: CanonicalPricingSnapshot = CANONICAL_PRICING_2026_08,
+): CrewPackage[] {
   if (!q) return [];
 
   if (q.type === "junk") {
@@ -2389,19 +2518,22 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
     const RATE = ratePerMoverHour;
     const sur    = mq.specialSurcharge;
     const travel = mq.travelCharge || 0;
-    const r5   = (n: number) => Math.ceil(n / 5) * 5;
-    const price = (crew: number, hrs: number) => r5(crew * hrs * RATE) + sur;
+    const useMarketplaceRateCard = mq.rateSource === "movinghelper_special";
+    const price = (crew: number, hrs: number) => canonicalMovingLaborTotal(
+      crew,
+      hrs,
+      RATE,
+      pricingSnapshot,
+      useMarketplaceRateCard,
+    ) + sur;
     const travelNote = travel > 0 ? ` · +$${travel} travel fee` : "";
 
-    const is26Truck = (a.truckSize || "").includes("26");
     const is16Truck = (a.truckSize || "").includes("16");
     const isLoadOnly = /load only/i.test(a.loadType || "");
     const hasStairs = getStairContext(a).hasAnyStairs;
-    const localPackage = (base: number) => base + sur + travel;
 
     if (mq.tier === "tiny") {
-      // $170 minimum = 2 mover-hours. Offer two configurations at the same price.
-      const base = price(1, 2) + travel; // 1×2×$85 = $170, plus travel if outside Ironwood
+      const base = price(1, 2) + travel;
       return [
         {
           id: "pkg_tiny_solo",
@@ -2446,9 +2578,9 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
         {
           id: "pkg_small",
           label: "2 Movers x 4 hrs",
-          desc: `Half-day local help · 15 ft truck load/unload is $450, 26 ft is $600${travelNote}`,
-          minPrice: localPackage(is26Truck ? 600 : 450),
-          maxPrice: localPackage(is26Truck ? 600 : 450),
+          desc: `Half-day local help priced from the canonical per-mover labor rate${travelNote}`,
+          minPrice: price(2, 4) + travel,
+          maxPrice: price(2, 4) + travel,
           crew: 2,
           hours: 4,
           tag: "Fast book",
@@ -2461,9 +2593,9 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
         ? {
             id: "pkg_med_16_load_only",
             label: "2 Movers x 2 hrs",
-            desc: `15 ft truck load-only minimum · local flat rate starts at ${travelNote}`,
-            minPrice: localPackage(300),
-            maxPrice: localPackage(300),
+            desc: `15 ft truck load-only minimum · canonical two-hour labor quote${travelNote}`,
+            minPrice: price(2, 2) + travel,
+            maxPrice: price(2, 2) + travel,
             crew: 2,
             hours: 2,
             tag: "Fast book",
@@ -2471,9 +2603,9 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
         : {
             id: "pkg_med_a",
             label: "2 Movers x 4 hrs",
-            desc: `Steady pace · $85/mover/hr · best for ground-floor or elevator access${travelNote}`,
-            minPrice: localPackage(is26Truck ? 600 : 450),
-            maxPrice: localPackage(is26Truck ? 600 : 450),
+            desc: `Steady pace · $${RATE}/mover/hr before the canonical long-job discount · best for ground-floor or elevator access${travelNote}`,
+            minPrice: price(2, 4) + travel,
+            maxPrice: price(2, 4) + travel,
             crew: 2,
             hours: 4,
             tag: "Fast book",
@@ -2484,8 +2616,8 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
           id: "pkg_med_b",
           label: "3 Movers x 4 hrs",
           desc: `Faster crew · same total effort · recommended with stairs or tight schedule${travelNote}`,
-          minPrice: localPackage(800),
-          maxPrice: localPackage(800),
+          minPrice: price(3, 4) + travel,
+          maxPrice: price(3, 4) + travel,
           crew: 3,
           hours: 4,
           tag: hasStairs ? "Stairs" : "Upgrade",
@@ -2501,8 +2633,8 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
         id: "pkg_lg_c",
         label: "2 Movers x 8 hrs",
         desc: `Budget option · plenty of time · best without stairs or heavy items${travelNote}`,
-        minPrice: localPackage(1000),
-        maxPrice: localPackage(1000),
+        minPrice: price(2, 8) + travel,
+        maxPrice: price(2, 8) + travel,
         crew: 2,
         hours: 8,
         tag: "26 ft load/unload",
@@ -2537,7 +2669,10 @@ export function buildCrewPackages(a: Answers, q: QuoteResult | null, ratePerMove
       },
     ];
     // Enforce minimum crew: never offer a package with fewer movers than computed minimum
-    return largePkgs.filter(p => !p.crew || p.crew >= mq.crew);
+    return largePkgs.filter((p) => (
+      (!p.crew || p.crew >= mq.crew)
+      && (!useMarketplaceRateCard || !p.crew || p.crew <= 4)
+    ));
   }
 
   if (q.type === "trash_valet") {
@@ -2702,12 +2837,13 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
   const photoInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
-  // Fetch live pricing from DB so the chatbot reflects admin calibration changes in real time
-  const { data: pricingConfig } = useQuery<{ ratePerMoverHour: number; jc222Price: number }>({
-    queryKey: ["/api/pricing"],
+  // The active versioned pricing snapshot is also used by the quote and save routes.
+  const { data: pricingSnapshot } = useQuery<CanonicalPricingSnapshot>({
+    queryKey: ["/api/pricing/v2"],
     staleTime: 5 * 60 * 1000,
   });
-  const liveRate      = pricingConfig?.ratePerMoverHour ?? 85;
+  const activePricing = pricingSnapshot ?? CANONICAL_PRICING_2026_08;
+  const liveRate = activePricing.labor.workerHourlyRate;
 
   // Fetch staking perk for auto-discount at quote time
   const { data: stakingPerk } = useQuery<{ stakedTotal: number; perkPercent: number; perkLabel: string }>({
@@ -2738,6 +2874,7 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
   const [pendingQuote, setPendingQuote] = useState<QuoteResult | null>(null);
   const [crewPackages, setCrewPackages] = useState<CrewPackage[]>([]);
   const [distanceMiles, setDistanceMiles] = useState(0); // fetched async when address is entered
+  const [distanceInsideBubble, setDistanceInsideBubble] = useState<boolean | null>(null);
   const [selectedPackageObj, setSelectedPackageObj] = useState<CrewPackage | null>(null);
   const [depositInfo, setDepositInfo] = useState<{ required: boolean; amount: number; termsHtml: string } | null>(null);
   const [depositChecked, setDepositChecked] = useState(false);
@@ -2847,17 +2984,33 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
   }, [messages, quoteVisible]);
 
   // Defensive: if we're on the package_select step but crewPackages is empty
-  // (can happen on session restore from localStorage), recompute them now.
+  // Recompute visible packages whenever verified distance or the published
+  // pricing version changes. This also closes the async-address race where a
+  // local card could otherwise remain on screen after a >50-mile lookup lands.
   useEffect(() => {
     if (!currentStep) return;
-    if (currentStep.type !== "package_select") return;
-    if (crewPackages.length > 0) return;
-    const q = computeQuoteForAnswers(answers, liveRate, distanceMiles, stakingPerkPct);
-    if (!q) return;
-    setPendingQuote(q);
-    const pkgs = buildCrewPackages(answers, q, liveRate);
-    if (pkgs.length > 0) setCrewPackages(pkgs);
-  }, [currentStep?.id, crewPackages.length]);
+    if (currentStep.type === "package_select") {
+      const q = computeQuoteForAnswers(answers, liveRate, distanceMiles, stakingPerkPct, activePricing, distanceInsideBubble);
+      if (!q) return;
+      setPendingQuote(q);
+      setCrewPackages(buildCrewPackages(answers, q, liveRate, activePricing));
+    } else if (currentStep.id === "movingRec") {
+      setMovingRecs(buildMovingRecommendations(answers, distanceMiles, stakingPerkPct, activePricing, distanceInsideBubble));
+      setSelectedMovingRec(null);
+    }
+  }, [currentStep?.id, distanceMiles, distanceInsideBubble, stakingPerkPct, activePricing.version, liveRate]);
+
+  useEffect(() => {
+    if (!quoteVisible) return;
+    setPendingQuote(computeQuoteForAnswers(
+      answers,
+      liveRate,
+      distanceMiles,
+      stakingPerkPct,
+      activePricing,
+      distanceInsideBubble,
+    ));
+  }, [quoteVisible, distanceMiles, distanceInsideBubble, stakingPerkPct, activePricing.version, liveRate]);
 
   function botSay(text: string, delay = 0) {
     setTimeout(() => {
@@ -2904,10 +3057,15 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
           .then((data: any) => {
             const miles = typeof data.miles === "number" ? data.miles : 0;
             setDistanceMiles(miles);
+            setDistanceInsideBubble(typeof data.insideBubble === "boolean" ? data.insideBubble : null);
           })
-          .catch(() => setDistanceMiles(0));
+          .catch(() => {
+            setDistanceMiles(0);
+            setDistanceInsideBubble(null);
+          });
       } else {
         setDistanceMiles(0);
+        setDistanceInsideBubble(null);
       }
     }
 
@@ -2946,15 +3104,15 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
 
       // When we reach the package select step, compute packages
       if (nextStep.id === "selectedPackage") {
-        const q = computeQuoteForAnswers(newAnswers, liveRate, distanceMiles, stakingPerkPct);
+        const q = computeQuoteForAnswers(newAnswers, liveRate, distanceMiles, stakingPerkPct, activePricing, distanceInsideBubble);
         setPendingQuote(q);
-        const pkgs = buildCrewPackages(newAnswers, q, liveRate);
+        const pkgs = buildCrewPackages(newAnswers, q, liveRate, activePricing);
         setCrewPackages(pkgs);
       }
 
       // When we reach the moving recommendations step, compute recommendations
       if (nextStep.id === "movingRec") {
-        const recs = buildMovingRecommendations(newAnswers, distanceMiles, stakingPerkPct);
+        const recs = buildMovingRecommendations(newAnswers, distanceMiles, stakingPerkPct, activePricing, distanceInsideBubble);
         setMovingRecs(recs);
         setSelectedMovingRec(null);
       }
@@ -2971,7 +3129,7 @@ export function BookingChatbot({ onClose, onSuccess, embedded = false, showClose
     } else {
       // All done — compute final quote & show
       setTimeout(() => {
-        const q = computeQuoteForAnswers(newAnswers, liveRate, distanceMiles, stakingPerkPct);
+        const q = computeQuoteForAnswers(newAnswers, liveRate, distanceMiles, stakingPerkPct, activePricing, distanceInsideBubble);
         setPendingQuote(q);
 
         const svc = getServiceLabel(newAnswers.serviceType || "");

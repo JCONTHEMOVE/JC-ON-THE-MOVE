@@ -2,7 +2,9 @@ import { pool } from "../db";
 import {
   CANONICAL_PRICING_2026_08,
   CANONICAL_PRICING_2026_08_1,
+  CANONICAL_PRICING_2026_08_2,
   applyGeographicQuotePolicy,
+  buildMovingHelperSpecialPricingSnapshot,
   calculateRateCardLine,
   canonicalPricingSnapshotSchema,
   type CanonicalPricingSnapshot,
@@ -56,6 +58,9 @@ function ruleEntries(snapshot: CanonicalPricingSnapshot) {
   if (snapshot.geographicPolicy) {
     rules.push({ key: "geographic_policy", serviceCode: null, payload: snapshot.geographicPolicy });
   }
+  if (snapshot.operationsPolicy) {
+    rules.push({ key: "operations_policy", serviceCode: null, payload: snapshot.operationsPolicy });
+  }
   return rules;
 }
 
@@ -82,6 +87,7 @@ function snapshotFromRows(version: VersionRow, rows: RuleRow[]): CanonicalPricin
     policies: metadata.policies,
     marketplaceRateCard: byKey.get("marketplace_rate_card"),
     geographicPolicy: byKey.get("geographic_policy"),
+    operationsPolicy: byKey.get("operations_policy"),
   });
 }
 
@@ -212,6 +218,92 @@ async function ensureGeographicDraft(
   );
 }
 
+async function ensureOperationsDraft(
+  client: { query: (text: string, values?: unknown[]) => Promise<{ rows: any[] }> },
+) {
+  const existing = await client.query(
+    `SELECT id FROM pricing_versions WHERE code = $1`,
+    [CANONICAL_PRICING_2026_08_2.version],
+  );
+  if (existing.rows.length > 0) return;
+  const inserted = await client.query(
+    `INSERT INTO pricing_versions
+      (code, status, currency, effective_at, notes)
+     VALUES ($1, 'draft', $2, $3::timestamptz, $4)
+     RETURNING id`,
+    [
+      CANONICAL_PRICING_2026_08_2.version,
+      CANONICAL_PRICING_2026_08_2.currency,
+      CANONICAL_PRICING_2026_08_2.effectiveAt,
+      "$400 moving/junk service floor and the two local $555 crew packages. Requires owner shadow review and publication.",
+    ],
+  );
+  const versionId = String(inserted.rows[0].id);
+  await insertRules(client, versionId, CANONICAL_PRICING_2026_08_2);
+  await client.query(
+    `INSERT INTO pricing_publication_audit
+      (pricing_version_id, action, previous_version_code, metadata)
+     VALUES ($1, 'seed', $2, $3::jsonb)`,
+    [versionId, CANONICAL_PRICING_2026_08_1.version, JSON.stringify({ automatic: true, requiresOwnerPublication: true })],
+  );
+}
+
+async function ensureMovingHelperSpecialDraft(
+  client: { query: (text: string, values?: unknown[]) => Promise<{ rows: any[] }> },
+) {
+  const code = "2026.08.3";
+  const existing = await client.query(
+    `SELECT id FROM pricing_versions WHERE code = $1`,
+    [code],
+  );
+  if (existing.rows.length > 0) return;
+
+  // Clone the live snapshot once, then overlay only the Special-zone card.
+  // This deliberately excludes other unpublished drafts from the rollout.
+  const activeRows = await client.query(
+    `SELECT * FROM pricing_versions WHERE status = 'active' ORDER BY published_at DESC NULLS LAST, created_at DESC LIMIT 1`,
+  );
+  const activeVersion = activeRows.rows[0] as VersionRow | undefined;
+  let baseSnapshot = CANONICAL_PRICING_2026_08;
+  if (activeVersion) {
+    const rules = await client.query(
+      `SELECT rule_key, payload FROM pricing_rules WHERE pricing_version_id = $1 ORDER BY rule_key`,
+      [activeVersion.id],
+    );
+    baseSnapshot = snapshotFromRows(activeVersion, rules.rows as RuleRow[]);
+  }
+  const snapshot = buildMovingHelperSpecialPricingSnapshot(baseSnapshot);
+  const inserted = await client.query(
+    `INSERT INTO pricing_versions
+      (code, status, currency, effective_at, notes)
+     VALUES ($1, 'draft', $2, $3::timestamptz, $4)
+     RETURNING id`,
+    [
+      snapshot.version,
+      snapshot.currency,
+      snapshot.effectiveAt,
+      "MovingHelper Special-zone pricing outside the 50-mile Ironwood bubble. Exact all-day rates; owner publication required.",
+    ],
+  );
+  const versionId = String(inserted.rows[0].id);
+  await insertRules(client, versionId, snapshot);
+  await client.query(
+    `INSERT INTO pricing_publication_audit
+      (pricing_version_id, action, previous_version_code, metadata)
+     VALUES ($1, 'seed', $2, $3::jsonb)`,
+    [
+      versionId,
+      baseSnapshot.version,
+      JSON.stringify({
+        automatic: true,
+        requiresOwnerPublication: true,
+        baseVersionCode: baseSnapshot.version,
+        source: "MovingHelper Special-zone screenshots supplied 2026-08-23",
+      }),
+    ],
+  );
+}
+
 export async function ensureCanonicalPricingVersionsSeeded(): Promise<void> {
   if (seedPromise) return seedPromise;
   seedPromise = (async () => {
@@ -225,6 +317,8 @@ export async function ensureCanonicalPricingVersionsSeeded(): Promise<void> {
       );
       if (existing.rows.length > 0) {
         await ensureGeographicDraft(client);
+        await ensureOperationsDraft(client);
+        await ensureMovingHelperSpecialDraft(client);
         await client.query("COMMIT");
         return;
       }
@@ -271,6 +365,8 @@ export async function ensureCanonicalPricingVersionsSeeded(): Promise<void> {
         [versionId, previous.rows[0]?.code ?? "2026.07-live", JSON.stringify({ automatic: true })],
       );
       await ensureGeographicDraft(client);
+      await ensureOperationsDraft(client);
+      await ensureMovingHelperSpecialDraft(client);
       await client.query("COMMIT");
       invalidatePricingCache();
     } catch (error) {

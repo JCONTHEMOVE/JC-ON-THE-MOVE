@@ -487,25 +487,44 @@ async function estimateDriveMilesForChatbot(pickupAddr: string, dropoffAddr?: st
   if (!pickup) return { miles: 0, estimatedMinutes: 0, note: "Pickup address not found" };
 
   const baseToPickup = haversineDriveMiles(CHATBOT_DRIVE_BASE_LAT, CHATBOT_DRIVE_BASE_LNG, pickup.lat, pickup.lon);
+  let farthestStopMilesFromIronwood = baseToPickup;
   let totalOneWay = baseToPickup;
 
   if (!dropoffAddr?.trim()) {
     const miles = Math.ceil(totalOneWay * 1.25);
-    return { miles, estimatedMinutes: minutesFor(miles), note: "base-to-pickup only" };
+    return {
+      miles,
+      estimatedMinutes: minutesFor(miles),
+      farthestStopMilesFromIronwood,
+      insideBubble: farthestStopMilesFromIronwood <= 50,
+      note: "base-to-pickup only",
+    };
   }
 
   const dropoff = await geocodeUsAddressForDrive(dropoffAddr.trim());
   if (!dropoff) {
     const miles = Math.ceil(totalOneWay * 1.25);
-    return { miles, estimatedMinutes: minutesFor(miles), note: "dropoff not found; base-to-pickup only" };
+    return {
+      miles,
+      estimatedMinutes: minutesFor(miles),
+      farthestStopMilesFromIronwood,
+      insideBubble: farthestStopMilesFromIronwood <= 50,
+      note: "dropoff not found; base-to-pickup only",
+    };
   }
 
   const pickupToDropoff = haversineDriveMiles(pickup.lat, pickup.lon, dropoff.lat, dropoff.lon);
+  farthestStopMilesFromIronwood = Math.max(
+    farthestStopMilesFromIronwood,
+    haversineDriveMiles(CHATBOT_DRIVE_BASE_LAT, CHATBOT_DRIVE_BASE_LNG, dropoff.lat, dropoff.lon),
+  );
   totalOneWay += pickupToDropoff;
   const miles = Math.ceil(totalOneWay * 1.25);
   return {
     miles,
     estimatedMinutes: minutesFor(miles),
+    farthestStopMilesFromIronwood,
+    insideBubble: farthestStopMilesFromIronwood <= 50,
     note: "base-to-pickup plus pickup-to-dropoff",
   };
 }

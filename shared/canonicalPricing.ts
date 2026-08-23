@@ -8,6 +8,8 @@ const hourlyRateCardRowSchema = z.object({
   regularHourlyRate: money,
   discountAfterHours: money,
   discountedHourlyRate: money,
+  minimumHours: money.optional(),
+  discountMode: z.enum(["marginal", "whole_booking", "none"]).optional(),
 });
 
 const geographicPricingPolicySchema = z.object({
@@ -25,6 +27,26 @@ const geographicPricingPolicySchema = z.object({
   reviewTravelMaxMinutes: money,
   extendedMinimumPreTax: money,
   timezone: z.string().min(1),
+});
+
+const operationsPricingPolicySchema = z.object({
+  serviceMinimums: z.object({ moving: money, labor: money, junkRemoval: money }),
+  localCrewPackages: z.array(z.object({
+    code: z.string().min(1),
+    crewSize: z.number().int().min(2).max(3),
+    includedHours: money,
+    price: money,
+  })),
+  packageRadiusOneWayRoadMiles: money,
+  includedOneWayRoadMiles: money,
+  regionalTravelCrewHourlyRate: money,
+  regionalTravelRoundingHours: money.positive(),
+  overtimePerMoverHour: money,
+  overtimeRoundingHours: money.positive(),
+  packageWeekendMultiplier: money.positive(),
+  packagePercentageDiscountEligible: z.boolean(),
+  giftCardsAndJcMovesAccepted: z.boolean(),
+  truckEquipmentDisposalAndSpecialtySeparate: z.boolean(),
 });
 
 export const canonicalPricingSnapshotSchema = z.object({
@@ -119,10 +141,15 @@ export const canonicalPricingSnapshotSchema = z.object({
   // Added in 2026.08.1. Optional so an already-published 2026.08 database
   // snapshot remains readable until the owner publishes the new draft.
   marketplaceRateCard: z.object({
+    applicationScope: z.enum(["all", "outside_bubble"]).optional(),
     hourly: z.array(hourlyRateCardRowSchema),
     ubox: z.object({
       loadUnloadPerBox: money,
+      loadUnloadFirstBox: money.optional(),
+      loadUnloadAdditionalBox: money.optional(),
       deliveryLoadUnloadPerBox: money,
+      deliveryLoadUnloadFirstBox: money.optional(),
+      deliveryLoadUnloadAdditionalBox: money.optional(),
       deliveryLoadUnloadFirstBoxPerMile: money,
       deliveryLoadUnloadAdditionalBoxPerMile: money,
       deliveryOnlyFlat: money,
@@ -132,6 +159,7 @@ export const canonicalPricingSnapshotSchema = z.object({
     safeFlat: money,
   }).optional(),
   geographicPolicy: geographicPricingPolicySchema.optional(),
+  operationsPolicy: operationsPricingPolicySchema.optional(),
 });
 
 export type CanonicalPricingSnapshot = z.infer<typeof canonicalPricingSnapshotSchema>;
@@ -276,19 +304,118 @@ export const CANONICAL_PRICING_2026_08_1: CanonicalPricingSnapshot = {
   },
 };
 
+/**
+ * Owner-publishable operations draft. It adds the $400 service floor and the
+ * two $555 local crew packages without silently changing the active version.
+ */
+export const CANONICAL_PRICING_2026_08_2: CanonicalPricingSnapshot = {
+  ...CANONICAL_PRICING_2026_08_1,
+  version: "2026.08.2",
+  effectiveAt: "2026-08-22T00:00:00-05:00",
+  labor: {
+    ...CANONICAL_PRICING_2026_08_1.labor,
+    minimumInvoice: 400,
+  },
+  operationsPolicy: {
+    serviceMinimums: { moving: 400, labor: 400, junkRemoval: 400 },
+    localCrewPackages: [
+      { code: "two_movers_three_hours", crewSize: 2, includedHours: 3, price: 555 },
+      { code: "three_movers_two_hours", crewSize: 3, includedHours: 2, price: 555 },
+    ],
+    packageRadiusOneWayRoadMiles: 30,
+    includedOneWayRoadMiles: 15,
+    regionalTravelCrewHourlyRate: 100,
+    regionalTravelRoundingHours: 0.5,
+    overtimePerMoverHour: 92.5,
+    overtimeRoundingHours: 0.5,
+    packageWeekendMultiplier: 1,
+    packagePercentageDiscountEligible: false,
+    giftCardsAndJcMovesAccepted: true,
+    truckEquipmentDisposalAndSpecialtySeparate: true,
+  },
+};
+
+/**
+ * Builds the isolated owner-publishable MovingHelper Special-zone draft.
+ * The caller supplies the live snapshot so unrelated unpublished policies
+ * (including the 2026.08.2 local operations draft) are never pulled into
+ * this rollout accidentally.
+ */
+export function buildMovingHelperSpecialPricingSnapshot(
+  base: CanonicalPricingSnapshot = CANONICAL_PRICING_2026_08,
+): CanonicalPricingSnapshot {
+  const geographicBase = base.geographicPolicy ?? CANONICAL_PRICING_2026_08_1.geographicPolicy!;
+  return {
+    ...base,
+    version: "2026.08.3",
+    effectiveAt: "2026-08-23T00:00:00-05:00",
+    marketplaceRateCard: {
+      applicationScope: "outside_bubble",
+      hourly: [
+        { serviceCode: "load_unload", crewSize: 1, regularHourlyRate: 250, minimumHours: 2, discountAfterHours: 3, discountedHourlyRate: 200, discountMode: "whole_booking" },
+        { serviceCode: "load_unload", crewSize: 2, regularHourlyRate: 280, minimumHours: 2, discountAfterHours: 5, discountedHourlyRate: 200, discountMode: "whole_booking" },
+        { serviceCode: "load_unload", crewSize: 3, regularHourlyRate: 400, minimumHours: 2, discountAfterHours: 5, discountedHourlyRate: 300, discountMode: "whole_booking" },
+        { serviceCode: "load_unload", crewSize: 4, regularHourlyRate: 500, minimumHours: 2, discountAfterHours: 5, discountedHourlyRate: 400, discountMode: "whole_booking" },
+        { serviceCode: "pack_unpack", crewSize: 2, regularHourlyRate: 200, minimumHours: 2, discountAfterHours: 0, discountedHourlyRate: 200, discountMode: "none" },
+        { serviceCode: "pack_unpack", crewSize: 3, regularHourlyRate: 300, minimumHours: 2, discountAfterHours: 0, discountedHourlyRate: 300, discountMode: "none" },
+        { serviceCode: "cleaning", crewSize: 2, regularHourlyRate: 250, minimumHours: 2, discountAfterHours: 3, discountedHourlyRate: 200, discountMode: "whole_booking" },
+      ],
+      ubox: {
+        // Legacy aggregate fields remain populated for older clients. The
+        // new first/additional fields are authoritative for this version.
+        loadUnloadPerBox: 700,
+        loadUnloadFirstBox: 700,
+        loadUnloadAdditionalBox: 600,
+        deliveryLoadUnloadPerBox: 1000,
+        deliveryLoadUnloadFirstBox: 1000,
+        deliveryLoadUnloadAdditionalBox: 600,
+        deliveryLoadUnloadFirstBoxPerMile: 2.5,
+        deliveryLoadUnloadAdditionalBoxPerMile: 2.5,
+        deliveryOnlyFlat: 600,
+        deliveryOnlyPerBoxPerMile: 1.5,
+      },
+      pianoFlat: 350,
+      safeFlat: 500,
+    },
+    geographicPolicy: {
+      ...geographicBase,
+      outsideBubbleMultiplier: 1,
+      weekendMultiplier: 1,
+    },
+  };
+}
+
+/** Code-owned fallback used by tests, shadow mode, and draft seeding. */
+export const CANONICAL_PRICING_2026_08_3 = buildMovingHelperSpecialPricingSnapshot();
+
 export type MarketplaceHourlyServiceCode = "load_unload" | "pack_unpack" | "cleaning";
 
 export type RateCardLineResult = {
   serviceCode: MarketplaceHourlyServiceCode;
   crewSize: number;
+  requestedHours: number;
   billableHours: number;
   regularHourlyRate: number;
   discountedHourlyRate: number;
   discountAfterHours: number;
+  discountMode: "marginal" | "whole_booking" | "none";
   regularHours: number;
   discountedHours: number;
+  effectiveCrewHourlyRate: number;
+  effectiveWorkerHourlyRate: number;
   subtotal: number;
 };
+
+export type PricingRateSource = "local_canonical" | "movinghelper_special";
+
+export function marketplaceRateCardApplies(
+  snapshot: CanonicalPricingSnapshot,
+  insideBubble: boolean | null,
+): boolean {
+  const card = snapshot.marketplaceRateCard;
+  if (!card) return false;
+  return card.applicationScope !== "outside_bubble" || insideBubble !== true;
+}
 
 export function calculateRateCardLine(input: {
   serviceCode: MarketplaceHourlyServiceCode;
@@ -301,21 +428,40 @@ export function calculateRateCardLine(input: {
     candidate.serviceCode === input.serviceCode && candidate.crewSize === Math.round(input.crewSize)
   ));
   if (!row) return null;
-  const billableHours = Math.max(0, Number(input.hours) || 0);
-  const regularHours = Math.min(billableHours, row.discountAfterHours);
-  const discountedHours = Math.max(0, billableHours - row.discountAfterHours);
+  const requestedHours = Math.max(0, Number(input.hours) || 0);
+  const billableHours = Math.max(row.minimumHours ?? 0, requestedHours);
+  const discountMode = row.discountMode ?? "marginal";
+  const wholeBookingDiscount = discountMode === "whole_booking"
+    && row.discountAfterHours > 0
+    && billableHours >= row.discountAfterHours;
+  const regularHours = discountMode === "none"
+    ? billableHours
+    : wholeBookingDiscount
+      ? 0
+      : Math.min(billableHours, row.discountAfterHours);
+  const discountedHours = discountMode === "none"
+    ? 0
+    : wholeBookingDiscount
+      ? billableHours
+      : Math.max(0, billableHours - row.discountAfterHours);
+  const subtotal = roundCurrency(
+    regularHours * row.regularHourlyRate + discountedHours * row.discountedHourlyRate,
+  );
+  const effectiveCrewHourlyRate = billableHours > 0 ? roundCurrency(subtotal / billableHours) : 0;
   return {
     serviceCode: row.serviceCode,
     crewSize: row.crewSize,
+    requestedHours,
     billableHours,
     regularHourlyRate: row.regularHourlyRate,
     discountedHourlyRate: row.discountedHourlyRate,
     discountAfterHours: row.discountAfterHours,
+    discountMode,
     regularHours,
     discountedHours,
-    subtotal: roundCurrency(
-      regularHours * row.regularHourlyRate + discountedHours * row.discountedHourlyRate,
-    ),
+    effectiveCrewHourlyRate,
+    effectiveWorkerHourlyRate: roundCurrency(effectiveCrewHourlyRate / row.crewSize),
+    subtotal,
   };
 }
 
@@ -342,14 +488,18 @@ export function calculateMarketplaceFlatRate(input: {
   if (input.serviceCode === "piano") return roundCurrency(card.pianoFlat * quantity);
   if (input.serviceCode === "safe") return roundCurrency(card.safeFlat * quantity);
   if (input.serviceCode === "ubox_load_unload") {
-    return roundCurrency(card.ubox.loadUnloadPerBox * boxes);
+    const firstBox = card.ubox.loadUnloadFirstBox ?? card.ubox.loadUnloadPerBox;
+    const additionalBox = card.ubox.loadUnloadAdditionalBox ?? card.ubox.loadUnloadPerBox;
+    return roundCurrency(firstBox + Math.max(0, boxes - 1) * additionalBox);
   }
   if (input.serviceCode === "ubox_delivery_load_unload") {
+    const firstBox = card.ubox.deliveryLoadUnloadFirstBox ?? card.ubox.deliveryLoadUnloadPerBox;
+    const additionalBox = card.ubox.deliveryLoadUnloadAdditionalBox ?? card.ubox.deliveryLoadUnloadPerBox;
     const mileage = miles * (
       card.ubox.deliveryLoadUnloadFirstBoxPerMile
       + Math.max(0, boxes - 1) * card.ubox.deliveryLoadUnloadAdditionalBoxPerMile
     );
-    return roundCurrency(card.ubox.deliveryLoadUnloadPerBox * boxes + mileage);
+    return roundCurrency(firstBox + Math.max(0, boxes - 1) * additionalBox + mileage);
   }
   return roundCurrency(card.ubox.deliveryOnlyFlat + card.ubox.deliveryOnlyPerBoxPerMile * boxes * miles);
 }

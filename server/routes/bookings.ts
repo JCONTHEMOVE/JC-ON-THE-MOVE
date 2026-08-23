@@ -64,6 +64,7 @@ import {
   type FlooringAnswers,
 } from "../services/pricingEngine";
 import { quoteByLaborHours, LABOR_RATE_PER_HOUR, quoteMovingFromTable } from "@shared/pricingTables";
+import { quoteLocalCrewPackage } from "@shared/jcOperations";
 import {
   getMarketplaceRequestShape,
   getMarketplaceShapeForServiceCode,
@@ -75,10 +76,13 @@ import { previewZoneQuote } from "../marketplace/zonePricing";
 import {
   applyGeographicQuotePolicy,
   calculateMarketplaceFlatRate,
+  calculateMovingLabor,
   calculateRateCardLine,
   catalogPriceSummary,
+  marketplaceRateCardApplies,
   type CanonicalPricingSnapshot,
   type MarketplaceHourlyServiceCode,
+  type PricingRateSource,
 } from "@shared/canonicalPricing";
 import { getActivePricingSnapshot, getPricingSnapshotByCode } from "../services/pricingVersions";
 import { resolveQuoteRouteEvidence } from "../services/quoteGeography";
@@ -315,13 +319,33 @@ async function attachOperatingEligibility(input: InstantBookingRequest, quote: a
 async function instantBookingQuote(input: InstantBookingRequest) {
   const profile = profileForInstantBooking(input);
   const activePricing = await getActivePricingSnapshot();
+  const routeEvidence = await resolveQuoteRouteEvidence({
+    addresses: [input.serviceAddress, input.destinationAddress],
+    snapshot: activePricing.snapshot,
+  });
+  const routeClassification = applyGeographicQuotePolicy({
+    baseSubtotal: 0,
+    serviceDate: input.requestedDate,
+    stopCoordinates: routeEvidence.stopCoordinates,
+    routeVerified: routeEvidence.verified,
+    oneWayMiles: routeEvidence.oneWayMiles,
+    oneWayMinutes: routeEvidence.oneWayMinutes,
+    snapshot: activePricing.snapshot,
+  });
+  const rateCardEnabled = marketplaceRateCardApplies(
+    activePricing.snapshot,
+    routeClassification?.pricingAdjustments.insideBubble ?? null,
+  );
+  const rateSource: PricingRateSource = rateCardEnabled
+    ? "movinghelper_special"
+    : "local_canonical";
 
   // Once the owner publishes the geographic pricing version, instant
   // booking uses the same deterministic rate card and route evidence as
   // every other quote channel. The legacy zone preview remains available
   // only while an older pricing version is active.
   if (activePricing.snapshot.geographicPolicy) {
-    const rateLine = input.service !== "junk"
+    const rateLine = rateCardEnabled && input.service !== "junk"
       ? calculateRateCardLine({
           serviceCode: "load_unload",
           crewSize: profile.crewSize,
@@ -336,21 +360,110 @@ async function instantBookingQuote(input: InstantBookingRequest) {
         : input.junkVolume === "full"
           ? "xlarge"
           : "medium";
-    const laborSubtotal = rateLine?.subtotal
-      ?? activePricing.snapshot.services.junkRemoval.tiers[junkTier];
-    const jobFactor = profile.difficultyMultiplier * profile.stairsMultiplier;
-    const adjustedLabor = Math.round(laborSubtotal * jobFactor * 100) / 100;
+    const localLabor = calculateMovingLabor({
+      workers: profile.crewSize,
+      hours: profile.requestedHours,
+      snapshot: activePricing.snapshot,
+    });
+    const standardLaborSubtotal = input.service === "junk"
+      ? activePricing.snapshot.services.junkRemoval.tiers[junkTier]
+      : rateLine?.subtotal ?? localLabor.total;
     const companyTruck = input.truckSource === "jc_on_the_move";
     const truckAmount = !companyTruck
       ? 0
       : ["20_ft", "26_ft"].includes(input.truckSize)
         ? activePricing.snapshot.equipment.truck26Ft
         : activePricing.snapshot.equipment.truck15Ft;
+    const packageQuote = activePricing.snapshot.operationsPolicy
+      ? quoteLocalCrewPackage({
+          serviceCode: input.service,
+          crewSize: profile.crewSize,
+          plannedHours: profile.requestedHours,
+          oneWayRoadMiles: routeEvidence.oneWayMiles,
+          oneWayRoadMinutes: routeEvidence.oneWayMinutes,
+          oversized: input.heavyItems.some((item) => item.pounds >= 200),
+          unsafe: input.difficulty === "difficult",
+        })
+      : null;
+    const serviceFloor = input.service === "junk"
+      ? activePricing.snapshot.operationsPolicy?.serviceMinimums.junkRemoval
+      : input.service === "labor"
+        ? activePricing.snapshot.operationsPolicy?.serviceMinimums.labor
+        : activePricing.snapshot.operationsPolicy?.serviceMinimums.moving;
+    const jobFactor = profile.difficultyMultiplier * profile.stairsMultiplier;
+    const adjustedLabor = packageQuote?.eligible
+      ? packageQuote.serviceSubtotal
+      : rateLine
+        ? rateLine.subtotal
+        : Math.round(Math.max(serviceFloor || 0, standardLaborSubtotal * jobFactor) * 100) / 100;
     const baseSubtotal = Math.round((adjustedLabor + truckAmount) * 100) / 100;
-    const routeEvidence = await resolveQuoteRouteEvidence({
-      addresses: [input.serviceAddress, input.destinationAddress],
-      snapshot: activePricing.snapshot,
-    });
+    if (packageQuote?.eligible) {
+      const lineItems = [{
+        name: profile.crewSize === 2 ? "2 movers / 3-hour local package" : "3 movers / 2-hour local package",
+        serviceCode: input.service === "junk" ? "junk_removal" : "load_unload",
+        quantity: 1,
+        unitPrice: adjustedLabor,
+        total: adjustedLabor,
+        discountEligible: false,
+        metadata: {
+          packageCode: packageQuote.packageCode,
+          includedHours: packageQuote.includedHours,
+          overtimeAmount: packageQuote.overtimeAmount,
+          travelAmount: packageQuote.travelAmount,
+          clockPolicy: "Arrival at first customer address through completion, including travel between customer locations.",
+          weekendPriceUnchanged: true,
+        },
+      }, ...(truckAmount > 0 ? [{
+        name: `JC ON THE MOVE truck — ${input.truckSize.replace("_", " ")}`,
+        serviceCode: "truck",
+        quantity: 1,
+        unitPrice: truckAmount,
+        total: truckAmount,
+        discountEligible: false,
+        metadata: { truckSource: input.truckSource, truckSize: input.truckSize, passThrough: true },
+      }] : [])];
+      return attachOperatingEligibility(input, {
+        service: input.service,
+        zoneMatched: true,
+        zoneCode: "IRONWOOD_30_MILE_PACKAGE",
+        zoneName: "Ironwood 30-mile local package area",
+        travelFallback: false,
+        conditionalHold: profile.reviewRequired,
+        eligibleForHold: true,
+        minEstimate: baseSubtotal,
+        maxEstimate: baseSubtotal,
+        estimateLabel: `$${baseSubtotal.toLocaleString()} package estimate`,
+        subjectToReview: true,
+        crewSize: profile.crewSize,
+        requestedHours: profile.requestedHours,
+        durationMinutes: profile.durationMinutes,
+        reviewRequired: profile.reviewRequired,
+        difficultyMultiplier: 1,
+        stairsMultiplier: 1,
+        travelEstimate: packageQuote.travelAmount,
+        baseSubtotal,
+        lineItems,
+        pricingAdjustments: {
+          packageCode: packageQuote.packageCode,
+          rateSource: "local_canonical",
+          percentageDiscountEligible: false,
+          weekendMultiplier: 1,
+          truckEquipmentDisposalAndSpecialtySeparate: true,
+        },
+        travelEligibility: {
+          status: "local",
+          routeVerified: routeEvidence.verified,
+          oneWayMinutes: routeEvidence.oneWayMinutes,
+          oneWayMiles: routeEvidence.oneWayMiles,
+          requiresOwner: false,
+          canApprove: true,
+          reasons: ["Verified inside the 30-mile local package radius."],
+        },
+        routeEvidence,
+        pricingVersion: activePricing.snapshot.version,
+        pricingVersionId: activePricing.versionId,
+      });
+    }
     const policy = applyGeographicQuotePolicy({
       baseSubtotal,
       automaticDiscountTotal: 0,
@@ -376,6 +489,7 @@ async function instantBookingQuote(input: InstantBookingRequest) {
           discountEligible: true,
           metadata: {
             rateCard: rateLine,
+            rateSource,
             junkVolume: input.junkVolume || null,
             difficulty: input.difficulty,
             difficultyMultiplier: profile.difficultyMultiplier,
@@ -415,7 +529,7 @@ async function instantBookingQuote(input: InstantBookingRequest) {
         travelEstimate: policy.pricingAdjustments.geographicAmount,
         baseSubtotal,
         lineItems,
-        pricingAdjustments: policy.pricingAdjustments,
+        pricingAdjustments: { ...policy.pricingAdjustments, rateSource },
         travelEligibility: policy.travelEligibility,
         routeEvidence,
         pricingVersion: activePricing.snapshot.version,
@@ -569,7 +683,9 @@ type BookingPricingWithAddressDiscount = BookingPricingResult & {
   serviceAddressDiscount?: ServiceAddressDiscount;
   serviceAddressPricingAdjustment?: ServiceAddressPricingAdjustment;
   serviceAddressDiscountHint?: ReturnType<typeof getRouteDayDiscountEligibility>;
-  pricingAdjustments?: NonNullable<ReturnType<typeof applyGeographicQuotePolicy>>["pricingAdjustments"];
+  pricingAdjustments?: NonNullable<ReturnType<typeof applyGeographicQuotePolicy>>["pricingAdjustments"] & {
+    rateSource: PricingRateSource;
+  };
   travelEligibility?: NonNullable<ReturnType<typeof applyGeographicQuotePolicy>>["travelEligibility"];
   routeEvidence?: Awaited<ReturnType<typeof resolveQuoteRouteEvidence>>;
   serviceabilityTotal?: number;
@@ -648,7 +764,10 @@ function serviceTypeForLead(items: PersistedBookingInput[]): string {
   return items[0]?.serviceLabel || first.replace(/_/g, " ");
 }
 
-function firstDetailValue(items: PersistedBookingInput[], keys: string[]): string | null {
+function firstDetailValue(
+  items: Array<{ details?: Record<string, unknown> | null }>,
+  keys: string[],
+): string | null {
   for (const item of items) {
     const details = (item.details || {}) as Record<string, unknown>;
     for (const key of keys) {
@@ -736,7 +855,7 @@ function applyServiceAddressDiscount(
 
 function serviceStopsForQuote(
   body: { serviceAddress?: string; serviceStops?: string[] },
-  items: PersistedBookingInput[],
+  items: Array<{ details?: Record<string, unknown> | null }>,
 ): string[] {
   return [
     ...(body.serviceStops || []),
@@ -744,6 +863,40 @@ function serviceStopsForQuote(
     firstDetailValue(items, ["serviceAddress", "fromAddress", "pickupAddress", "address"]) || "",
     firstDetailValue(items, ["toAddress", "dropoffAddress", "destinationAddress"]) || "",
   ].filter((address) => address.trim().length >= 4);
+}
+
+async function resolveBookingRateContext(
+  body: { serviceAddress?: string; serviceStops?: string[] },
+  items: Array<{ details?: Record<string, unknown> | null }>,
+  pricing: CanonicalPricingSnapshot,
+) {
+  const routeEvidence = await resolveQuoteRouteEvidence({
+    addresses: serviceStopsForQuote(body, items),
+    snapshot: pricing,
+  });
+  const classification = applyGeographicQuotePolicy({
+    baseSubtotal: 0,
+    automaticDiscountTotal: 0,
+    stopCoordinates: routeEvidence.stopCoordinates,
+    routeVerified: routeEvidence.verified,
+    oneWayMiles: routeEvidence.oneWayMiles,
+    oneWayMinutes: routeEvidence.oneWayMinutes,
+    snapshot: pricing,
+  });
+  const insideBubble = classification?.pricingAdjustments.insideBubble ?? null;
+  const rateCardEnabled = marketplaceRateCardApplies(pricing, insideBubble);
+  const rateSource: PricingRateSource = rateCardEnabled
+    ? "movinghelper_special"
+    : "local_canonical";
+  return {
+    routeEvidence,
+    context: {
+      rateCardEnabled,
+      routeVerified: routeEvidence.verified,
+      routeMiles: routeEvidence.oneWayMiles,
+      rateSource,
+    } satisfies BookingRateContext,
+  };
 }
 
 async function applyBookingGeographicPricing(input: {
@@ -754,11 +907,15 @@ async function applyBookingGeographicPricing(input: {
   pricing: CanonicalPricingSnapshot;
   flatBonus: number;
   earnRate: number;
+  routeEvidence?: Awaited<ReturnType<typeof resolveQuoteRouteEvidence>>;
+  rateSource?: PricingRateSource;
+  pricingReviewReasons?: string[];
 }): Promise<BookingPricingWithAddressDiscount> {
-  const routeEvidence = await resolveQuoteRouteEvidence({
-    addresses: serviceStopsForQuote(input.body, input.items),
-    snapshot: input.pricing,
-  });
+  const routeEvidence = input.routeEvidence ?? await resolveQuoteRouteEvidence({
+      addresses: serviceStopsForQuote(input.body, input.items),
+      snapshot: input.pricing,
+    });
+  const rateSource = input.rateSource ?? "local_canonical";
   const preliminary = applyGeographicQuotePolicy({
     baseSubtotal: input.quote.subtotal,
     automaticDiscountTotal: 0,
@@ -806,14 +963,23 @@ async function applyBookingGeographicPricing(input: {
     bonusMultiplier: input.quote.bundleApplied?.bonusMultiplier ?? 1,
     hasOverride: false,
   });
+  const pricingReviewReasons = input.pricingReviewReasons || [];
+  const travelEligibility = pricingReviewReasons.length > 0 && evaluated.travelEligibility.status !== "out_of_range"
+    ? {
+        ...evaluated.travelEligibility,
+        status: "owner_review" as const,
+        requiresOwner: true,
+        reasons: [...evaluated.travelEligibility.reasons, ...pricingReviewReasons],
+      }
+    : evaluated.travelEligibility;
   return {
     ...input.quote,
     subtotal: evaluated.adjustedSubtotal,
     discountTotal: evaluated.automaticDiscountTotal,
     finalTotal: evaluated.finalPreTaxTotal,
     tokenEstimate: reward.totalAward,
-    pricingAdjustments: evaluated.pricingAdjustments,
-    travelEligibility: evaluated.travelEligibility,
+    pricingAdjustments: { ...evaluated.pricingAdjustments, rateSource },
+    travelEligibility,
     routeEvidence,
     serviceabilityTotal: evaluated.finalPreTaxTotal,
   };
@@ -992,7 +1158,16 @@ interface ResolvedItems {
   pricingInputs: BookingPricingItemInput[];
   /** Original per-line snapshot used when persisting the booking. */
   persistInputs: PersistedBookingInput[];
+  rateSource: PricingRateSource;
+  pricingReviewReasons: string[];
 }
+
+type BookingRateContext = {
+  rateCardEnabled: boolean;
+  routeVerified: boolean;
+  routeMiles: number | null;
+  rateSource: PricingRateSource;
+};
 
 /** Task #218 — Derive a small/medium/large jobSize hint from the per-line
  *  details the chat-intake or wizard sends (size hint, bedrooms, junk
@@ -1115,7 +1290,7 @@ function buildLaborMeta(
   // For job-size paths the canonical labor tuples already line up with
   // the canonical billed amount. For matrix paths (bedrooms × stairs)
   // we back-compute hours from the line dollars at 2-decimal precision
-  // so crew × hours × $85 == lineTotal to the cent — the chat card
+  // so crew × hours × the canonical rate equals lineTotal — the chat card
   // never displays math that disagrees with the price.
   const lineTotal = Math.max(0, unitPrice * Math.max(1, quantity));
   if (serviceCode === "moving") {
@@ -1175,9 +1350,21 @@ function resolveItems(
   items: ReturnType<typeof bookingQuoteRequestSchema.parse>["items"],
   catalog: Map<string, ServiceCatalogEntry>,
   pricing: CanonicalPricingSnapshot,
+  rateContext?: BookingRateContext,
 ): ResolvedItems {
   const pricingInputs: BookingPricingItemInput[] = [];
   const persistInputs: ResolvedItems["persistInputs"] = [];
+  const effectiveRateContext: BookingRateContext = rateContext ?? {
+    rateCardEnabled: pricing.marketplaceRateCard?.applicationScope !== "outside_bubble",
+    routeVerified: false,
+    routeMiles: null,
+    rateSource: pricing.marketplaceRateCard?.applicationScope === "outside_bubble"
+      ? "local_canonical"
+      : pricing.marketplaceRateCard
+        ? "movinghelper_special"
+        : "local_canonical",
+  };
+  const pricingReviewReasons: string[] = [];
 
   for (const item of items) {
     const cat = catalog.get(item.serviceCode);
@@ -1208,6 +1395,7 @@ function resolveItems(
     // SERVICE_LABOR_DEFAULTS' jobSize tuple. Declared at the for-loop
     // scope because it crosses the moving-branch / labor-meta boundary.
     let matrixLaborOverride: { crewSize: number; laborHours: number; totalLaborHours: number; ratePerHour: number } | undefined;
+    let canonicalMovingLaborOverride: { crewSize: number; laborHours: number; totalLaborHours: number; ratePerHour: number } | undefined;
     let rateCardLaborOverride: { crewSize: number; laborHours: number; totalLaborHours: number; ratePerHour: number } | undefined;
     let collapseQuantityToOne = false;
 
@@ -1236,16 +1424,14 @@ function resolveItems(
       });
       if (est.amount > 0) unitPrice = est.amount;
     } else if (item.serviceCode === "moving") {
-      // Task #218 — Moving has TWO pricing paths and the matrix wins
-      // whenever the customer (or wizard / package flow) provided
-      // detailed inputs. Order matters:
-      //   1. If bedrooms / stairs / loadType are present → matrix
-      //      (preserves nuance like "3br + stairs + heavy load").
-      //   2. Else if explicit jobSize / truckSize maps to a tier →
-      //      canonical labor tier with long-job savings.
-      //   3. Else → leave unitPrice from the catalog/wizard alone.
-      // Small move is the canonical 2 workers × 2 hours × $95.
+      // An explicit crew/hour selection is the customer-visible contract, so
+      // it is priced first through the active canonical snapshot. Rich matrix
+      // inputs remain a fallback only when no crew/hour tuple was selected.
       const details = (item.details ?? {}) as Record<string, unknown>;
+      const explicitCrew = Number(details.crewSize ?? details.crew ?? details.movers ?? 0);
+      const explicitHours = Number(details.laborHours ?? details.hours ?? details.estimatedHours ?? 0);
+      const hasExplicitLabor = Number.isFinite(explicitCrew) && explicitCrew > 0
+        && Number.isFinite(explicitHours) && explicitHours > 0;
       const hasDetailedInputs =
         details.bedrooms != null || details.stairs != null || details.loadType != null;
       let appliedJobSize: ReturnType<typeof deriveJobSize> | undefined;
@@ -1255,7 +1441,20 @@ function resolveItems(
       // matrix path is taken its labor tuple wins downstream — the
       // chat-card crew count must reflect the matrix tier (3br → crew=3),
       // not SERVICE_LABOR_DEFAULTS' jobSize tuple.
-      if (hasDetailedInputs) {
+      if (hasExplicitLabor) {
+        const labor = calculateMovingLabor({
+          workers: explicitCrew,
+          hours: explicitHours,
+          snapshot: pricing,
+        });
+        unitPrice = labor.total;
+        canonicalMovingLaborOverride = {
+          crewSize: labor.workers,
+          laborHours: labor.hours,
+          totalLaborHours: +(labor.workers * labor.hours).toFixed(2),
+          ratePerHour: labor.ratePerWorkerHour,
+        };
+      } else if (hasDetailedInputs) {
         const rawLoadType = String(details.loadType ?? "").toLowerCase();
         const normalizedLoadType =
           rawLoadType.includes("load + unload") || rawLoadType.includes("both")
@@ -1297,7 +1496,7 @@ function resolveItems(
       }
       // Keep every small-move path on the canonical two-worker/two-hour rate.
       const finalJobSize = appliedJobSize ?? deriveJobSize("moving", details);
-      if (finalJobSize === "small") {
+      if (!hasExplicitLabor && finalJobSize === "small") {
         unitPrice = SMALL_MOVE_SPECIAL_PRICE;
       }
       const truckFee = Number(details.truckFee ?? 0);
@@ -1312,22 +1511,17 @@ function resolveItems(
       if (Number.isFinite(oversizedItemFee) && oversizedItemFee > 0) {
         unitPrice += oversizedItemFee;
       }
-      const selectedMovingRecTotal = Number(details.selectedMovingRecTotalMin ?? 0);
-      if (Number.isFinite(selectedMovingRecTotal) && selectedMovingRecTotal > 0) {
-        unitPrice = selectedMovingRecTotal;
-      }
     }
 
-    // The published marketplace rate card is authoritative whenever a
-    // labor request supplies an explicit crew size and duration. Long-job
-    // rates are marginal: only hours after the threshold use the lower
-    // hourly rate. Add-ons remain separate inputs and are included before
-    // geographic and weekend adjustments are applied to the full quote.
+    // A scoped marketplace card is authoritative only after route evidence
+    // classifies the request for that card. This keeps local $95 labor and
+    // the farther-client Special-zone card from competing.
     const rateDetails = (item.details ?? {}) as Record<string, unknown>;
     const rateCardService = rateCardServiceForItem(item.serviceCode, rateDetails);
     const requestedCrew = Number(rateDetails.crewSize ?? rateDetails.crew ?? rateDetails.helpers ?? 0);
     const requestedHours = Number(rateDetails.laborHours ?? rateDetails.hours ?? rateDetails.estimatedHours ?? 0);
-    const rateCardLine = rateCardService && requestedCrew > 0 && requestedHours > 0
+    const rateCardLine = effectiveRateContext.rateCardEnabled
+      && rateCardService && requestedCrew > 0 && requestedHours > 0
       ? calculateRateCardLine({
           serviceCode: rateCardService,
           crewSize: requestedCrew,
@@ -1342,12 +1536,23 @@ function resolveItems(
         return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0);
       }, 0);
       unitPrice = +(rateCardLine.subtotal + addOnTotal).toFixed(2);
+      collapseQuantityToOne = true;
       rateCardLaborOverride = {
         crewSize: rateCardLine.crewSize,
         laborHours: rateCardLine.billableHours,
         totalLaborHours: +(rateCardLine.crewSize * rateCardLine.billableHours).toFixed(2),
-        ratePerHour: rateCardLine.regularHourlyRate,
+        ratePerHour: rateCardLine.effectiveWorkerHourlyRate,
       };
+    } else if (
+      effectiveRateContext.rateCardEnabled
+      && pricing.marketplaceRateCard?.applicationScope === "outside_bubble"
+      && rateCardService
+      && requestedCrew > 0
+      && requestedHours > 0
+    ) {
+      pricingReviewReasons.push(
+        `MovingHelper Special-zone pricing does not support ${rateCardService} with ${requestedCrew} helper(s).`,
+      );
     }
 
     const normalizedServiceCode = item.serviceCode.toLowerCase().replace(/[^a-z0-9]+/g, "_");
@@ -1363,11 +1568,16 @@ function resolveItems(
         : normalizedServiceCode.includes("safe")
           ? "safe" as const
           : null;
-    const flatRate = flatServiceCode ? calculateMarketplaceFlatRate({
+    const explicitRouteMiles = Number(rateDetails.loadedMiles ?? rateDetails.distanceMiles ?? rateDetails.miles ?? 0);
+    const flatRate = effectiveRateContext.rateCardEnabled && flatServiceCode ? calculateMarketplaceFlatRate({
       serviceCode: flatServiceCode,
       quantity: item.quantity,
       boxes: Number(rateDetails.uboxCount ?? rateDetails.boxCount ?? item.quantity),
-      miles: Number(rateDetails.loadedMiles ?? rateDetails.distanceMiles ?? rateDetails.miles ?? 0),
+      miles: effectiveRateContext.routeVerified && effectiveRateContext.routeMiles != null
+        ? effectiveRateContext.routeMiles
+        : explicitRouteMiles > 0
+          ? explicitRouteMiles
+          : effectiveRateContext.routeMiles ?? 0,
       snapshot: pricing,
     }) : null;
     if (flatRate != null) {
@@ -1387,11 +1597,14 @@ function resolveItems(
     if (item.serviceCode === "moving" && matrixLaborOverride && !isSmallSpecial) {
       laborMeta = matrixLaborOverride;
     }
+    if (canonicalMovingLaborOverride) {
+      laborMeta = canonicalMovingLaborOverride;
+    }
     if (rateCardLaborOverride) {
       laborMeta = rateCardLaborOverride;
     }
     // Labor-priced services (lawn, valet, snow, junk, handyman, etc.)
-    // get their unitPrice replaced with the canonical crew × hrs × $85
+    // get their unitPrice replaced with canonical crew/hour labor
     // so the catalog suggested-min never silently bypasses the chat
     // card's promise. Calculator-priced services (moving matrix,
     // painting/flooring rules, delivery mileage) keep their unitPrice
@@ -1399,13 +1612,13 @@ function resolveItems(
     // Labor authority is independent of priceMode — even when the
     // catalog row defaults to "fixed" (trash_valet flat rate) or
     // "hourly" (handyman/labor), the chat card still promises crew ×
-    // hours × $85, so the route layer must bill that exact amount.
+    // hours at the canonical rate, so the route must bill that exact amount.
     let effectiveQuantity = collapseQuantityToOne ? 1 : item.quantity;
     if (laborMeta && !rateCardLaborOverride && LABOR_AUTHORITATIVE_SERVICES.has(item.serviceCode)) {
       const laborDollars = +(laborMeta.crewSize * laborMeta.laborHours * laborMeta.ratePerHour).toFixed(2);
       if (laborDollars > 0) {
         // unitPrice now represents the FULL labor block (crew × hours
-        // × $85). If the customer requested quantity > 1, multiply the
+        // at the canonical rate). If the customer requested quantity > 1, multiply the
         // labor hours into the meta so the chat card stays honest, then
         // collapse quantity to 1 — otherwise computeLineSubtotal would
         // double-count (qty × full-labor-total).
@@ -1437,7 +1650,10 @@ function resolveItems(
       unitPrice,
       priceMode,
       discountEligible: cat.discountEligible,
-      details: item.details || {},
+      details: {
+        ...(item.details || {}),
+        pricingRateSource: effectiveRateContext.rateSource,
+      },
       laborMeta,
     });
     persistInputs.push({
@@ -1447,10 +1663,18 @@ function resolveItems(
       quantity: effectiveQuantity,
       unitPrice,
       priceMode,
-      details: item.details || {},
+      details: {
+        ...(item.details || {}),
+        pricingRateSource: effectiveRateContext.rateSource,
+      },
     });
   }
-  return { pricingInputs, persistInputs };
+  return {
+    pricingInputs,
+    persistInputs,
+    rateSource: effectiveRateContext.rateSource,
+    pricingReviewReasons,
+  };
 }
 
 // ── Public instant-estimate and capacity-checked hold flow ─────────────────
@@ -1809,7 +2033,13 @@ router.post("/bookings/quote", async (req: Request, res: Response) => {
     const body = bookingQuoteRequestSchema.parse(req.body);
     const activePricing = await getActivePricingSnapshot();
     const catalog = await loadCatalog();
-    const { pricingInputs, persistInputs } = resolveItems(body.items, catalog, activePricing.snapshot);
+    const activeRateSelection = await resolveBookingRateContext(body, body.items, activePricing.snapshot);
+    const {
+      pricingInputs,
+      persistInputs,
+      rateSource,
+      pricingReviewReasons,
+    } = resolveItems(body.items, catalog, activePricing.snapshot, activeRateSelection.context);
     // Pull live reward-engine settings so the displayed estimate uses the
     // exact same flatBonus/earnRate the issuer (disburseBookingTokens) will
     // use at confirmation time. Booking creation snapshots these onto the
@@ -1839,6 +2069,9 @@ router.post("/bookings/quote", async (req: Request, res: Response) => {
       pricing: activePricing.snapshot,
       flatBonus: settings.flatBonus,
       earnRate: settings.earnRate,
+      routeEvidence: activeRateSelection.routeEvidence,
+      rateSource,
+      pricingReviewReasons,
     });
     result = applyServiceAddressDiscount(result, {
       serviceAddress,
@@ -1895,12 +2128,18 @@ router.post("/bookings/quote", async (req: Request, res: Response) => {
     }
     // Keep the owner-publishable geographic version in shadow mode until it
     // is explicitly activated. This comparison never changes the response.
-    if (activePricing.snapshot.version !== "2026.08.1") {
+    if (activePricing.snapshot.version !== "2026.08.3") {
       void (async () => {
         try {
-          const candidate = await getPricingSnapshotByCode("2026.08.1");
+          const candidate = await getPricingSnapshotByCode("2026.08.3");
           if (!candidate) return;
-          const candidateItems = resolveItems(body.items, catalog, candidate.snapshot);
+          const candidateRateSelection = await resolveBookingRateContext(body, body.items, candidate.snapshot);
+          const candidateItems = resolveItems(
+            body.items,
+            catalog,
+            candidate.snapshot,
+            candidateRateSelection.context,
+          );
           const candidateBase = await quoteBundle(candidateItems.pricingInputs, {
             flatBookingBonus: settings.flatBonus,
             earnRatePerDollar: settings.earnRate,
@@ -1913,6 +2152,9 @@ router.post("/bookings/quote", async (req: Request, res: Response) => {
             pricing: candidate.snapshot,
             flatBonus: settings.flatBonus,
             earnRate: settings.earnRate,
+            routeEvidence: candidateRateSelection.routeEvidence,
+            rateSource: candidateItems.rateSource,
+            pricingReviewReasons: candidateItems.pricingReviewReasons,
           });
           const candidateFinal = applyServiceAddressDiscount(candidateGeo, {
             serviceAddress,
@@ -2149,7 +2391,13 @@ router.post("/bookings", async (req: Request, res: Response) => {
     const body = bookingCreateRequestSchema.parse(req.body);
     const activePricing = await getActivePricingSnapshot();
     const catalog = await loadCatalog();
-    const { pricingInputs, persistInputs } = resolveItems(body.items, catalog, activePricing.snapshot);
+    const activeRateSelection = await resolveBookingRateContext(body, body.items, activePricing.snapshot);
+    const {
+      pricingInputs,
+      persistInputs,
+      rateSource,
+      pricingReviewReasons,
+    } = resolveItems(body.items, catalog, activePricing.snapshot, activeRateSelection.context);
     const bundles = await loadBundles();
     // Snapshot of the active reward-engine settings at quote/creation time.
     // Persisting these on the booking row guarantees the customer-facing
@@ -2207,6 +2455,9 @@ router.post("/bookings", async (req: Request, res: Response) => {
       pricing: activePricing.snapshot,
       flatBonus: settings.flatBonus,
       earnRate: settings.earnRate,
+      routeEvidence: activeRateSelection.routeEvidence,
+      rateSource,
+      pricingReviewReasons,
     });
     quote = applyServiceAddressDiscount(quote, {
       serviceAddress: serviceAddressForDiscount,
