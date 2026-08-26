@@ -141,6 +141,12 @@ const channelLabels: Record<string, string> = {
   google_business: "Google Business",
 };
 
+const jcCompanyFacebookPages = [
+  { pageId: "912756211920086", pageName: "JC On The MOVE : CoM" },
+  { pageId: "201994456322276", pageName: "JC on the MOVE. com" },
+  { pageId: "111004651273433", pageName: "JC onthe Move .com" },
+] as const;
+
 const blankEdit = {
   headline: "",
   facebookCaption: "",
@@ -183,6 +189,8 @@ export default function AdminMarketingBotPage() {
   const [attributionVariant, setAttributionVariant] = useState("");
   const [attributionNote, setAttributionNote] = useState("");
   const [selectedFacebookConnectionIds, setSelectedFacebookConnectionIds] = useState<string[]>([]);
+  const [companyPageTokens, setCompanyPageTokens] = useState<Record<string, string>>({});
+  const [companyImportPending, setCompanyImportPending] = useState(false);
 
   const dashboardQuery = useQuery<Dashboard>({
     queryKey: ["/api/admin/marketing-bot/dashboard"],
@@ -260,6 +268,34 @@ export default function AdminMarketingBotPage() {
     },
     success: "New campaign proposal generated",
   });
+
+  const importCompanyFacebookPages = async () => {
+    const pages = jcCompanyFacebookPages.map(({ pageId }) => ({
+      pageId,
+      accessToken: companyPageTokens[pageId]?.trim() || "",
+    }));
+    if (pages.some((page) => !page.accessToken)) {
+      toast({ title: "All three Page tokens are required", variant: "destructive" });
+      return;
+    }
+
+    setCompanyImportPending(true);
+    try {
+      const response = await apiRequest("POST", "/api/admin/marketing-bot/meta/connections/import", { pages });
+      await response.json();
+      setCompanyPageTokens({});
+      await refresh();
+      toast({ title: "JC Facebook Pages connected securely" });
+    } catch (error) {
+      toast({
+        title: "Facebook Pages could not be connected",
+        description: error instanceof Error ? error.message : "Secure import failed",
+        variant: "destructive",
+      });
+    } finally {
+      setCompanyImportPending(false);
+    }
+  };
 
   const companyVariants = campaign?.variants.filter((variant) => variant.is_company) || [];
   const shareKits = campaign?.variants.filter((variant) => !variant.is_company) || [];
@@ -528,6 +564,44 @@ export default function AdminMarketingBotPage() {
                 </div>
               ))}
               {!dashboard?.companyConnections.length && <p className="text-sm text-amber-200">No company Facebook Pages are connected yet.</p>}
+            </div>
+            <div className="mt-5 rounded-xl border border-blue-400/15 bg-slate-950/50 p-4">
+              <div>
+                <h4 className="font-bold text-white">Secure one-time Page connection</h4>
+                <p className="mt-1 text-xs text-slate-400">Owner-only. Page tokens are verified by Meta, encrypted on the server, never returned, and cleared from this form after import.</p>
+              </div>
+              <div className="mt-4 grid gap-3">
+                {jcCompanyFacebookPages.map((page) => (
+                  <div key={page.pageId} className="grid gap-2 md:grid-cols-[240px_1fr] md:items-center">
+                    <Label htmlFor={`company-page-token-${page.pageId}`} className="text-slate-300">
+                      {page.pageName}
+                      <span className="mt-0.5 block text-[11px] font-normal text-slate-500">Page {page.pageId}</span>
+                    </Label>
+                    <Input
+                      id={`company-page-token-${page.pageId}`}
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={companyPageTokens[page.pageId] || ""}
+                      onChange={(event) => setCompanyPageTokens((current) => ({ ...current, [page.pageId]: event.target.value }))}
+                      placeholder="Meta Page access token"
+                      className="border-slate-700 bg-slate-950"
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  className="bg-blue-600 hover:bg-blue-500"
+                  disabled={companyImportPending || jcCompanyFacebookPages.some((page) => !companyPageTokens[page.pageId]?.trim())}
+                  onClick={importCompanyFacebookPages}
+                >
+                  {companyImportPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                  Verify and encrypt all three Pages
+                </Button>
+                <p className="text-xs text-slate-500">Available only while the temporary server import gate is enabled.</p>
+              </div>
             </div>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
