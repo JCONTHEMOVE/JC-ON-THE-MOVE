@@ -12,6 +12,10 @@ import {
   ensureMarketingBotSchema,
 } from "./marketingBot";
 import {
+  appendNorthwoodsCampaignFacts,
+  validateNorthwoodsCampaignSafety,
+} from "./northwoodsCampaignPolicy";
+import {
   appendTrustedCampaignFacts,
   buildCampaignKey,
   validateCampaignSafety,
@@ -21,8 +25,17 @@ import {
   decryptMarketingMetaSecret,
   encryptMarketingMetaSecret,
 } from "./marketingMetaCrypto";
+import {
+  evaluateMarketingMetaPilotTarget,
+  getMarketingMetaPilotPolicy,
+  isMarketingMetaPilotCampaign,
+  isMarketingMetaPilotPage,
+  isMarketingMetaPilotRep,
+  MARKETING_META_PILOT_REP_SLUG,
+  MARKETING_META_PILOT_SCOPES,
+} from "./marketingMetaPilotPolicy";
 
-const META_SCOPES = ["pages_show_list", "pages_manage_posts", "pages_read_engagement"] as const;
+const META_SCOPES = MARKETING_META_PILOT_SCOPES;
 const OAUTH_SESSION_MINUTES = 15;
 const PAGE_SELECTION_MINUTES = 60;
 
@@ -55,24 +68,9 @@ function hashState(state: string) {
   return crypto.createHash("sha256").update(state).digest("hex");
 }
 
-function allowedPilotSlugs() {
-  return new Set(
-    (process.env.MARKETING_META_PILOT_REP_SLUGS || "matt")
-      .split(",")
-      .map((slug) => slug.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
 export function getMetaOAuthReadiness() {
-  const required = [
-    "META_APP_ID",
-    "META_APP_SECRET",
-    "META_OAUTH_REDIRECT_URI",
-    "META_OAUTH_TOKEN_ENCRYPTION_KEY",
-    "META_GRAPH_API_VERSION",
-  ];
-  const missing = required.filter((name) => !process.env[name]?.trim());
+  const policy = getMarketingMetaPilotPolicy();
+  const missing = [...policy.missing];
   if (!missing.includes("META_OAUTH_TOKEN_ENCRYPTION_KEY")) {
     try { assertMarketingMetaEncryptionConfigured(); } catch { missing.push("META_OAUTH_TOKEN_ENCRYPTION_KEY"); }
   }
@@ -85,16 +83,46 @@ export function getMetaOAuthReadiness() {
     }
   }
   return {
-    ready: missing.length === 0,
+    ready: missing.length === 0 && policy.configurationErrors.length === 0,
     missing: [...new Set(missing)],
-    pilotSlugs: [...allowedPilotSlugs()],
+    configurationErrors: policy.configurationErrors,
+    pilotSlugs: [MARKETING_META_PILOT_REP_SLUG],
+    repSlug: policy.repSlug,
+    brand: policy.brand,
+    channel: policy.channel,
+    authorizedPageId: policy.authorizedPageId,
+    authorizedPageName: policy.authorizedPageName,
+    redirectUri: policy.redirectUri,
+    scopes: policy.scopes,
+    instagramEnabled: policy.instagramEnabled,
+    otherRepresentativesEnabled: policy.otherRepresentativesEnabled,
+  };
+}
+
+export function getMetaPilotAdminSetup() {
+  const readiness = getMetaOAuthReadiness();
+  return {
+    configured: readiness.ready,
+    state: readiness.ready ? "awaiting_matt_oauth" : "owner_setup_required",
+    missing: readiness.missing,
+    configurationErrors: readiness.configurationErrors,
+    repSlug: readiness.repSlug,
+    authorizedPageId: readiness.authorizedPageId,
+    authorizedPageName: readiness.authorizedPageName,
+    redirectUri: readiness.redirectUri,
+    requiredScopes: readiness.scopes,
+    channel: readiness.channel,
+    brand: readiness.brand,
+    instagramEnabled: false,
+    otherRepresentativesEnabled: false,
   };
 }
 
 function assertMetaOAuthReady() {
   const readiness = getMetaOAuthReadiness();
   if (!readiness.ready) {
-    throw new MarketingRepAccessError(`Meta OAuth is not configured: ${readiness.missing.join(", ")}`, 503);
+    const problems = [...readiness.missing, ...readiness.configurationErrors];
+    throw new MarketingRepAccessError(`Meta OAuth is not configured: ${problems.join(", ")}`, 503);
   }
 }
 
@@ -130,7 +158,7 @@ export async function resolveAllowedMarketingRep(userId: string): Promise<Market
   `, [userId]);
   const rep = result.rows[0];
   if (!rep) throw new MarketingRepAccessError("No active marketing profile is linked to this crew account", 403);
-  if (!allowedPilotSlugs().has(String(rep.slug || "").toLowerCase())) {
+  if (!isMarketingMetaPilotRep(rep.slug)) {
     throw new MarketingRepAccessError("Facebook Page publishing is currently limited to the Matt pilot", 403);
   }
   return rep;
@@ -213,7 +241,8 @@ async function managedPages(encryptedUserToken: string): Promise<MetaPageCandida
       tasks: Array.isArray(page.tasks) ? page.tasks.map(String) : [],
     }))
     .filter((page: MetaPageCandidate) => page.id && page.accessToken)
-    .filter((page: MetaPageCandidate) => page.tasks.length === 0 || page.tasks.some((task) => ["CREATE_CONTENT", "MANAGE"].includes(task)));
+    .filter((page: MetaPageCandidate) => page.tasks.length === 0 || page.tasks.some((task) => ["CREATE_CONTENT", "MANAGE"].includes(task)))
+    .filter((page: MetaPageCandidate) => isMarketingMetaPilotPage(page.id));
 }
 
 export async function beginMetaOAuth(userId: string) {
@@ -286,6 +315,7 @@ function publicConnection(row: any) {
     lastVerifiedAt: row.last_verified_at,
     tokenExpiresAt: row.token_expires_at,
     lastError: row.last_error || null,
+    authorizedForPilot: isMarketingMetaPilotPage(row.page_id),
   };
 }
 
@@ -301,7 +331,10 @@ export async function selectMetaManagedPage(userId: string, pageId: string) {
   if (!session) throw new MarketingRepAccessError("The Page selection expired; reconnect Facebook", 409);
   const pages = await managedPages(session.encrypted_user_token);
   const selected = pages.find((page) => page.id === pageId);
-  if (!selected) throw new MarketingRepAccessError("That Facebook Page is not available to this account", 403);
+  if (!isMarketingMetaPilotPage(pageId)) {
+    throw new MarketingRepAccessError("Only the Facebook Page authorized for the Matt pilot can be connected", 403);
+  }
+  if (!selected) throw new MarketingRepAccessError("The authorized pilot Page is not available to this Facebook account", 403);
   const userToken = decryptMarketingMetaSecret(session.encrypted_user_token);
   const identity = await metaJson("/me?fields=id", { headers: { Authorization: `Bearer ${userToken}` } });
   const permissions = await metaJson("/me/permissions", { headers: { Authorization: `Bearer ${userToken}` } });
@@ -363,6 +396,9 @@ export async function verifyMetaPageConnection(userId: string) {
   if (!connection?.encrypted_page_token || connection.status === "disconnected") {
     throw new MarketingRepAccessError("Connect a Facebook Page first", 409);
   }
+  if (!isMarketingMetaPilotPage(connection.page_id)) {
+    throw new MarketingRepAccessError("This connection is not the Facebook Page authorized for the Matt pilot; reconnect the authorized Page", 403);
+  }
   try {
     const token = decryptMarketingMetaSecret(connection.encrypted_page_token);
     const page = await metaJson(`/${encodeURIComponent(connection.page_id)}?fields=id,name`, { headers: { Authorization: `Bearer ${token}` } });
@@ -398,7 +434,7 @@ async function repVariant(userId: string, variantId: string) {
   const result = await pool.query(`
     SELECT v.*, c.revision AS campaign_revision, c.approved_at, c.status AS campaign_status,
            c.headline, c.instagram_caption, c.google_business_summary, c.short_caption,
-           c.cta, c.service, c.territory, c.rationale, c.facts, c.feed_image_url
+           c.cta, c.service, c.territory, c.rationale, c.facts, c.feed_image_url, c.brand
     FROM marketing_bot_variants v
     JOIN marketing_bot_campaigns c ON c.id=v.campaign_id
     WHERE v.id=$1 AND v.rep_id=$2 AND v.is_company=FALSE AND v.channel='facebook'
@@ -406,6 +442,9 @@ async function repVariant(userId: string, variantId: string) {
   `, [variantId, rep.id]);
   const variant = result.rows[0];
   if (!variant) throw new MarketingRepAccessError("Marketing campaign not found for this profile", 404);
+  if (!isMarketingMetaPilotCampaign(variant.brand)) {
+    throw new MarketingRepAccessError("The Matt Page pilot can publish only Northwoods campaigns", 403);
+  }
   if (!variant.approved_at || variant.campaign_status === "skipped") {
     throw new MarketingRepAccessError("The owner must approve the current campaign revision first", 409);
   }
@@ -430,18 +469,43 @@ function trustedRepCaption(variant: any, rawCaption: string, promotionActive: bo
     campaignUrl: variant.destination_url,
     promoCode: variant.promo_code,
   });
-  const safety = validateCampaignSafety({
-    draft: trusted,
+  const requiredNorthwoodsFacts = appendNorthwoodsCampaignFacts({
+    text: "",
+    destinationUrl: variant.destination_url,
+    marketLabel: "Northwoods",
+  });
+  const expandedCaption = appendNorthwoodsCampaignFacts({
+    text: trusted.facebookCaption,
+    destinationUrl: variant.destination_url,
+    marketLabel: "Northwoods",
+  });
+  const caption = expandedCaption.length <= 2000
+    ? expandedCaption
+    : `${requiredNorthwoodsFacts}\n\n${trusted.facebookCaption}`.slice(0, 2000);
+  const northwoodsSafety = validateNorthwoodsCampaignSafety({
+    headline: variant.headline,
+    facebookCaption: caption,
+    instagramCaption: variant.instagram_caption,
+    googleBusinessSummary: variant.google_business_summary,
+    shortCaption: variant.short_caption,
+    destinationUrl: variant.destination_url,
+  });
+  const baseSafety = validateCampaignSafety({
+    draft: { ...trusted, facebookCaption: caption },
     phone: process.env.COMPANY_PHONE?.trim() || "(906) 285-9312",
     campaignUrl: variant.destination_url,
     promoCode: variant.promo_code,
     promotionActive,
     duplicate: false,
   });
+  const safety = {
+    passed: baseSafety.passed && northwoodsSafety.passed,
+    checks: [...baseSafety.checks, ...northwoodsSafety.checks.map((check) => ({ ...check, key: `northwoods_${check.key}` }))],
+  };
   if (!safety.passed) {
     throw new MarketingRepAccessError(`Safety check failed: ${safety.checks.filter((check) => !check.ok).map((check) => check.label).join(", ")}`, 409);
   }
-  return { caption: trusted.facebookCaption, safety };
+  return { caption, safety };
 }
 
 export async function saveRepVariantCaption(userId: string, variantId: string, rawCaption: string) {
@@ -476,6 +540,13 @@ export async function publishRepVariant(userId: string, variantId: string, retry
   if (!connection?.encrypted_page_token || connection.status !== "connected") {
     throw new MarketingRepAccessError("Reconnect an active Facebook Page before publishing", 409);
   }
+  const pilotTarget = evaluateMarketingMetaPilotTarget({
+    repSlug: rep.slug,
+    brand: variant.brand,
+    channel: variant.channel,
+    pageId: connection.page_id,
+  });
+  if (!pilotTarget.allowed) throw new MarketingRepAccessError(pilotTarget.reason || "This Page is not authorized for the pilot", 403);
   const revisionResult = await pool.query(`
     SELECT * FROM marketing_bot_rep_variant_revisions
     WHERE variant_id=$1 AND campaign_revision=$2
@@ -590,15 +661,36 @@ export async function getRepMarketingBotDashboard(userId: string) {
         FROM marketing_bot_events e WHERE e.variant_id=v.id
       ) ev ON TRUE
       WHERE v.rep_id=$1 AND v.is_company=FALSE AND v.channel='facebook'
-        AND c.approved_at IS NOT NULL AND c.status <> 'skipped'
+        AND c.brand=$2 AND c.approved_at IS NOT NULL AND c.status <> 'skipped'
       ORDER BY c.approved_at DESC
       LIMIT 20
-    `, [rep.id]),
+    `, [rep.id, getMarketingMetaPilotPolicy().brand]),
   ]);
+  const connectionAuthorized = Boolean(connection && isMarketingMetaPilotPage(connection.page_id));
+  const setupState = !oauthReadiness.ready
+    ? "owner_setup_required"
+    : pending
+      ? "page_selection_required"
+      : connection?.status === "connected" && connectionAuthorized
+        ? "ready"
+        : connection?.status === "reauth_required"
+          ? "reauthorization_required"
+          : connection && !connectionAuthorized
+            ? "authorized_page_mismatch"
+            : "oauth_required";
   return {
     rep: { id: rep.id, slug: rep.slug, displayName: rep.display_name, promoCode: rep.promo_code },
     meta: {
       configured: oauthReadiness.ready,
+      setupState,
+      missing: oauthReadiness.missing,
+      configurationErrors: oauthReadiness.configurationErrors,
+      authorizedPageId: oauthReadiness.authorizedPageId,
+      authorizedPageName: oauthReadiness.authorizedPageName,
+      redirectUri: oauthReadiness.redirectUri,
+      requiredScopes: oauthReadiness.scopes,
+      instagramEnabled: false,
+      otherRepresentativesEnabled: false,
       connection: publicConnection(connection),
       canChoosePage: Boolean(pending),
     },
@@ -661,13 +753,14 @@ export async function listOwnerRepPublishingOverview() {
     slug: row.slug,
     displayName: row.display_name,
     promoCode: row.promo_code,
-    pilotAllowed: allowedPilotSlugs().has(String(row.slug || "").toLowerCase()),
+    pilotAllowed: isMarketingMetaPilotRep(row.slug),
     connection: row.connection_status ? {
       status: row.connection_status,
       pageId: row.page_id,
       pageName: row.page_name,
       lastVerifiedAt: row.last_verified_at,
       lastError: row.last_error,
+      authorizedForPilot: isMarketingMetaPilotPage(row.page_id),
     } : null,
     publications: {
       published: Number(row.published_count || 0),

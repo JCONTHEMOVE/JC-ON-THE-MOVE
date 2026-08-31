@@ -18,6 +18,7 @@ import {
   verifyCompanyMetaConnection,
 } from "../services/marketingCompanyMeta";
 import { companyMetaPageCredentialsSchema } from "../services/marketingCompanyMetaPolicy";
+import { getMarketingMetaPilotAdminState } from "../services/marketingMetaPilotPolicy";
 import { ipRateLimit } from "../lib/persistentRateLimit";
 import {
   generateMarketingBotCampaign,
@@ -36,6 +37,7 @@ import {
   beginMetaOAuth,
   completeMetaOAuthCallback,
   disconnectMetaPage,
+  getMetaPilotAdminSetup,
   getRepMarketingBotDashboard,
   listMetaManagedPages,
   listOwnerRepPublishingOverview,
@@ -130,7 +132,14 @@ router.get("/admin/marketing-bot/dashboard", requireMarketingAdmin, async (_req,
             : "Connect at least one approved JC Facebook Page before publishing.",
         }
       : entry);
-    res.json({ ...dashboard, readiness, representatives, companyConnections });
+    const metaPilot = getMetaPilotAdminSetup();
+    const matt = representatives.find((representative) => representative.pilotAllowed);
+    const metaPilotState = getMarketingMetaPilotAdminState({
+      configured: metaPilot.configured,
+      connectionStatus: matt?.connection?.status,
+      connectionAuthorized: matt?.connection?.authorizedForPilot,
+    });
+    res.json({ ...dashboard, readiness, representatives, companyConnections, metaPilot: { ...metaPilot, state: metaPilotState } });
   } catch (error) {
     console.error("[marketing-bot] dashboard failed:", error instanceof Error ? error.message : error);
     res.status(500).json({ error: "Failed to load Marketing Bot" });

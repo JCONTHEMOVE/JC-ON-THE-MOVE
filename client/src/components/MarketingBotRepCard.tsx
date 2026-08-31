@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   CheckCircle2,
   ExternalLink,
   Facebook,
   Link2,
+  LockKeyhole,
   Loader2,
   RefreshCw,
   Send,
@@ -25,6 +27,7 @@ type MetaConnection = {
   lastVerifiedAt?: string | null;
   tokenExpiresAt?: string | null;
   lastError?: string | null;
+  authorizedForPilot?: boolean;
 };
 
 type RepCampaign = {
@@ -59,6 +62,15 @@ type RepDashboard = {
   rep: { id: string; slug: string; displayName: string; promoCode?: string | null };
   meta: {
     configured: boolean;
+    setupState: "owner_setup_required" | "oauth_required" | "page_selection_required" | "ready" | "reauthorization_required" | "authorized_page_mismatch";
+    missing: string[];
+    configurationErrors: string[];
+    authorizedPageId?: string | null;
+    authorizedPageName?: string | null;
+    redirectUri?: string | null;
+    requiredScopes: string[];
+    instagramEnabled: false;
+    otherRepresentativesEnabled: false;
     connection: MetaConnection | null;
     canChoosePage: boolean;
   };
@@ -242,7 +254,18 @@ export function MarketingBotRepCard() {
   if (!dashboard) return null;
 
   const connection = dashboard.meta.connection;
-  const connected = connection?.status === "connected";
+  const connected = connection?.status === "connected" && connection.authorizedForPilot === true;
+  const setupCopy = {
+    owner_setup_required: "Owner setup required",
+    oauth_required: "Ready for Matt to authorize",
+    page_selection_required: "Choose the authorized Page",
+    ready: "Ready to publish approved Northwoods campaigns",
+    reauthorization_required: "Facebook authorization expired",
+    authorized_page_mismatch: "Connected Page does not match the pilot Page",
+  }[dashboard.meta.setupState];
+  const authorizedPageLabel = dashboard.meta.authorizedPageName
+    ? `${dashboard.meta.authorizedPageName} (${dashboard.meta.authorizedPageId})`
+    : dashboard.meta.authorizedPageId || "not configured";
 
   return (
     <section className="rounded-2xl border border-blue-500/30 bg-gradient-to-b from-blue-500/10 to-slate-950/40 p-4">
@@ -255,28 +278,48 @@ export function MarketingBotRepCard() {
         <ShieldCheck className="h-6 w-6 shrink-0 text-blue-300" />
       </div>
 
+      <div className={`mt-4 rounded-xl border p-4 ${connected ? "border-emerald-500/25 bg-emerald-500/10" : "border-amber-500/25 bg-amber-500/10"}`}>
+        <div className="flex items-start gap-3">
+          {connected ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />}
+          <div>
+            <p className="font-black text-white">{setupCopy}</p>
+            <p className="mt-1 text-xs text-slate-300">Authorized target: {authorizedPageLabel}</p>
+            <p className="mt-1 text-xs text-slate-400">Facebook Page only · Northwoods campaigns only · Instagram disabled · every representative except Matt disabled.</p>
+          </div>
+        </div>
+        {dashboard.meta.setupState === "owner_setup_required" && (
+          <div className="mt-3 border-t border-amber-500/20 pt-3 text-xs text-amber-100">
+            <p>The owner must finish these server settings before OAuth can start:</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {[...dashboard.meta.missing, ...dashboard.meta.configurationErrors].map((item) => <code key={item} className="rounded bg-slate-950/70 px-2 py-1">{item}</code>)}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/60 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-full bg-blue-600"><Facebook className="h-5 w-5 text-white" /></div>
             <div>
               <p className="font-black text-white">{connection?.pageName || "Facebook Page not connected"}</p>
-              <p className="text-xs text-slate-400">{connection ? connection.status.replaceAll("_", " ") : dashboard.meta.configured ? "Connect with Meta OAuth" : "Owner setup is not finished"}</p>
+              <p className="text-xs text-slate-400">{setupCopy}</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {!connected && <Button size="sm" className="bg-blue-600 hover:bg-blue-500" disabled={!dashboard.meta.configured || connect.isPending} onClick={() => connect.mutate()}>{connect.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}Connect Page</Button>}
+            {!connected && !dashboard.meta.canChoosePage && <Button size="sm" className="bg-blue-600 hover:bg-blue-500" disabled={!dashboard.meta.configured || connect.isPending} onClick={() => connect.mutate()}>{connect.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}{dashboard.meta.setupState === "reauthorization_required" || dashboard.meta.setupState === "authorized_page_mismatch" ? "Reconnect Page" : "Authorize with Facebook"}</Button>}
             {connected && <Button size="sm" variant="outline" className="border-slate-700" disabled={connectionAction.isPending} onClick={() => connectionAction.mutate("verify")}><RefreshCw className="mr-2 h-4 w-4" />Verify</Button>}
             {connection && connection.status !== "disconnected" && <Button size="sm" variant="outline" className="border-red-500/30 text-red-200" disabled={connectionAction.isPending} onClick={() => connectionAction.mutate("disconnect")}><Unplug className="mr-2 h-4 w-4" />Disconnect</Button>}
           </div>
         </div>
-        {connected && <p className="mt-3 flex items-center gap-2 text-xs text-emerald-200"><CheckCircle2 className="h-4 w-4" />Page token is stored encrypted and is never shown in the app.</p>}
+        {connected && <p className="mt-3 flex items-center gap-2 text-xs text-emerald-200"><LockKeyhole className="h-4 w-4" />The Page token is encrypted, never shown, and accepted only for Page {dashboard.meta.authorizedPageId}.</p>}
         {connection?.lastError && <p className="mt-3 text-xs text-amber-200">{connection.lastError}</p>}
       </div>
 
       {dashboard.meta.canChoosePage && (
         <div className="mt-4 rounded-xl border border-blue-500/25 bg-blue-500/10 p-4">
-          <p className="font-black text-white">Choose the Page Matt will publish to</p>
+          <p className="font-black text-white">Confirm the one authorized Page</p>
+          <p className="mt-1 text-xs text-blue-100">Only {authorizedPageLabel} is returned here; every other managed Page is filtered out by the server.</p>
           <div className="mt-3 grid gap-2">
             {pagesQuery.isLoading && <Loader2 className="h-5 w-5 animate-spin text-blue-300" />}
             {(pagesQuery.data?.pages || []).map((page) => <Button key={page.id} variant="outline" className="justify-start border-slate-700 bg-slate-950/40" disabled={selectPage.isPending} onClick={() => selectPage.mutate(page.id)}><Facebook className="mr-2 h-4 w-4 text-blue-300" />{page.name}</Button>)}

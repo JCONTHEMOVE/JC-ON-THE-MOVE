@@ -26,6 +26,14 @@ import {
 } from "./marketingChannels";
 import { companyFacebookTargetKey } from "./marketingCompanyMetaPolicy";
 import { decryptMarketingMetaSecret } from "./marketingMetaCrypto";
+import {
+  evaluateCompanyPublisherForCampaign,
+  getMarketingMetaPilotVariantPlan,
+  isMarketingMetaPilotCampaign,
+  MARKETING_META_PILOT_BRAND,
+  MARKETING_META_PILOT_REP_SLUG,
+} from "./marketingMetaPilotPolicy";
+import { appendNorthwoodsCampaignFacts, validateNorthwoodsCampaignSafety } from "./northwoodsCampaignPolicy";
 import { ensureRegionalAutomationSchema } from "./regionalAutomationMigration";
 import {
   appendTrustedCampaignFacts,
@@ -74,6 +82,7 @@ export function ensureMarketingBotSchema() {
         campaign_code TEXT NOT NULL UNIQUE,
         local_date DATE NOT NULL,
         source TEXT NOT NULL,
+        brand TEXT NOT NULL DEFAULT 'jc_on_the_move',
         service TEXT NOT NULL,
         territory TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending_approval',
@@ -166,6 +175,8 @@ export function ensureMarketingBotSchema() {
       ALTER TABLE marketing_bot_publications DROP CONSTRAINT IF EXISTS marketing_bot_publications_variant_id_revision_key;
       CREATE UNIQUE INDEX IF NOT EXISTS marketing_bot_publications_variant_revision_target_key
         ON marketing_bot_publications(variant_id, revision, target_key);
+
+      ALTER TABLE marketing_bot_campaigns ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT 'jc_on_the_move';
 
       CREATE TABLE IF NOT EXISTS marketing_bot_events (
         id BIGSERIAL PRIMARY KEY,
@@ -470,6 +481,34 @@ function replaceTrackedUrl(text: string, oldUrl: string, newUrl: string) {
   return text.includes(oldUrl) ? text.replaceAll(oldUrl, newUrl) : `${text.trim()}\n\n${newUrl}`;
 }
 
+function withNorthwoodsFacts(draft: MarketingBotDraftOutput, destinationUrl: string): MarketingBotDraftOutput {
+  const caption = appendNorthwoodsCampaignFacts({
+    text: draft.facebookCaption,
+    destinationUrl,
+    marketLabel: "Northwoods",
+  });
+  const requiredFacts = appendNorthwoodsCampaignFacts({ text: "", destinationUrl, marketLabel: "Northwoods" });
+  return {
+    ...draft,
+    facebookCaption: caption.length <= 2000 ? caption : `${requiredFacts}\n\n${draft.facebookCaption}`.slice(0, 2000),
+  };
+}
+
+function combineNorthwoodsSafety(draft: MarketingBotDraftOutput, destinationUrl: string, baseSafety: ReturnType<typeof validateCampaignSafety>) {
+  const northwoods = validateNorthwoodsCampaignSafety({
+    headline: draft.headline,
+    facebookCaption: draft.facebookCaption,
+    instagramCaption: draft.instagramCaption,
+    googleBusinessSummary: draft.googleBusinessSummary,
+    shortCaption: draft.shortCaption,
+    destinationUrl,
+  });
+  return {
+    passed: baseSafety.passed && northwoods.passed,
+    checks: [...baseSafety.checks, ...northwoods.checks.map((check) => ({ ...check, key: `northwoods_${check.key}` }))],
+  };
+}
+
 export async function generateMarketingBotCampaign(input: {
   source?: "daily" | "manual";
   actorId?: string | null;
@@ -495,13 +534,17 @@ export async function generateMarketingBotCampaign(input: {
   try {
     const ai = await generateAiDraft(candidates, signals);
     const selected = candidates.find((candidate) => candidate.id === ai.draft.selectedCandidateId) || candidates[0];
+    const brand = selected.territory === "up_northwoods" ? MARKETING_META_PILOT_BRAND : "jc_on_the_move";
+    const isNorthwoodsPilot = isMarketingMetaPilotCampaign(brand);
+    const pilotVariantPlan = getMarketingMetaPilotVariantPlan(brand);
     const approvedPromotion = await resolveApprovedPromotion(selected, signals);
     const code = buildCampaignCode({ localDate: signals.localDate, service: selected.service, territory: selected.territory, suffix: source === "manual" ? shortStableId(id) : undefined });
-    const canonicalVariantCode = buildVariantCode(code, "company");
+    const canonicalVariantCode = buildVariantCode(code, isNorthwoodsPilot ? MARKETING_META_PILOT_REP_SLUG : "company");
     const canonicalUrl = publicCampaignUrl(canonicalVariantCode);
     const promoCode = approvedPromotion?.code || null;
-    const trustedDraft = appendTrustedCampaignFacts({ draft: ai.draft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode });
-    const safety = validateCampaignSafety({
+    const standardTrustedDraft = appendTrustedCampaignFacts({ draft: ai.draft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode });
+    const trustedDraft = isNorthwoodsPilot ? withNorthwoodsFacts(standardTrustedDraft, canonicalUrl) : standardTrustedDraft;
+    const baseSafety = validateCampaignSafety({
       draft: trustedDraft,
       phone: companyPhone(),
       campaignUrl: canonicalUrl,
@@ -509,6 +552,7 @@ export async function generateMarketingBotCampaign(input: {
       promotionActive: !promoCode || Boolean(approvedPromotion),
       duplicate: signals.prior14DayKeys.has(selected.id),
     });
+    const safety = isNorthwoodsPilot ? combineNorthwoodsSafety(trustedDraft, canonicalUrl, baseSafety) : baseSafety;
     if (!safety.passed) throw new Error(`Campaign safety check failed: ${safety.checks.filter((check) => !check.ok).map((check) => check.label).join(", ")}`);
 
     const area = MARKETING_TERRITORY_LABELS[selected.territory];
@@ -534,35 +578,40 @@ export async function generateMarketingBotCampaign(input: {
 
     await pool.query(`
       UPDATE marketing_bot_campaigns SET
-        campaign_code=$2, service=$3, territory=$4, score=$5, rationale=$6, headline=$7,
-        facebook_caption=$8, instagram_caption=$9, google_business_summary=$10, short_caption=$11,
-        cta=$12, campaign_url=$13, feed_image_url=$14, og_image_url=$15, promo_code=$16,
-        facts=$17::jsonb, signals=$18::jsonb, safety=$19::jsonb, ai_model=$20, ai_fallback=$21,
+        campaign_code=$2, brand=$3, service=$4, territory=$5, score=$6, rationale=$7, headline=$8,
+        facebook_caption=$9, instagram_caption=$10, google_business_summary=$11, short_caption=$12,
+        cta=$13, campaign_url=$14, feed_image_url=$15, og_image_url=$16, promo_code=$17,
+        facts=$18::jsonb, signals=$19::jsonb, safety=$20::jsonb, ai_model=$21, ai_fallback=$22,
         updated_at=NOW()
       WHERE id=$1
-    `, [id, code, selected.service, selected.territory, selected.score, trustedDraft.rationale, trustedDraft.headline,
+    `, [id, code, brand, selected.service, selected.territory, selected.score, trustedDraft.rationale, trustedDraft.headline,
       trustedDraft.facebookCaption, trustedDraft.instagramCaption, trustedDraft.googleBusinessSummary, trustedDraft.shortCaption,
       trustedDraft.cta, canonicalUrl, creative.feedImageUrl, creative.ogImageUrl, promoCode,
       cleanJson({ phone: companyPhone(), website: getAppUrl(), promotion: approvedPromotion, visualDirection: trustedDraft.visualDirection }),
       cleanJson({ ...signals, prior14DayKeys: [...signals.prior14DayKeys], candidates: candidates.slice(0, 12) }), cleanJson(safety), ai.model, ai.fallback]);
 
-    for (const channel of MARKETING_BOT_CHANNELS) {
-      const variantCode = buildVariantCode(code, channel);
-      const destinationUrl = publicCampaignUrl(variantCode);
-      const caption = replaceTrackedUrl(captionForChannel(trustedDraft, channel), canonicalUrl, destinationUrl);
-      await pool.query(`
-        INSERT INTO marketing_bot_variants
-          (id, campaign_id, variant_code, channel, is_company, promo_code, caption, destination_url, image_url)
-        VALUES ($1,$2,$3,$4,TRUE,$5,$6,$7,$8)
-      `, [crypto.randomUUID(), id, variantCode, channel, promoCode, caption, destinationUrl, creative.feedImageUrl]);
+    if (!pilotVariantPlan) {
+      for (const channel of MARKETING_BOT_CHANNELS) {
+        const variantCode = buildVariantCode(code, channel);
+        const destinationUrl = publicCampaignUrl(variantCode);
+        const caption = replaceTrackedUrl(captionForChannel(trustedDraft, channel), canonicalUrl, destinationUrl);
+        await pool.query(`
+          INSERT INTO marketing_bot_variants
+            (id, campaign_id, variant_code, channel, is_company, promo_code, caption, destination_url, image_url)
+          VALUES ($1,$2,$3,$4,TRUE,$5,$6,$7,$8)
+        `, [crypto.randomUUID(), id, variantCode, channel, promoCode, caption, destinationUrl, creative.feedImageUrl]);
+      }
     }
 
     const reps = await pool.query(`
       SELECT id, slug, display_name, promo_code
       FROM marketing_reps
-      WHERE is_active = TRUE
+      WHERE is_active = TRUE AND ($1::boolean = FALSE OR LOWER(slug)=$2)
       ORDER BY sort_order, display_name
-    `);
+    `, [Boolean(pilotVariantPlan), pilotVariantPlan?.representativeSlugs[0] || MARKETING_META_PILOT_REP_SLUG]);
+    if (pilotVariantPlan && reps.rows.length !== 1) {
+      throw new Error("The Northwoods pilot requires exactly one active Matt marketing profile");
+    }
     for (const rep of reps.rows) {
       const variantCode = buildVariantCode(code, rep.slug || rep.display_name);
       const destinationUrl = publicCampaignUrl(variantCode);
@@ -688,11 +737,13 @@ export async function updateMarketingBotCampaign(id: string, draft: Pick<Marketi
     throw new Error("A campaign with a published channel cannot be edited; retry its failed channels instead");
   }
   const canonicalUrl = current.campaign_url;
-  const trustedDraft = appendTrustedCampaignFacts({
+  const standardTrustedDraft = appendTrustedCampaignFacts({
     draft: { ...draft, selectedCandidateId: buildCampaignKey(current.service, current.territory), visualDirection: current.facts?.visualDirection || "Use the approved branded JC creative.", rationale: current.rationale },
     phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code,
   });
-  const safety = validateCampaignSafety({ draft: trustedDraft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code, promotionActive: !current.promo_code || Boolean(current.facts?.promotion), duplicate: false });
+  const trustedDraft = isMarketingMetaPilotCampaign(current.brand) ? withNorthwoodsFacts(standardTrustedDraft, canonicalUrl) : standardTrustedDraft;
+  const baseSafety = validateCampaignSafety({ draft: trustedDraft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code, promotionActive: !current.promo_code || Boolean(current.facts?.promotion), duplicate: false });
+  const safety = isMarketingMetaPilotCampaign(current.brand) ? combineNorthwoodsSafety(trustedDraft, canonicalUrl, baseSafety) : baseSafety;
   if (!safety.passed) throw new Error(`Safety check failed: ${safety.checks.filter((check) => !check.ok).map((check) => check.label).join(", ")}`);
   const revision = Number(current.revision || 1) + 1;
   await pool.query(`
@@ -754,6 +805,8 @@ export async function publishMarketingBotCampaign(
   await ensureMarketingBotSchema();
   const campaign = await getMarketingBotCampaign(id);
   if (!campaign) return null;
+  const companyPublisher = evaluateCompanyPublisherForCampaign(campaign.brand);
+  if (!companyPublisher.allowed) throw new Error(companyPublisher.reason || "This campaign cannot use the company publisher");
   if (!campaign.approved_at) throw new Error("Approve the campaign before publishing");
   if (!campaign.safety?.passed) throw new Error("Campaign safety checks are not passing");
   const publishCopy = [campaign.headline, campaign.facebook_caption, campaign.instagram_caption, campaign.google_business_summary, campaign.short_caption].join("\n");
