@@ -17,27 +17,22 @@ Northwoods campaigns cannot use the company publisher. Instagram, Google Busines
 - `pages_show_list`, `pages_read_engagement`, and `pages_manage_posts` are **Ready for testing**.
 - `business_management` is present but is not requested by this pilot.
 - Only Darrell is currently an app administrator; Matt is not yet an app-role user.
+- App domain, contact email, privacy policy, terms, and user-data deletion instructions were saved and reloaded successfully in **App settings -> Basic**.
 - Authorized Northwoods Page: **JC on the Move com (Moving Help with JC ON THE MOVE Northern Wisconsin)**, Page ID `104318441657764`.
 - Non-pilot Page: **JC on the Move . com**, Page ID `452376794963429`.
+- Matt's business-portfolio invitation is pending for 30 days with **Partial access: Basic** and exactly one assigned asset: Page `104318441657764` with **Partial access (Content)**. Page `452376794963429` and Instagram were not assigned.
 - No Instagram product is installed in the app.
 - The app-level **Required actions** page has no current tasks.
 - Meta Business Suite **Requests -> Needs review** contains one unrelated legacy request from May 25, 2018: a removed Signpost business-portfolio user requesting access to Page `452376794963429`. Do not approve it as part of this pilot.
 
 ## Exact Meta dashboard actions still required
 
-1. In **App settings -> Basic**, save:
-   - App domain: `jconthemove.com`
-   - Contact email: `upmichiganstatemovers@gmail.com`
-   - Privacy policy URL: `https://www.jconthemove.com/privacy`
-   - Terms of service URL: `https://www.jconthemove.com/terms`
-   - User data deletion mode: **Data deletion instructions URL**
-   - User data deletion URL: `https://www.jconthemove.com/privacy`
-2. In **Meta Business Suite -> Settings -> People**, invite Matthew P. using the email on his approved JC employee record. Give employee/minimum access, not full business control.
-3. Assign Matthew P. only the Page **JC on the Move com (Moving Help with JC ON THE MOVE Northern Wisconsin)** (`104318441657764`) and only the access needed to create/manage Page content. Do not assign Page `452376794963429` or any Instagram asset.
-4. In the **JC Marketing Bot** app roles, add Matt as a **Tester**, not an administrator or developer. Matt must personally accept the app-role invitation.
-5. If either action enters Meta's approval queue, open **Required actions / Requests -> Needs review** and approve only the new Matt tester invitation and the single Page assignment above. Do not respond to the unrelated 2018 Signpost request or approve broader business, Page, partner, or Instagram access.
-6. Keep the app in development mode for this role-only pilot. Do not request Advanced Access or publish the app yet.
-7. Do not add Live Video API, Page Mentions, `business_management`, `email`, branded-content, or Instagram permissions for this pilot. Page Mentions may be evaluated later if approved campaigns need to tag partner Pages.
+1. Matt must accept the pending business-portfolio/Page invitation while signed into the Facebook account he will use for the pilot.
+2. Confirm that account has a Facebook Developer account and obtain its Facebook username or numeric user ID. Meta's app-role form does not accept an email address and rejected a name-only lookup because it did not resolve to a valid user ID.
+3. In **JC Marketing Bot -> App roles**, add that exact account as a **Tester**, not an administrator or developer. Matt must personally accept the app-role invitation.
+4. If an action enters Meta's approval queue, open **Required actions / Requests -> Needs review** and approve only the new Matt tester invitation or the single Page assignment above. Do not respond to the unrelated 2018 Signpost request or approve broader business, Page, partner, or Instagram access.
+5. Keep the app in development mode for this role-only pilot. Do not request Advanced Access or publish the app yet.
+6. Do not add Live Video API, Page Mentions, `business_management`, `email`, branded-content, or Instagram permissions for this pilot. Page Mentions may be evaluated later if approved campaigns need to tag partner Pages.
 
 Meta invitations and Facebook authorization must be accepted by Matt while signed into his own account.
 
@@ -56,7 +51,8 @@ Verified in Railway production on August 31, 2026:
 - `MARKETING_META_PILOT_PAGE_ID=104318441657764`
 - `MARKETING_META_PILOT_PAGE_NAME=JC on the Move com (Moving Help with JC ON THE MOVE Northern Wisconsin)`
 - Railway applied the two Page-lock variables in configuration-only deployment `adb70d43-928e-46de-b775-a344cd9f7847`.
-- After the rollout, `https://www.jconthemove.com/api/health` returned HTTP 200 with `status=ready` on production commit `723f0638`.
+- Railway deployed the pilot in deployment `68b67055-3d7b-4f8d-826d-78661466d787`.
+- After the rollout, `https://www.jconthemove.com/api/health` returned HTTP 200 with `status=ready` on production commit `29ed5b63`.
 
 The complete active pilot set is:
 
@@ -75,7 +71,7 @@ Do not reuse `META_APP_SECRET` as the encryption key. Legacy company-publisher v
 
 ## Activation and smoke test
 
-1. Deploy the pilot code. The environment values are already active; confirm `/api/health` remains healthy after the code rollout.
+1. The pilot code and environment values are deployed; confirm `/api/health` remains healthy before the OAuth smoke test.
 2. Sign in as Matt and open **Crew -> Marketing**. The setup card must say **Ready for Matt to authorize** and show Page ID `104318441657764`.
 3. Select **Authorize with Facebook** and grant only `pages_show_list`, `pages_read_engagement`, and `pages_manage_posts`.
 4. The Page chooser must return exactly Page `104318441657764`. Select it and run **Verify**.

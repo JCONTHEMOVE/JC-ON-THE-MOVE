@@ -581,8 +581,8 @@ export default function AdminMarketingBotPage() {
           <div className="mb-5 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="font-bold text-white">JC Facebook Pages</h3>
-                <p className="mt-1 text-sm text-blue-100/70">Company credentials are encrypted separately from Matt’s Page connection. Tokens are never shown here.</p>
+                <h3 className="font-bold text-white">Legacy company Facebook Pages (non-Northwoods)</h3>
+                <p className="mt-1 text-sm text-blue-100/70">Company credentials are encrypted separately from Matt’s Page connection. Northwoods campaigns cannot use these Pages, and tokens are never shown here.</p>
               </div>
               <Badge variant="outline" className="border-blue-400/30 text-blue-100">{connectedFacebookPages.length} connected</Badge>
             </div>
@@ -646,7 +646,15 @@ export default function AdminMarketingBotPage() {
             </div>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
-            {(dashboard?.readiness || []).map((connection) => <div key={connection.channel} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><div className="flex items-center justify-between"><h3 className="font-bold text-white">{channelLabels[connection.channel]}</h3>{connection.ready ? <CheckCircle2 className="h-5 w-5 text-emerald-400" /> : <AlertTriangle className="h-5 w-5 text-amber-400" />}</div><p className="mt-3 text-sm text-slate-400">{connection.note}</p>{connection.missing.length > 0 && <div className="mt-3 space-y-1">{connection.missing.map((name) => <code key={name} className="block rounded bg-slate-950 px-2 py-1 text-[11px] text-slate-400">{name}</code>)}</div>}</div>)}
+            {(dashboard?.readiness || []).map((connection) => {
+              const pilotDisabled = connection.channel !== "facebook";
+              const pilotNote = connection.channel === "instagram"
+                ? "Disabled for the Matt Page pilot. No Instagram product, token, or publishing path is enabled."
+                : connection.channel === "google_business"
+                  ? "Disabled for the Matt Page pilot. Northwoods approval routes only to Matt’s authorized Facebook Page."
+                  : connection.note;
+              return <div key={connection.channel} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><div className="flex items-center justify-between gap-3"><h3 className="font-bold text-white">{channelLabels[connection.channel]}</h3>{pilotDisabled ? <Badge variant="outline" className="border-slate-600 text-slate-300">Pilot disabled</Badge> : connection.ready ? <CheckCircle2 className="h-5 w-5 text-emerald-400" /> : <AlertTriangle className="h-5 w-5 text-amber-400" />}</div><p className="mt-3 text-sm text-slate-400">{pilotNote}</p>{!pilotDisabled && connection.missing.length > 0 && <div className="mt-3 space-y-1">{connection.missing.map((name) => <code key={name} className="block rounded bg-slate-950 px-2 py-1 text-[11px] text-slate-400">{name}</code>)}</div>}</div>;
+            })}
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2"><div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><h3 className="font-bold text-white">AI campaign planner</h3><p className="mt-2 text-sm text-slate-400">Model: {dashboard?.ai.model}</p><p className="mt-1 text-sm text-slate-400">{dashboard?.ai.ready ? "AI Gateway connected" : "AI key missing; deterministic campaign copy remains available"}</p></div><div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><h3 className="font-bold text-white">Autopilot guardrail</h3><p className="mt-2 text-sm text-slate-400">Scheduler: {dashboard?.scheduler.enabled ? "on" : "off"}</p><p className="mt-1 text-sm text-slate-400">Automatic publishing: off. Every campaign requires owner/admin approval.</p></div></div>
         </TabsContent>
