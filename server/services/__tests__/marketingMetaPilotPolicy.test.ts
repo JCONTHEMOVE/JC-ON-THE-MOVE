@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import {
   evaluateCompanyPublisherForCampaign,
   evaluateMarketingMetaPilotTarget,
+  getMarketingMetaPilotVariantPlan,
   getMarketingMetaPilotPolicy,
+  getMarketingMetaPilotAdminState,
   isMarketingMetaPilotCampaign,
   isMarketingMetaPilotPage,
   isMarketingMetaPilotRep,
@@ -49,6 +51,17 @@ assert.equal(evaluateMarketingMetaPilotTarget({ ...authorizedTarget, pageId: "99
 
 assert.equal(evaluateCompanyPublisherForCampaign("northwoods_moving").allowed, false, "Northwoods cannot use global company credentials");
 assert.equal(evaluateCompanyPublisherForCampaign("jc_on_the_move").allowed, true);
+assert.deepEqual(getMarketingMetaPilotVariantPlan("northwoods_moving"), {
+  companyChannels: [],
+  representativeSlugs: ["matt"],
+  representativeChannels: ["facebook"],
+}, "Northwoods generation creates no company/Instagram variants and only Matt's Facebook variant");
+assert.equal(getMarketingMetaPilotVariantPlan("jc_on_the_move"), null);
+assert.equal(getMarketingMetaPilotAdminState({ configured: false }), "owner_setup_required");
+assert.equal(getMarketingMetaPilotAdminState({ configured: true }), "awaiting_matt_oauth");
+assert.equal(getMarketingMetaPilotAdminState({ configured: true, connectionStatus: "connected", connectionAuthorized: true }), "ready");
+assert.equal(getMarketingMetaPilotAdminState({ configured: true, connectionStatus: "connected", connectionAuthorized: false }), "authorized_page_mismatch");
+assert.equal(getMarketingMetaPilotAdminState({ configured: true, connectionStatus: "reauth_required", connectionAuthorized: true }), "reauthorization_required");
 
 const widenedPilot = getMarketingMetaPilotPolicy({ ...configuredEnv, MARKETING_META_PILOT_REP_SLUGS: "matt,ashley" });
 assert.equal(widenedPilot.ready, false, "the pilot fails closed if another representative is added");
@@ -57,5 +70,13 @@ assert.match(widenedPilot.configurationErrors[0], /exactly matt/);
 const missingPage = getMarketingMetaPilotPolicy({ ...configuredEnv, MARKETING_META_PILOT_PAGE_ID: "" });
 assert.equal(missingPage.ready, false);
 assert.ok(missingPage.missing.includes("MARKETING_META_PILOT_PAGE_ID"), "an exact authorized Page ID is mandatory");
+
+const invalidPage = getMarketingMetaPilotPolicy({ ...configuredEnv, MARKETING_META_PILOT_PAGE_ID: "page-name" });
+assert.equal(invalidPage.ready, false);
+assert.match(invalidPage.configurationErrors.join(" "), /numeric Facebook Page ID/);
+
+const wrongRedirect = getMarketingMetaPilotPolicy({ ...configuredEnv, META_OAUTH_REDIRECT_URI: "https://example.com/meta/callback" });
+assert.equal(wrongRedirect.ready, false);
+assert.match(wrongRedirect.configurationErrors.join(" "), /must be exactly/);
 
 console.log("marketing Meta pilot policy tests passed");

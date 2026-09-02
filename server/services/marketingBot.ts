@@ -18,11 +18,24 @@ import { getAppUrl } from "../appUrl";
 import { sendEmail } from "./email";
 import { createMarketingCreative } from "./marketingCreativeGenerator";
 import { escapeMarketingCampaignHtml } from "./marketingCampaignPolicy";
+import {
+  getMarketingChannelReadiness,
+  MarketingProviderError,
+  publishFacebookPage,
+  publishMarketingChannel,
+} from "./marketingChannels";
+import { companyFacebookTargetKey } from "./marketingCompanyMetaPolicy";
+import { decryptMarketingMetaSecret } from "./marketingMetaCrypto";
+import {
+  evaluateCompanyPublisherForCampaign,
+  getMarketingMetaPilotVariantPlan,
+  isMarketingMetaPilotCampaign,
+  MARKETING_META_PILOT_BRAND,
+  MARKETING_META_PILOT_REP_SLUG,
+} from "./marketingMetaPilotPolicy";
 import { appendNorthwoodsCampaignFacts, validateNorthwoodsCampaignSafety } from "./northwoodsCampaignPolicy";
-import { getMarketingChannelReadiness, publishMarketingChannel } from "./marketingChannels";
 import { ensureRegionalAutomationSchema } from "./regionalAutomationMigration";
 import { getActiveCommercePublication } from "./commerceCatalog";
-import { evaluateCompanyPublisherForCampaign } from "./marketingMetaPilotPolicy";
 import {
   appendTrustedCampaignFacts,
   buildCampaignCode,
@@ -70,6 +83,7 @@ export function ensureMarketingBotSchema() {
         campaign_code TEXT NOT NULL UNIQUE,
         local_date DATE NOT NULL,
         source TEXT NOT NULL,
+        brand TEXT NOT NULL DEFAULT 'jc_on_the_move',
         service TEXT NOT NULL,
         territory TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending_approval',
@@ -117,12 +131,31 @@ export function ensureMarketingBotSchema() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS marketing_company_meta_connections (
+        id UUID PRIMARY KEY,
+        connected_by_user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        page_id TEXT NOT NULL UNIQUE,
+        page_name TEXT NOT NULL,
+        encrypted_page_token TEXT,
+        granted_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        status TEXT NOT NULL DEFAULT 'connected',
+        connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_verified_at TIMESTAMPTZ,
+        last_error TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS marketing_bot_publications (
         id UUID PRIMARY KEY,
         campaign_id UUID NOT NULL REFERENCES marketing_bot_campaigns(id) ON DELETE CASCADE,
         variant_id UUID NOT NULL REFERENCES marketing_bot_variants(id) ON DELETE CASCADE,
         channel TEXT NOT NULL,
         revision INTEGER NOT NULL,
+        target_key TEXT NOT NULL DEFAULT 'default',
+        company_connection_id UUID REFERENCES marketing_company_meta_connections(id) ON DELETE RESTRICT,
+        target_page_id TEXT,
+        target_page_name TEXT,
+        actor_user_id VARCHAR REFERENCES users(id) ON DELETE RESTRICT,
         status TEXT NOT NULL DEFAULT 'pending',
         attempts INTEGER NOT NULL DEFAULT 0,
         external_id TEXT,
@@ -132,8 +165,19 @@ export function ensureMarketingBotSchema() {
         published_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE (variant_id, revision)
+        UNIQUE (variant_id, revision, target_key)
       );
+
+      ALTER TABLE marketing_bot_publications ADD COLUMN IF NOT EXISTS target_key TEXT NOT NULL DEFAULT 'default';
+      ALTER TABLE marketing_bot_publications ADD COLUMN IF NOT EXISTS company_connection_id UUID REFERENCES marketing_company_meta_connections(id) ON DELETE RESTRICT;
+      ALTER TABLE marketing_bot_publications ADD COLUMN IF NOT EXISTS target_page_id TEXT;
+      ALTER TABLE marketing_bot_publications ADD COLUMN IF NOT EXISTS target_page_name TEXT;
+      ALTER TABLE marketing_bot_publications ADD COLUMN IF NOT EXISTS actor_user_id VARCHAR REFERENCES users(id) ON DELETE RESTRICT;
+      ALTER TABLE marketing_bot_publications DROP CONSTRAINT IF EXISTS marketing_bot_publications_variant_id_revision_key;
+      CREATE UNIQUE INDEX IF NOT EXISTS marketing_bot_publications_variant_revision_target_key
+        ON marketing_bot_publications(variant_id, revision, target_key);
+
+      ALTER TABLE marketing_bot_campaigns ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT 'jc_on_the_move';
 
       CREATE TABLE IF NOT EXISTS marketing_bot_events (
         id BIGSERIAL PRIMARY KEY,
@@ -242,6 +286,7 @@ export function ensureMarketingBotSchema() {
       CREATE INDEX IF NOT EXISTS idx_marketing_bot_campaigns_status ON marketing_bot_campaigns(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_marketing_bot_variants_campaign ON marketing_bot_variants(campaign_id);
       CREATE INDEX IF NOT EXISTS idx_marketing_bot_publications_campaign ON marketing_bot_publications(campaign_id, status);
+      CREATE INDEX IF NOT EXISTS idx_marketing_company_meta_connection_status ON marketing_company_meta_connections(status, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_marketing_bot_events_campaign ON marketing_bot_events(campaign_id, event_type, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_marketing_meta_oauth_user ON marketing_meta_oauth_sessions(user_id, rep_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_marketing_meta_connection_status ON marketing_meta_connections(status, updated_at DESC);
@@ -476,6 +521,34 @@ function replaceTrackedUrl(text: string, oldUrl: string, newUrl: string) {
   return text.includes(oldUrl) ? text.replaceAll(oldUrl, newUrl) : `${text.trim()}\n\n${newUrl}`;
 }
 
+function withNorthwoodsFacts(draft: MarketingBotDraftOutput, destinationUrl: string): MarketingBotDraftOutput {
+  const caption = appendNorthwoodsCampaignFacts({
+    text: draft.facebookCaption,
+    destinationUrl,
+    marketLabel: "Northwoods",
+  });
+  const requiredFacts = appendNorthwoodsCampaignFacts({ text: "", destinationUrl, marketLabel: "Northwoods" });
+  return {
+    ...draft,
+    facebookCaption: caption.length <= 2000 ? caption : `${requiredFacts}\n\n${draft.facebookCaption}`.slice(0, 2000),
+  };
+}
+
+function combineNorthwoodsSafety(draft: MarketingBotDraftOutput, destinationUrl: string, baseSafety: ReturnType<typeof validateCampaignSafety>) {
+  const northwoods = validateNorthwoodsCampaignSafety({
+    headline: draft.headline,
+    facebookCaption: draft.facebookCaption,
+    instagramCaption: draft.instagramCaption,
+    googleBusinessSummary: draft.googleBusinessSummary,
+    shortCaption: draft.shortCaption,
+    destinationUrl,
+  });
+  return {
+    passed: baseSafety.passed && northwoods.passed,
+    checks: [...baseSafety.checks, ...northwoods.checks.map((check) => ({ ...check, key: `northwoods_${check.key}` }))],
+  };
+}
+
 export async function generateMarketingBotCampaign(input: {
   source?: "daily" | "manual";
   actorId?: string | null;
@@ -501,17 +574,21 @@ export async function generateMarketingBotCampaign(input: {
   try {
     const ai = await generateAiDraft(candidates, signals);
     const selected = candidates.find((candidate) => candidate.id === ai.draft.selectedCandidateId) || candidates[0];
+    const brand = selected.territory === "up_northwoods" ? MARKETING_META_PILOT_BRAND : "jc_on_the_move";
+    const isNorthwoodsPilot = isMarketingMetaPilotCampaign(brand);
+    const pilotVariantPlan = getMarketingMetaPilotVariantPlan(brand);
     const approvedPromotion = await resolveApprovedPromotion(selected, signals);
     const catalogOffer = await resolveCatalogMarketingOffer(selected.service);
     const code = buildCampaignCode({ localDate: signals.localDate, service: selected.service, territory: selected.territory, suffix: source === "manual" ? shortStableId(id) : undefined });
-    const canonicalVariantCode = buildVariantCode(code, "company");
+    const canonicalVariantCode = buildVariantCode(code, isNorthwoodsPilot ? MARKETING_META_PILOT_REP_SLUG : "company");
     const canonicalUrl = publicCampaignUrl(canonicalVariantCode);
     const promoCode = approvedPromotion?.code || null;
-    const trustedDraft = {
+    const standardTrustedDraft = {
       ...appendTrustedCampaignFacts({ draft: ai.draft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode }),
       cta: catalogOffer?.purchaseMode === "direct" ? "BOOK" as const : "GET_QUOTE" as const,
     };
-    const safety = validateCampaignSafety({
+    const trustedDraft = isNorthwoodsPilot ? withNorthwoodsFacts(standardTrustedDraft, canonicalUrl) : standardTrustedDraft;
+    const baseSafety = validateCampaignSafety({
       draft: trustedDraft,
       phone: companyPhone(),
       campaignUrl: canonicalUrl,
@@ -519,6 +596,7 @@ export async function generateMarketingBotCampaign(input: {
       promotionActive: !promoCode || Boolean(approvedPromotion),
       duplicate: signals.prior14DayKeys.has(selected.id),
     });
+    const safety = isNorthwoodsPilot ? combineNorthwoodsSafety(trustedDraft, canonicalUrl, baseSafety) : baseSafety;
     if (!safety.passed) throw new Error(`Campaign safety check failed: ${safety.checks.filter((check) => !check.ok).map((check) => check.label).join(", ")}`);
 
     const area = MARKETING_TERRITORY_LABELS[selected.territory];
@@ -544,35 +622,40 @@ export async function generateMarketingBotCampaign(input: {
 
     await pool.query(`
       UPDATE marketing_bot_campaigns SET
-        campaign_code=$2, service=$3, territory=$4, score=$5, rationale=$6, headline=$7,
-        facebook_caption=$8, instagram_caption=$9, google_business_summary=$10, short_caption=$11,
-        cta=$12, campaign_url=$13, feed_image_url=$14, og_image_url=$15, promo_code=$16,
-        facts=$17::jsonb, signals=$18::jsonb, safety=$19::jsonb, ai_model=$20, ai_fallback=$21,
+        campaign_code=$2, brand=$3, service=$4, territory=$5, score=$6, rationale=$7, headline=$8,
+        facebook_caption=$9, instagram_caption=$10, google_business_summary=$11, short_caption=$12,
+        cta=$13, campaign_url=$14, feed_image_url=$15, og_image_url=$16, promo_code=$17,
+        facts=$18::jsonb, signals=$19::jsonb, safety=$20::jsonb, ai_model=$21, ai_fallback=$22,
         updated_at=NOW()
       WHERE id=$1
-    `, [id, code, selected.service, selected.territory, selected.score, trustedDraft.rationale, trustedDraft.headline,
+    `, [id, code, brand, selected.service, selected.territory, selected.score, trustedDraft.rationale, trustedDraft.headline,
       trustedDraft.facebookCaption, trustedDraft.instagramCaption, trustedDraft.googleBusinessSummary, trustedDraft.shortCaption,
       trustedDraft.cta, canonicalUrl, creative.feedImageUrl, creative.ogImageUrl, promoCode,
       cleanJson({ phone: companyPhone(), website: getAppUrl(), promotion: approvedPromotion, visualDirection: trustedDraft.visualDirection, offer: catalogOffer }),
       cleanJson({ ...signals, prior14DayKeys: [...signals.prior14DayKeys], candidates: candidates.slice(0, 12) }), cleanJson(safety), ai.model, ai.fallback]);
 
-    for (const channel of MARKETING_BOT_CHANNELS) {
-      const variantCode = buildVariantCode(code, channel);
-      const destinationUrl = publicCampaignUrl(variantCode);
-      const caption = replaceTrackedUrl(captionForChannel(trustedDraft, channel), canonicalUrl, destinationUrl);
-      await pool.query(`
-        INSERT INTO marketing_bot_variants
-          (id, campaign_id, variant_code, channel, is_company, promo_code, caption, destination_url, image_url)
-        VALUES ($1,$2,$3,$4,TRUE,$5,$6,$7,$8)
-      `, [crypto.randomUUID(), id, variantCode, channel, promoCode, caption, destinationUrl, creative.feedImageUrl]);
+    if (!pilotVariantPlan) {
+      for (const channel of MARKETING_BOT_CHANNELS) {
+        const variantCode = buildVariantCode(code, channel);
+        const destinationUrl = publicCampaignUrl(variantCode);
+        const caption = replaceTrackedUrl(captionForChannel(trustedDraft, channel), canonicalUrl, destinationUrl);
+        await pool.query(`
+          INSERT INTO marketing_bot_variants
+            (id, campaign_id, variant_code, channel, is_company, promo_code, caption, destination_url, image_url)
+          VALUES ($1,$2,$3,$4,TRUE,$5,$6,$7,$8)
+        `, [crypto.randomUUID(), id, variantCode, channel, promoCode, caption, destinationUrl, creative.feedImageUrl]);
+      }
     }
 
     const reps = await pool.query(`
       SELECT id, slug, display_name, promo_code
       FROM marketing_reps
-      WHERE is_active = TRUE
+      WHERE is_active = TRUE AND ($1::boolean = FALSE OR LOWER(slug)=$2)
       ORDER BY sort_order, display_name
-    `);
+    `, [Boolean(pilotVariantPlan), pilotVariantPlan?.representativeSlugs[0] || MARKETING_META_PILOT_REP_SLUG]);
+    if (pilotVariantPlan && reps.rows.length !== 1) {
+      throw new Error("The Northwoods pilot requires exactly one active Matt marketing profile");
+    }
     for (const rep of reps.rows) {
       const variantCode = buildVariantCode(code, rep.slug || rep.display_name);
       const destinationUrl = publicCampaignUrl(variantCode);
@@ -698,25 +781,13 @@ export async function updateMarketingBotCampaign(id: string, draft: Pick<Marketi
     throw new Error("A campaign with a published channel cannot be edited; retry its failed channels instead");
   }
   const canonicalUrl = current.campaign_url;
-  const isNorthwoods = current.brand === "northwoods_moving";
-  const trustedDraft = isNorthwoods
-    ? {
-        ...draft,
-        facebookCaption: appendNorthwoodsCampaignFacts({ text: draft.facebookCaption, destinationUrl: canonicalUrl, marketLabel: current.facts?.northwoodsMarketSlug || "Northwoods" }).slice(0, 2000),
-        instagramCaption: appendNorthwoodsCampaignFacts({ text: draft.instagramCaption, destinationUrl: canonicalUrl, marketLabel: current.facts?.northwoodsMarketSlug || "Northwoods" }).slice(0, 2000),
-        googleBusinessSummary: appendNorthwoodsCampaignFacts({ text: draft.googleBusinessSummary, destinationUrl: canonicalUrl, marketLabel: current.facts?.northwoodsMarketSlug || "Northwoods" }).replaceAll("\n\n", " ").slice(0, 1500),
-        shortCaption: appendNorthwoodsCampaignFacts({ text: draft.shortCaption, destinationUrl: canonicalUrl, marketLabel: current.facts?.northwoodsMarketSlug || "Northwoods" }).replaceAll("\n\n", " ").slice(0, 500),
-        selectedCandidateId: `northwoods:${current.northwoods_market_id || "market"}:${current.northwoods_focus || "moving"}`,
-        visualDirection: current.facts?.visualDirection || "Use the approved Northwoods Moving creative.",
-        rationale: current.rationale,
-      }
-    : appendTrustedCampaignFacts({
-        draft: { ...draft, selectedCandidateId: buildCampaignKey(current.service, current.territory), visualDirection: current.facts?.visualDirection || "Use the approved branded JC creative.", rationale: current.rationale },
-        phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code,
-      });
-  const safety = isNorthwoods
-    ? validateNorthwoodsCampaignSafety({ ...trustedDraft, destinationUrl: canonicalUrl })
-    : validateCampaignSafety({ draft: trustedDraft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code, promotionActive: !current.promo_code || Boolean(current.facts?.promotion), duplicate: false });
+  const standardTrustedDraft = appendTrustedCampaignFacts({
+    draft: { ...draft, selectedCandidateId: buildCampaignKey(current.service, current.territory), visualDirection: current.facts?.visualDirection || "Use the approved branded JC creative.", rationale: current.rationale },
+    phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code,
+  });
+  const trustedDraft = isMarketingMetaPilotCampaign(current.brand) ? withNorthwoodsFacts(standardTrustedDraft, canonicalUrl) : standardTrustedDraft;
+  const baseSafety = validateCampaignSafety({ draft: trustedDraft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code, promotionActive: !current.promo_code || Boolean(current.facts?.promotion), duplicate: false });
+  const safety = isMarketingMetaPilotCampaign(current.brand) ? combineNorthwoodsSafety(trustedDraft, canonicalUrl, baseSafety) : baseSafety;
   if (!safety.passed) throw new Error(`Safety check failed: ${safety.checks.filter((check) => !check.ok).map((check) => check.label).join(", ")}`);
   const revision = Number(current.revision || 1) + 1;
   await pool.query(`
@@ -732,7 +803,7 @@ export async function updateMarketingBotCampaign(id: string, draft: Pick<Marketi
       canonicalUrl,
       variant.destination_url,
     );
-    if (!isNorthwoods && !variant.is_company && variant.promo_code && !caption.includes(variant.promo_code)) {
+    if (!variant.is_company && variant.promo_code && !caption.includes(variant.promo_code)) {
       caption = `${caption}\n\nAsk for ${variant.rep_slug || "your JC representative"} and use code ${variant.promo_code}.`.slice(0, 2000);
     }
     await pool.query("UPDATE marketing_bot_variants SET caption=$2 WHERE id=$1", [variant.id, caption]);
@@ -773,14 +844,15 @@ export async function publishMarketingBotCampaign(
   actorId: string,
   retryFailedOnly = false,
   channels: MarketingBotChannel[] = ["facebook"],
+  facebookConnectionIds: string[] = [],
 ) {
   await ensureMarketingBotSchema();
   const campaign = await getMarketingBotCampaign(id);
   if (!campaign) return null;
+  const companyPublisher = evaluateCompanyPublisherForCampaign(campaign.brand);
+  if (!companyPublisher.allowed) throw new Error(companyPublisher.reason || "This campaign cannot use the company publisher");
   if (!campaign.approved_at) throw new Error("Approve the campaign before publishing");
   if (!campaign.safety?.passed) throw new Error("Campaign safety checks are not passing");
-  const companyPublishTarget = evaluateCompanyPublisherForCampaign(campaign.brand);
-  if (!companyPublishTarget.allowed) throw new Error(companyPublishTarget.reason || "This campaign cannot use the company publisher");
   const publishCopy = [campaign.headline, campaign.facebook_caption, campaign.instagram_caption, campaign.google_business_summary, campaign.short_caption].join("\n");
   if (!/dispatched from (?:its |our )?Ironwood operation/i.test(publishCopy)) {
     throw new Error("Regional campaigns must disclose that service is dispatched from the Ironwood operation. Edit and re-save this campaign before publishing.");
@@ -790,41 +862,125 @@ export async function publishMarketingBotCampaign(
   if (!selectedChannels.length) throw new Error("Select at least one supported publishing channel");
   const variants = campaign.variants.filter((variant: any) => variant.is_company && selectedChannels.includes(variant.channel));
   if (!variants.length) throw new Error("No company variant exists for the selected channel");
+
+  const selectedConnectionIds = [...new Set(facebookConnectionIds)];
+  const facebookTargets = selectedChannels.includes("facebook")
+    ? await pool.query(`
+        SELECT id, page_id, page_name, encrypted_page_token
+        FROM marketing_company_meta_connections
+        WHERE id=ANY($1::uuid[]) AND status='connected' AND encrypted_page_token IS NOT NULL
+        ORDER BY page_name, page_id
+      `, [selectedConnectionIds])
+    : { rows: [] as any[] };
+  if (selectedChannels.includes("facebook") && selectedConnectionIds.length === 0) {
+    throw new Error("Select at least one connected JC Facebook Page");
+  }
+  if (facebookTargets.rows.length !== selectedConnectionIds.length) {
+    throw new Error("One or more selected Facebook Pages need to be reconnected");
+  }
+  const allFacebookTargets = selectedChannels.includes("facebook")
+    ? await pool.query(`
+        SELECT page_id FROM marketing_company_meta_connections
+        WHERE status='connected' AND encrypted_page_token IS NOT NULL
+      `)
+    : { rows: [] as any[] };
+
+  const tasks = variants.flatMap((variant: any) => variant.channel === "facebook"
+    ? facebookTargets.rows.map((target: any) => ({
+        variant,
+        target,
+        targetKey: companyFacebookTargetKey(target.page_id),
+      }))
+    : [{ variant, target: null, targetKey: `channel:${variant.channel}` }]);
   await pool.query("UPDATE marketing_bot_campaigns SET status='publishing', updated_at=NOW() WHERE id=$1", [id]);
 
-  await Promise.all(variants.map(async (variant: any) => {
-    const existingResult = await pool.query("SELECT * FROM marketing_bot_publications WHERE variant_id=$1 AND revision=$2 LIMIT 1", [variant.id, campaign.revision]);
+  await Promise.all(tasks.map(async ({ variant, target, targetKey }: any) => {
+    const existingResult = await pool.query(
+      "SELECT * FROM marketing_bot_publications WHERE variant_id=$1 AND revision=$2 AND target_key=$3 LIMIT 1",
+      [variant.id, campaign.revision, targetKey],
+    );
     const existing = existingResult.rows[0];
     if (existing?.status === "published") return;
     if (retryFailedOnly && (!existing || existing.status !== "failed")) return;
-    const publicationId = existing?.id || crypto.randomUUID();
-    await pool.query(`
-      INSERT INTO marketing_bot_publications (id,campaign_id,variant_id,channel,revision,status,attempts)
-      VALUES ($1,$2,$3,$4,$5,'publishing',1)
-      ON CONFLICT (variant_id,revision) DO UPDATE SET status='publishing', attempts=marketing_bot_publications.attempts+1, error_message=NULL, updated_at=NOW()
-    `, [publicationId, id, variant.id, variant.channel, campaign.revision]);
+    const publicationResult = await pool.query(`
+      INSERT INTO marketing_bot_publications
+        (id,campaign_id,variant_id,channel,revision,target_key,company_connection_id,
+         target_page_id,target_page_name,actor_user_id,status,attempts)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'publishing',1)
+      ON CONFLICT (variant_id,revision,target_key) DO UPDATE SET
+        company_connection_id=EXCLUDED.company_connection_id,
+        target_page_id=EXCLUDED.target_page_id,
+        target_page_name=EXCLUDED.target_page_name,
+        actor_user_id=EXCLUDED.actor_user_id,
+        status='publishing',
+        attempts=marketing_bot_publications.attempts+1,
+        error_message=NULL,
+        updated_at=NOW()
+      WHERE marketing_bot_publications.status IN ('pending','failed')
+         OR (marketing_bot_publications.status='publishing' AND marketing_bot_publications.updated_at < NOW() - INTERVAL '10 minutes')
+      RETURNING id
+    `, [
+      crypto.randomUUID(), id, variant.id, variant.channel, campaign.revision, targetKey,
+      target?.id || null, target?.page_id || null, target?.page_name || null, actorId,
+    ]);
+    const publicationId = publicationResult.rows[0]?.id;
+    // A concurrent click already owns this target, or it was published between
+    // the read and upsert. Returning here prevents a duplicate Meta post.
+    if (!publicationId) return;
     try {
-      const result = await publishMarketingChannel({
+      const publishInput = {
         channel: variant.channel,
         caption: variant.caption,
         imageUrl: variant.image_url,
         campaignUrl: variant.destination_url,
         cta: campaign.cta,
-      });
-      await pool.query(`UPDATE marketing_bot_publications SET status='published',external_id=$2,external_url=$3,metadata=$4::jsonb,error_message=NULL,published_at=NOW(),updated_at=NOW() WHERE id=$1`, [publicationId, result.externalId, result.externalUrl || null, cleanJson(result.metadata)]);
+      };
+      const result = target
+        ? await publishFacebookPage(publishInput, {
+            pageId: target.page_id,
+            accessToken: decryptMarketingMetaSecret(target.encrypted_page_token),
+          })
+        : await publishMarketingChannel(publishInput);
+      await pool.query(`
+        UPDATE marketing_bot_publications
+        SET status='published', external_id=$2, external_url=$3, metadata=$4::jsonb,
+            error_message=NULL, published_at=NOW(), updated_at=NOW()
+        WHERE id=$1
+      `, [publicationId, result.externalId, result.externalUrl || null, cleanJson({ ...result.metadata, pageName: target?.page_name || undefined })]);
       await pool.query(`
         INSERT INTO marketing_bot_audit_events (actor_user_id, action, target_type, target_id, metadata)
         VALUES ($1,'company_variant_published','marketing_bot_publication',$2,$3::jsonb)
-      `, [actorId, publicationId, cleanJson({ campaignRevision: campaign.revision, channel: variant.channel, externalId: result.externalId, externalUrl: result.externalUrl || null })]);
+      `, [actorId, publicationId, cleanJson({ campaignRevision: campaign.revision, channel: variant.channel, pageId: target?.page_id || null, pageName: target?.page_name || null, externalId: result.externalId, externalUrl: result.externalUrl || null })]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown publishing error";
       await pool.query("UPDATE marketing_bot_publications SET status='failed',error_message=$2,updated_at=NOW() WHERE id=$1", [publicationId, message.slice(0, 500)]);
+      if (target && error instanceof MarketingProviderError && error.requiresReauthorization) {
+        await pool.query(`
+          UPDATE marketing_company_meta_connections
+          SET status='reauth_required', encrypted_page_token=NULL, last_error=$2, updated_at=NOW()
+          WHERE id=$1
+        `, [target.id, message.slice(0, 500)]);
+      }
     }
   }));
 
-  const counts = await pool.query(`SELECT COUNT(*) FILTER (WHERE status='published')::int AS published, COUNT(*) FILTER (WHERE status='failed')::int AS failed, COUNT(*)::int AS total FROM marketing_bot_publications WHERE campaign_id=$1 AND revision=$2 AND channel=ANY($3::text[])`, [id, campaign.revision, selectedChannels]);
+  const expectedTargetKeys = variants.flatMap((variant: any) => variant.channel === "facebook"
+    ? allFacebookTargets.rows.map((target: any) => companyFacebookTargetKey(target.page_id))
+    : [`channel:${variant.channel}`]);
+  const counts = await pool.query(`
+    SELECT
+      COUNT(*) FILTER (WHERE status='published')::int AS published,
+      COUNT(*) FILTER (WHERE status='failed')::int AS failed,
+      COUNT(*)::int AS total
+    FROM marketing_bot_publications
+    WHERE campaign_id=$1 AND revision=$2 AND target_key=ANY($3::text[])
+  `, [id, campaign.revision, expectedTargetKeys]);
   const state = counts.rows[0] || {};
-  const nextStatus = Number(state.published) === variants.length ? "published" : Number(state.published) > 0 ? "partially_published" : "failed";
+  const nextStatus = expectedTargetKeys.length > 0 && Number(state.published) === expectedTargetKeys.length
+    ? "published"
+    : Number(state.published) > 0
+      ? "partially_published"
+      : "failed";
   await pool.query(`UPDATE marketing_bot_campaigns SET status=$2, published_at=CASE WHEN $2='published' THEN NOW() ELSE published_at END, updated_at=NOW() WHERE id=$1`, [id, nextStatus]);
   return getMarketingBotCampaign(id);
 }
@@ -832,7 +988,7 @@ export async function publishMarketingBotCampaign(
 export async function getPublicMarketingVariant(variantCode: string) {
   await ensureMarketingBotSchema();
   const result = await pool.query(`
-    SELECT v.*, c.headline, c.short_caption, c.cta, c.service, c.territory, c.campaign_code, c.facts,
+    SELECT v.*, c.headline, c.short_caption, c.cta, c.service, c.territory, c.campaign_code,
            c.og_image_url, c.feed_image_url, c.status AS campaign_status
     FROM marketing_bot_variants v
     JOIN marketing_bot_campaigns c ON c.id=v.campaign_id

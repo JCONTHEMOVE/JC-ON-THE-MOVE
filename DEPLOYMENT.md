@@ -53,8 +53,8 @@ The optional Square eGift purchase-bonus automation also requires:
 - `SQUARE_WEBHOOK_SIGNATURE_KEY` — the signing key for the Square webhook subscription
 - `SQUARE_WEBHOOK_URL=https://www.jconthemove.com/api/webhooks/square` — must exactly match Square's configured notification URL
 - `GIFT_CARD_BONUS_START_AT` — an ISO timestamp set immediately before the owner-controlled live test; earlier purchases are never backfilled
-- `GIFT_CARD_BONUS_ENABLED=true` — enables webhook processing and the owner-only sweep after the webhook events and permissions are verified
-- `GIFT_CARD_BONUS_PUBLIC_ENABLED=false` — keep public bonus marketing hidden during the owner-controlled test; set true only after the $50 → 1,250 JCMOVES flow passes end to end
+- `GIFT_CARD_BONUS_ENABLED=true` — enables signed-webhook processing for the private owner test
+- `GIFT_CARD_BONUS_PUBLIC_MARKETING_ENABLED=true` — independent public-advertising switch; keep false until the owner-controlled $50 test in `SQUARE_GIFT_CARD_SETUP.md` passes
 
 The app creates its minimal gift-card bonus audit tables at startup. It stores Square order/payment/activity references and purchaser/recipient emails, but never a gift-card number or access code.
 

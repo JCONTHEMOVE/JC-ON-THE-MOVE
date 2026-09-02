@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -34,6 +35,8 @@ type Publication = {
   external_url?: string | null;
   error_message?: string | null;
   attempts: number;
+  target_page_id?: string | null;
+  target_page_name?: string | null;
 };
 
 type Campaign = {
@@ -93,6 +96,15 @@ type Dashboard = {
   readiness: Array<{ channel: string; ready: boolean; missing: string[]; note: string }>;
   scheduler: { enabled: boolean; proposalTime: string; autoPublish: boolean };
   ai: { model: string; ready: boolean };
+  companyConnections: Array<{
+    id: string;
+    pageId: string;
+    pageName: string;
+    status: string;
+    connectedAt: string;
+    lastVerifiedAt?: string | null;
+    lastError?: string | null;
+  }>;
   representatives: Array<{
     id: string;
     slug: string;
@@ -145,6 +157,12 @@ const channelLabels: Record<string, string> = {
   google_business: "Google Business",
 };
 
+const jcCompanyFacebookPages = [
+  { pageId: "912756211920086", pageName: "JC On The MOVE : CoM" },
+  { pageId: "201994456322276", pageName: "JC on the MOVE. com" },
+  { pageId: "111004651273433", pageName: "JC onthe Move .com" },
+] as const;
+
 const blankEdit = {
   headline: "",
   facebookCaption: "",
@@ -186,12 +204,28 @@ export default function AdminMarketingBotPage() {
   const [generateTerritory, setGenerateTerritory] = useState("auto");
   const [attributionVariant, setAttributionVariant] = useState("");
   const [attributionNote, setAttributionNote] = useState("");
+  const [selectedFacebookConnectionIds, setSelectedFacebookConnectionIds] = useState<string[]>([]);
+  const [companyPageTokens, setCompanyPageTokens] = useState<Record<string, string>>({});
+  const [companyImportPending, setCompanyImportPending] = useState(false);
 
   const dashboardQuery = useQuery<Dashboard>({
     queryKey: ["/api/admin/marketing-bot/dashboard"],
     refetchInterval: 30_000,
   });
   const dashboard = dashboardQuery.data;
+  const connectedFacebookPages = useMemo(
+    () => (dashboard?.companyConnections || []).filter((connection) => connection.status === "connected"),
+    [dashboard?.companyConnections],
+  );
+  const connectedFacebookPageKey = connectedFacebookPages.map((connection) => connection.id).join(",");
+
+  useEffect(() => {
+    const available = new Set(connectedFacebookPages.map((connection) => connection.id));
+    setSelectedFacebookConnectionIds((current) => {
+      const retained = current.filter((id) => available.has(id));
+      return retained.length > 0 ? retained : connectedFacebookPages.map((connection) => connection.id);
+    });
+  }, [connectedFacebookPageKey]);
 
   useEffect(() => {
     if (!selectedId && dashboard?.active?.id) setSelectedId(dashboard.active.id);
@@ -251,9 +285,37 @@ export default function AdminMarketingBotPage() {
     success: "New campaign proposal generated",
   });
 
+  const importCompanyFacebookPages = async () => {
+    const pages = jcCompanyFacebookPages.map(({ pageId }) => ({
+      pageId,
+      accessToken: companyPageTokens[pageId]?.trim() || "",
+    }));
+    if (pages.some((page) => !page.accessToken)) {
+      toast({ title: "All three Page tokens are required", variant: "destructive" });
+      return;
+    }
+
+    setCompanyImportPending(true);
+    try {
+      const response = await apiRequest("POST", "/api/admin/marketing-bot/meta/connections/import", { pages });
+      await response.json();
+      setCompanyPageTokens({});
+      await refresh();
+      toast({ title: "JC Facebook Pages connected securely" });
+    } catch (error) {
+      toast({
+        title: "Facebook Pages could not be connected",
+        description: error instanceof Error ? error.message : "Secure import failed",
+        variant: "destructive",
+      });
+    } finally {
+      setCompanyImportPending(false);
+    }
+  };
+
   const companyVariants = campaign?.variants.filter((variant) => variant.is_company) || [];
   const shareKits = campaign?.variants.filter((variant) => !variant.is_company) || [];
-  const companyFacebookReady = Boolean(dashboard?.readiness.find((entry) => entry.channel === "facebook")?.ready);
+  const facebookReady = connectedFacebookPages.length > 0;
   const dirty = Boolean(campaign) && (
     edit.headline !== campaign?.headline ||
     edit.facebookCaption !== campaign?.facebook_caption ||
@@ -270,9 +332,20 @@ export default function AdminMarketingBotPage() {
     toast({ title: `${label} copied` });
   };
 
-  const publicationByChannel = useMemo(() => new Map((campaign?.publications || []).map((publication) => [publication.channel, publication])), [campaign?.publications]);
+  const publicationByChannel = useMemo(() => new Map((campaign?.publications || []).filter((publication) => publication.channel !== "facebook").map((publication) => [publication.channel, publication])), [campaign?.publications]);
+  const facebookPublicationByPage = useMemo(() => new Map(
+    (campaign?.publications || [])
+      .filter((publication) => publication.channel === "facebook" && publication.target_page_id)
+      .map((publication) => [publication.target_page_id as string, publication]),
+  ), [campaign?.publications]);
   const representativeBySlug = useMemo(() => new Map((dashboard?.representatives || []).map((rep) => [rep.slug, rep])), [dashboard?.representatives]);
-  const facebookPublication = publicationByChannel.get("facebook");
+  const selectedFacebookPublications = connectedFacebookPages
+    .filter((page) => selectedFacebookConnectionIds.includes(page.id))
+    .map((page) => facebookPublicationByPage.get(page.pageId));
+  const selectedFacebookPublished = selectedFacebookConnectionIds.length > 0
+    && selectedFacebookPublications.length === selectedFacebookConnectionIds.length
+    && selectedFacebookPublications.every((publication) => publication?.status === "published");
+  const selectedFacebookFailed = selectedFacebookPublications.some((publication) => publication?.status === "failed");
   const isNorthwoodsCampaign = campaign?.brand === "northwoods_moving";
 
   if (dashboardQuery.isLoading) {
@@ -284,7 +357,7 @@ export default function AdminMarketingBotPage() {
       <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-black uppercase tracking-widest text-blue-200">
-            <Sparkles className="h-3.5 w-3.5" /> Campaign Publishing
+            <Sparkles className="h-3.5 w-3.5" /> JC Marketing Bot
           </div>
           <h1 className="mt-3 text-3xl font-black text-white md:text-4xl">Campaign command center</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-400">
@@ -381,26 +454,69 @@ export default function AdminMarketingBotPage() {
                   </div>
                 </div>
 
-                <div className="mt-6 flex flex-wrap gap-2 border-t border-slate-800 pt-5">
+                <div className="mt-6 border-t border-slate-800 pt-5">
+                  {isNorthwoodsCampaign ? (
+                    <div className={`mb-4 rounded-xl border p-4 ${dashboard?.metaPilot.state === "ready" ? "border-emerald-500/30 bg-emerald-500/10" : "border-amber-500/30 bg-amber-500/10"}`}>
+                      <h3 className="text-sm font-bold text-white">Matt Facebook Page handoff</h3>
+                      <p className="mt-1 text-xs text-slate-300">Approval makes this campaign available to Matt; it does not publish. Matt alone can publish it to {dashboard?.metaPilot.authorizedPageName || dashboard?.metaPilot.authorizedPageId || "the configured pilot Page"}.</p>
+                      <p className="mt-2 text-xs text-slate-400">Company publishing, Instagram, Google Business, other Pages, and every other representative are blocked by the server.</p>
+                    </div>
+                  ) : (
+                    <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-bold text-white">JC Facebook Page targets</h3>
+                        <p className="mt-1 text-xs text-blue-100/70">Each checked Page requires its own explicit publish result and permalink.</p>
+                      </div>
+                      <Badge variant="outline" className="border-blue-400/30 text-blue-100">{selectedFacebookConnectionIds.length} selected</Badge>
+                    </div>
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      {connectedFacebookPages.map((page) => {
+                        const publication = facebookPublicationByPage.get(page.pageId);
+                        const checked = selectedFacebookConnectionIds.includes(page.id);
+                        return (
+                          <label key={page.id} className="flex cursor-pointer items-start gap-3 rounded-lg border border-blue-400/15 bg-slate-950/40 p-3">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(value) => setSelectedFacebookConnectionIds((current) => value
+                                ? [...new Set([...current, page.id])]
+                                : current.filter((id) => id !== page.id))}
+                              aria-label={`Publish to ${page.pageName}`}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-bold text-white">{page.pageName}</span>
+                              <span className="mt-1 block text-[11px] text-slate-400">Page {page.pageId}</span>
+                              {publication?.status === "published" && <span className="mt-1 block text-[11px] text-emerald-300">Already published for revision {campaign.revision}</span>}
+                              {publication?.status === "failed" && <span className="mt-1 block text-[11px] text-amber-200">Retry available</span>}
+                            </span>
+                          </label>
+                        );
+                      })}
+                      {!connectedFacebookPages.length && <p className="text-sm text-amber-200">No healthy JC Facebook Page connection is available.</p>}
+                    </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
                   <Button variant="outline" className="border-slate-700" disabled={!dirty || action.isPending || campaign.status === "published"} onClick={() => action.mutate({ method: "PATCH", url: `/api/admin/marketing-bot/campaigns/${campaign.id}`, body: edit, success: "Edits saved; approval reset" })}>Save edits</Button>
                   <Button className="bg-emerald-600 hover:bg-emerald-500" disabled={action.isPending || Boolean(campaign.approved_at) || campaign.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/approve`, success: "Campaign approved" })}><Check className="mr-2 h-4 w-4" />Approve</Button>
                   <Button variant="outline" className="border-slate-700" disabled={action.isPending || campaign.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/skip`, body: { reason: "Skipped from approval queue" }, success: "Campaign skipped" })}>Skip</Button>
-                  {!isNorthwoodsCampaign && <Button className="bg-blue-600 hover:bg-blue-500" disabled={action.isPending || !campaign.approved_at || !companyFacebookReady || facebookPublication?.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/publish`, body: { channels: ["facebook"] }, success: "JC Facebook post published" })}><Send className="mr-2 h-4 w-4" />Post to JC Facebook</Button>}
-                  {!isNorthwoodsCampaign && facebookPublication?.status === "failed" ? <Button variant="outline" className="border-amber-500/40 text-amber-100" disabled={action.isPending} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/retry`, body: { channels: ["facebook"] }, success: "Facebook post retried" })}><RefreshCw className="mr-2 h-4 w-4" />Retry Facebook</Button> : null}
-                </div>
-                {isNorthwoodsCampaign ? (
-                  <div className={`mt-3 rounded-xl border p-3 text-sm ${dashboard?.metaPilot.state === "ready" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-amber-500/30 bg-amber-500/10 text-amber-100"}`}>
-                    <p className="font-bold">Approval hands this campaign to Matt; it does not publish it.</p>
-                    <p className="mt-1 text-xs">Matt can publish the approved Facebook variant only to {dashboard?.metaPilot.authorizedPageName || dashboard?.metaPilot.authorizedPageId || "the configured pilot Page"}. Instagram, company publishing, and every other representative are blocked by the server.</p>
+                  {!isNorthwoodsCampaign && <Button className="bg-blue-600 hover:bg-blue-500" disabled={action.isPending || !campaign.approved_at || !facebookReady || selectedFacebookConnectionIds.length === 0 || selectedFacebookPublished} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/publish`, body: { channels: ["facebook"], facebookConnectionIds: selectedFacebookConnectionIds }, success: "Selected JC Facebook Pages published" })}><Send className="mr-2 h-4 w-4" />Post to selected JC Pages</Button>}
+                  {!isNorthwoodsCampaign && selectedFacebookFailed ? <Button variant="outline" className="border-amber-500/40 text-amber-100" disabled={action.isPending || selectedFacebookConnectionIds.length === 0} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/retry`, body: { channels: ["facebook"], facebookConnectionIds: selectedFacebookConnectionIds }, success: "Selected Facebook Page failures retried" })}><RefreshCw className="mr-2 h-4 w-4" />Retry selected Pages</Button> : null}
                   </div>
-                ) : !companyFacebookReady && <p className="mt-3 flex items-start gap-2 text-xs text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Configure the JC company Facebook Page connection before publishing.</p>}
+                </div>
+                {!isNorthwoodsCampaign && !facebookReady && <p className="mt-3 flex items-start gap-2 text-xs text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Configure the JC Facebook Page connection before publishing. Instagram and Google are not required for this rollout.</p>}
 
-                <div className="mt-6 grid gap-3 md:grid-cols-3">
-                  {companyVariants.map((variant) => {
+                {!isNorthwoodsCampaign && <div className="mt-6 grid gap-3 md:grid-cols-3">
+                  {companyVariants.filter((variant) => variant.channel !== "facebook").map((variant) => {
                     const publication = publicationByChannel.get(variant.channel);
                     return <div key={variant.id} className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><div className="flex items-center justify-between gap-2"><span className="text-sm font-bold text-white">{channelLabels[variant.channel]}</span><StatusBadge status={publication?.status || "not posted"} /></div>{publication?.error_message && <p className="mt-2 text-xs text-red-300">{publication.error_message}</p>}{publication?.external_url && <a className="mt-2 inline-flex items-center gap-1 text-xs text-blue-300" href={publication.external_url} target="_blank" rel="noreferrer">Open post <ExternalLink className="h-3 w-3" /></a>}</div>;
                   })}
-                </div>
+                  {connectedFacebookPages.map((page) => {
+                    const publication = facebookPublicationByPage.get(page.pageId);
+                    return <div key={page.id} className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-bold text-white">{page.pageName}</span><StatusBadge status={publication?.status || "not posted"} /></div>{publication?.error_message && <p className="mt-2 text-xs text-red-300">{publication.error_message}</p>}{publication?.external_url && <a className="mt-2 inline-flex items-center gap-1 text-xs text-blue-300" href={publication.external_url} target="_blank" rel="noreferrer">Open post <ExternalLink className="h-3 w-3" /></a>}</div>;
+                  })}
+                </div>}
               </section>
             </div>
           )}
@@ -462,8 +578,83 @@ export default function AdminMarketingBotPage() {
             </div>
             {Boolean(dashboard?.metaPilot.missing.length || dashboard?.metaPilot.configurationErrors.length) && <div className="mt-3 flex flex-wrap gap-1.5">{[...(dashboard?.metaPilot.missing || []), ...(dashboard?.metaPilot.configurationErrors || [])].map((item) => <code key={item} className="rounded bg-slate-950 px-2 py-1 text-[11px] text-amber-100">{item}</code>)}</div>}
           </div>
+          <div className="mb-5 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-white">Legacy company Facebook Pages (non-Northwoods)</h3>
+                <p className="mt-1 text-sm text-blue-100/70">Company credentials are encrypted separately from Matt’s Page connection. Northwoods campaigns cannot use these Pages, and tokens are never shown here.</p>
+              </div>
+              <Badge variant="outline" className="border-blue-400/30 text-blue-100">{connectedFacebookPages.length} connected</Badge>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {(dashboard?.companyConnections || []).map((connection) => (
+                <div key={connection.id} className="rounded-xl border border-blue-400/15 bg-slate-950/50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-white">{connection.pageName}</p>
+                      <p className="mt-1 text-[11px] text-slate-500">Page {connection.pageId}</p>
+                    </div>
+                    <StatusBadge status={connection.status} />
+                  </div>
+                  {connection.lastVerifiedAt && <p className="mt-3 text-xs text-slate-400">Verified {new Date(connection.lastVerifiedAt).toLocaleString()}</p>}
+                  {connection.lastError && <p className="mt-2 text-xs text-amber-200">{connection.lastError}</p>}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" className="border-slate-700" disabled={action.isPending || connection.status === "disconnected"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/meta/connections/${connection.id}/verify`, success: `${connection.pageName} verified` })}>Verify</Button>
+                    <Button size="sm" variant="outline" className="border-red-500/30 text-red-200" disabled={action.isPending || connection.status === "disconnected"} onClick={() => action.mutate({ method: "DELETE", url: `/api/admin/marketing-bot/meta/connections/${connection.id}`, success: `${connection.pageName} disconnected` })}>Disconnect</Button>
+                  </div>
+                </div>
+              ))}
+              {!dashboard?.companyConnections.length && <p className="text-sm text-amber-200">No company Facebook Pages are connected yet.</p>}
+            </div>
+            <div className="mt-5 rounded-xl border border-blue-400/15 bg-slate-950/50 p-4">
+              <div>
+                <h4 className="font-bold text-white">Secure one-time Page connection</h4>
+                <p className="mt-1 text-xs text-slate-400">Owner-only. Page tokens are verified by Meta, encrypted on the server, never returned, and cleared from this form after import.</p>
+              </div>
+              <div className="mt-4 grid gap-3">
+                {jcCompanyFacebookPages.map((page) => (
+                  <div key={page.pageId} className="grid gap-2 md:grid-cols-[240px_1fr] md:items-center">
+                    <Label htmlFor={`company-page-token-${page.pageId}`} className="text-slate-300">
+                      {page.pageName}
+                      <span className="mt-0.5 block text-[11px] font-normal text-slate-500">Page {page.pageId}</span>
+                    </Label>
+                    <Input
+                      id={`company-page-token-${page.pageId}`}
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={companyPageTokens[page.pageId] || ""}
+                      onChange={(event) => setCompanyPageTokens((current) => ({ ...current, [page.pageId]: event.target.value }))}
+                      placeholder="Meta Page access token"
+                      className="border-slate-700 bg-slate-950"
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  className="bg-blue-600 hover:bg-blue-500"
+                  disabled={companyImportPending || jcCompanyFacebookPages.some((page) => !companyPageTokens[page.pageId]?.trim())}
+                  onClick={importCompanyFacebookPages}
+                >
+                  {companyImportPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                  Verify and encrypt all three Pages
+                </Button>
+                <p className="text-xs text-slate-500">Available only while the temporary server import gate is enabled.</p>
+              </div>
+            </div>
+          </div>
           <div className="grid gap-4 md:grid-cols-3">
-            {(dashboard?.readiness || []).map((connection) => <div key={connection.channel} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><div className="flex items-center justify-between"><h3 className="font-bold text-white">{channelLabels[connection.channel]}</h3>{connection.ready ? <CheckCircle2 className="h-5 w-5 text-emerald-400" /> : <AlertTriangle className="h-5 w-5 text-amber-400" />}</div><p className="mt-3 text-sm text-slate-400">{connection.note}</p>{connection.missing.length > 0 && <div className="mt-3 space-y-1">{connection.missing.map((name) => <code key={name} className="block rounded bg-slate-950 px-2 py-1 text-[11px] text-slate-400">{name}</code>)}</div>}</div>)}
+            {(dashboard?.readiness || []).map((connection) => {
+              const pilotDisabled = connection.channel !== "facebook";
+              const pilotNote = connection.channel === "instagram"
+                ? "Disabled for the Matt Page pilot. No Instagram product, token, or publishing path is enabled."
+                : connection.channel === "google_business"
+                  ? "Disabled for the Matt Page pilot. Northwoods approval routes only to Matt’s authorized Facebook Page."
+                  : connection.note;
+              return <div key={connection.channel} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><div className="flex items-center justify-between gap-3"><h3 className="font-bold text-white">{channelLabels[connection.channel]}</h3>{pilotDisabled ? <Badge variant="outline" className="border-slate-600 text-slate-300">Pilot disabled</Badge> : connection.ready ? <CheckCircle2 className="h-5 w-5 text-emerald-400" /> : <AlertTriangle className="h-5 w-5 text-amber-400" />}</div><p className="mt-3 text-sm text-slate-400">{pilotNote}</p>{!pilotDisabled && connection.missing.length > 0 && <div className="mt-3 space-y-1">{connection.missing.map((name) => <code key={name} className="block rounded bg-slate-950 px-2 py-1 text-[11px] text-slate-400">{name}</code>)}</div>}</div>;
+            })}
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2"><div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><h3 className="font-bold text-white">AI campaign planner</h3><p className="mt-2 text-sm text-slate-400">Model: {dashboard?.ai.model}</p><p className="mt-1 text-sm text-slate-400">{dashboard?.ai.ready ? "AI Gateway connected" : "AI key missing; deterministic campaign copy remains available"}</p></div><div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><h3 className="font-bold text-white">Autopilot guardrail</h3><p className="mt-2 text-sm text-slate-400">Scheduler: {dashboard?.scheduler.enabled ? "on" : "off"}</p><p className="mt-1 text-sm text-slate-400">Automatic publishing: off. Every campaign requires owner/admin approval.</p></div></div>
         </TabsContent>

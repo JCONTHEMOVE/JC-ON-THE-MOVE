@@ -1,16 +1,25 @@
 import crypto from "crypto";
 import { z } from "zod";
+import type { MarketingBotDraftOutput, MarketingBotTerritory } from "@shared/marketingBot";
 import { pool } from "../db";
 import { getAppUrl } from "../appUrl";
 import {
   MarketingProviderError,
   publishFacebookPage,
 } from "./marketingChannels";
-import { ensureMarketingBotSchema } from "./marketingBot";
+import {
+  assertMarketingTerritoryAdsEnabled,
+  ensureMarketingBotSchema,
+} from "./marketingBot";
 import {
   appendNorthwoodsCampaignFacts,
   validateNorthwoodsCampaignSafety,
 } from "./northwoodsCampaignPolicy";
+import {
+  appendTrustedCampaignFacts,
+  buildCampaignKey,
+  validateCampaignSafety,
+} from "./marketingBotPolicy";
 import {
   assertMarketingMetaEncryptionConfigured,
   decryptMarketingMetaSecret,
@@ -408,13 +417,24 @@ export async function verifyMetaPageConnection(userId: string) {
   }
 }
 
+async function approvedPromo(code: string | null) {
+  if (!code) return true;
+  const result = await pool.query(`
+    SELECT 1 FROM promo_codes
+    WHERE UPPER(code)=UPPER($1) AND is_active=TRUE
+      AND (expires_at IS NULL OR expires_at > NOW())
+      AND (max_uses IS NULL OR uses_count < max_uses)
+    LIMIT 1
+  `, [code]);
+  return Boolean(result.rows[0]);
+}
+
 async function repVariant(userId: string, variantId: string) {
   const rep = await resolveAllowedMarketingRep(userId);
   const result = await pool.query(`
     SELECT v.*, c.revision AS campaign_revision, c.approved_at, c.status AS campaign_status,
            c.headline, c.instagram_caption, c.google_business_summary, c.short_caption,
-           c.cta, c.service, c.territory, c.rationale, c.facts, c.feed_image_url,
-           c.brand, c.northwoods_market_id
+           c.cta, c.service, c.territory, c.rationale, c.facts, c.feed_image_url, c.brand
     FROM marketing_bot_variants v
     JOIN marketing_bot_campaigns c ON c.id=v.campaign_id
     WHERE v.id=$1 AND v.rep_id=$2 AND v.is_company=FALSE AND v.channel='facebook'
@@ -431,13 +451,38 @@ async function repVariant(userId: string, variantId: string) {
   return { rep, variant };
 }
 
-function trustedRepCaption(variant: any, rawCaption: string) {
-  const caption = appendNorthwoodsCampaignFacts({
-    text: rawCaption,
-    destinationUrl: variant.destination_url,
-    marketLabel: variant.facts?.northwoodsMarketSlug || "Northwoods",
+function trustedRepCaption(variant: any, rawCaption: string, promotionActive: boolean) {
+  const draft: MarketingBotDraftOutput = {
+    selectedCandidateId: buildCampaignKey(variant.service, variant.territory),
+    headline: variant.headline,
+    facebookCaption: rawCaption,
+    instagramCaption: variant.instagram_caption,
+    googleBusinessSummary: variant.google_business_summary,
+    shortCaption: variant.short_caption,
+    cta: variant.cta,
+    visualDirection: variant.facts?.visualDirection || "Use the approved branded JC creative.",
+    rationale: variant.rationale,
+  };
+  const trusted = appendTrustedCampaignFacts({
+    draft,
+    phone: process.env.COMPANY_PHONE?.trim() || "(906) 285-9312",
+    campaignUrl: variant.destination_url,
+    promoCode: variant.promo_code,
   });
-  const safety = validateNorthwoodsCampaignSafety({
+  const requiredNorthwoodsFacts = appendNorthwoodsCampaignFacts({
+    text: "",
+    destinationUrl: variant.destination_url,
+    marketLabel: "Northwoods",
+  });
+  const expandedCaption = appendNorthwoodsCampaignFacts({
+    text: trusted.facebookCaption,
+    destinationUrl: variant.destination_url,
+    marketLabel: "Northwoods",
+  });
+  const caption = expandedCaption.length <= 2000
+    ? expandedCaption
+    : `${requiredNorthwoodsFacts}\n\n${trusted.facebookCaption}`.slice(0, 2000);
+  const northwoodsSafety = validateNorthwoodsCampaignSafety({
     headline: variant.headline,
     facebookCaption: caption,
     instagramCaption: variant.instagram_caption,
@@ -445,6 +490,18 @@ function trustedRepCaption(variant: any, rawCaption: string) {
     shortCaption: variant.short_caption,
     destinationUrl: variant.destination_url,
   });
+  const baseSafety = validateCampaignSafety({
+    draft: { ...trusted, facebookCaption: caption },
+    phone: process.env.COMPANY_PHONE?.trim() || "(906) 285-9312",
+    campaignUrl: variant.destination_url,
+    promoCode: variant.promo_code,
+    promotionActive,
+    duplicate: false,
+  });
+  const safety = {
+    passed: baseSafety.passed && northwoodsSafety.passed,
+    checks: [...baseSafety.checks, ...northwoodsSafety.checks.map((check) => ({ ...check, key: `northwoods_${check.key}` }))],
+  };
   if (!safety.passed) {
     throw new MarketingRepAccessError(`Safety check failed: ${safety.checks.filter((check) => !check.ok).map((check) => check.label).join(", ")}`, 409);
   }
@@ -453,7 +510,7 @@ function trustedRepCaption(variant: any, rawCaption: string) {
 
 export async function saveRepVariantCaption(userId: string, variantId: string, rawCaption: string) {
   const { rep, variant } = await repVariant(userId, variantId);
-  const trusted = trustedRepCaption(variant, rawCaption);
+  const trusted = trustedRepCaption(variant, rawCaption, await approvedPromo(variant.promo_code));
   let saved: any = null;
   for (let attempt = 0; attempt < 2 && !saved; attempt += 1) {
     try {
@@ -478,16 +535,7 @@ export async function saveRepVariantCaption(userId: string, variantId: string, r
 export async function publishRepVariant(userId: string, variantId: string, retryFailed = false) {
   assertMetaOAuthReady();
   const { rep, variant } = await repVariant(userId, variantId);
-  const capability = await pool.query<{ ads_enabled: boolean }>(`
-    SELECT c.ads_enabled
-    FROM northwoods_markets m
-    JOIN service_area_capabilities c ON c.code=m.service_area_code
-    WHERE m.id=$1 AND m.active=TRUE
-    LIMIT 1
-  `, [variant.northwoods_market_id]);
-  if (capability.rows[0]?.ads_enabled !== true) {
-    throw new MarketingRepAccessError("Advertising is paused for this Northwoods market", 409);
-  }
+  await assertMarketingTerritoryAdsEnabled(variant.territory as MarketingBotTerritory);
   const connection = await storedConnection(rep.id);
   if (!connection?.encrypted_page_token || connection.status !== "connected") {
     throw new MarketingRepAccessError("Reconnect an active Facebook Page before publishing", 409);
@@ -507,7 +555,7 @@ export async function publishRepVariant(userId: string, variantId: string, retry
   const revision = revisionResult.rows[0] || null;
   const repRevision = Number(revision?.revision || 0);
   const caption = String(revision?.caption || variant.caption);
-  const trusted = trustedRepCaption(variant, caption);
+  const trusted = trustedRepCaption(variant, caption, await approvedPromo(variant.promo_code));
 
   const existingResult = await pool.query(`
     SELECT * FROM marketing_bot_rep_publications
@@ -613,10 +661,10 @@ export async function getRepMarketingBotDashboard(userId: string) {
         FROM marketing_bot_events e WHERE e.variant_id=v.id
       ) ev ON TRUE
       WHERE v.rep_id=$1 AND v.is_company=FALSE AND v.channel='facebook'
-        AND c.approved_at IS NOT NULL AND c.status <> 'skipped'
+        AND c.brand=$2 AND c.approved_at IS NOT NULL AND c.status <> 'skipped'
       ORDER BY c.approved_at DESC
       LIMIT 20
-    `, [rep.id]),
+    `, [rep.id, getMarketingMetaPilotPolicy().brand]),
   ]);
   const connectionAuthorized = Boolean(connection && isMarketingMetaPilotPage(connection.page_id));
   const setupState = !oauthReadiness.ready

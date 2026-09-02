@@ -29,7 +29,7 @@ export function getGiftCardBonusStartAt(): Date | null {
 
 export function getGiftCardBonusReadiness() {
   const requested = process.env.GIFT_CARD_BONUS_ENABLED === "true";
-  const publicRequested = process.env.GIFT_CARD_BONUS_PUBLIC_ENABLED === "true";
+  const publicRequested = process.env.GIFT_CARD_BONUS_PUBLIC_MARKETING_ENABLED === "true";
   const startAt = getGiftCardBonusStartAt();
   const blockers: string[] = [];
   if (!requested) blockers.push("GIFT_CARD_BONUS_ENABLED must be true");

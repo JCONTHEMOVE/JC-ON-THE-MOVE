@@ -8,7 +8,7 @@ import {
 
 const names = [
   "GIFT_CARD_BONUS_ENABLED",
-  "GIFT_CARD_BONUS_PUBLIC_ENABLED",
+  "GIFT_CARD_BONUS_PUBLIC_MARKETING_ENABLED",
   "GIFT_CARD_BONUS_START_AT",
   "SQUARE_ACCESS_TOKEN",
   "SQUARE_LOCATION_ID",
@@ -51,7 +51,7 @@ try {
     blockers: [],
   });
 
-  process.env.GIFT_CARD_BONUS_PUBLIC_ENABLED = "true";
+  process.env.GIFT_CARD_BONUS_PUBLIC_MARKETING_ENABLED = "true";
   assert.equal(getGiftCardBonusReadiness().publicEnabled, true);
 
   delete process.env.SQUARE_PRODUCTION_LOCATION_ID;

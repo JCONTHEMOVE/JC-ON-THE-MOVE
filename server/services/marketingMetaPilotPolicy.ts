@@ -8,6 +8,7 @@ export const MARKETING_META_PILOT_SCOPES = [
   "pages_manage_posts",
   "pages_read_engagement",
 ] as const;
+export const MARKETING_META_PILOT_REDIRECT_URI = "https://www.jconthemove.com/api/crew/marketing-bot/meta/callback";
 
 const REQUIRED_CONFIGURATION = [
   "META_APP_ID",
@@ -29,6 +30,12 @@ export function getMarketingMetaPilotPolicy(env: PilotEnvironment = process.env)
   const configurationErrors: string[] = [];
   if (configuredSlugs.length !== 1 || configuredSlugs[0] !== MARKETING_META_PILOT_REP_SLUG) {
     configurationErrors.push("MARKETING_META_PILOT_REP_SLUGS must be exactly matt during the pilot");
+  }
+  if (env.META_OAUTH_REDIRECT_URI?.trim() && env.META_OAUTH_REDIRECT_URI.trim() !== MARKETING_META_PILOT_REDIRECT_URI) {
+    configurationErrors.push(`META_OAUTH_REDIRECT_URI must be exactly ${MARKETING_META_PILOT_REDIRECT_URI}`);
+  }
+  if (env.MARKETING_META_PILOT_PAGE_ID?.trim() && !/^\d+$/.test(env.MARKETING_META_PILOT_PAGE_ID.trim())) {
+    configurationErrors.push("MARKETING_META_PILOT_PAGE_ID must be a numeric Facebook Page ID");
   }
 
   return {
@@ -83,4 +90,25 @@ export function evaluateCompanyPublisherForCampaign(brand: unknown) {
     };
   }
   return { allowed: true, reason: null };
+}
+
+export function getMarketingMetaPilotVariantPlan(brand: unknown) {
+  if (!isMarketingMetaPilotCampaign(brand)) return null;
+  return {
+    companyChannels: [] as const,
+    representativeSlugs: [MARKETING_META_PILOT_REP_SLUG] as const,
+    representativeChannels: [MARKETING_META_PILOT_CHANNEL] as const,
+  };
+}
+
+export function getMarketingMetaPilotAdminState(input: {
+  configured: boolean;
+  connectionStatus?: string | null;
+  connectionAuthorized?: boolean;
+}) {
+  if (!input.configured) return "owner_setup_required" as const;
+  if (input.connectionStatus === "connected" && input.connectionAuthorized) return "ready" as const;
+  if (input.connectionStatus === "reauth_required") return "reauthorization_required" as const;
+  if (input.connectionStatus && !input.connectionAuthorized) return "authorized_page_mismatch" as const;
+  return "awaiting_matt_oauth" as const;
 }

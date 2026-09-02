@@ -11,6 +11,14 @@ import {
 import { users } from "@shared/schema";
 import { db } from "../db";
 import { escapeMarketingCampaignHtml } from "../services/marketingCampaignPolicy";
+import {
+  disconnectCompanyMetaConnection,
+  importCompanyMetaConnections,
+  listCompanyMetaConnections,
+  verifyCompanyMetaConnection,
+} from "../services/marketingCompanyMeta";
+import { companyMetaPageCredentialsSchema } from "../services/marketingCompanyMetaPolicy";
+import { getMarketingMetaPilotAdminState } from "../services/marketingMetaPilotPolicy";
 import { ipRateLimit } from "../lib/persistentRateLimit";
 import {
   generateMarketingBotCampaign,
@@ -47,7 +55,7 @@ const router = Router();
 async function requireMarketingAdmin(req: Request, res: Response, next: NextFunction) {
   try {
     const sessionUser = (req as any).user || (req as any).currentUser;
-    const sessionUserId = (req as any).session?.userId;
+    const sessionUserId = (req.session as any)?.userId;
     const user = sessionUser || (sessionUserId
       ? (await db.select().from(users).where(eq(users.id, sessionUserId)).limit(1))[0]
       : null);
@@ -65,7 +73,7 @@ async function requireMarketingAdmin(req: Request, res: Response, next: NextFunc
 async function requireMarketingEmployee(req: Request, res: Response, next: NextFunction) {
   try {
     const sessionUser = (req as any).user || (req as any).currentUser;
-    const sessionUserId = (req as any).session?.userId;
+    const sessionUserId = (req.session as any)?.userId;
     const user = sessionUser || (sessionUserId
       ? (await db.select().from(users).where(eq(users.id, sessionUserId)).limit(1))[0]
       : null);
@@ -108,20 +116,30 @@ const publishRateLimit = ipRateLimit({
 
 router.get("/admin/marketing-bot/dashboard", requireMarketingAdmin, async (_req, res) => {
   try {
-    const [dashboard, representatives] = await Promise.all([
+    const [dashboard, representatives, companyConnections] = await Promise.all([
       listMarketingBotDashboard(),
       listOwnerRepPublishingOverview(),
+      listCompanyMetaConnections(),
     ]);
+    const connectedPages = companyConnections.filter((connection) => connection.status === "connected");
+    const readiness = dashboard.readiness.map((entry) => entry.channel === "facebook"
+      ? {
+          ...entry,
+          ready: connectedPages.length > 0,
+          missing: connectedPages.length > 0 ? [] : ["JC Facebook Page connection"],
+          note: connectedPages.length > 0
+            ? `${connectedPages.length} JC Facebook Page${connectedPages.length === 1 ? " is" : "s are"} connected for explicit owner publishing.`
+            : "Connect at least one approved JC Facebook Page before publishing.",
+        }
+      : entry);
     const metaPilot = getMetaPilotAdminSetup();
-    const pilotRep = representatives.find((representative) => representative.pilotAllowed);
-    if (metaPilot.configured && pilotRep?.connection?.status === "connected" && pilotRep.connection.authorizedForPilot) {
-      metaPilot.state = "ready";
-    } else if (metaPilot.configured && pilotRep?.connection?.status === "reauth_required") {
-      metaPilot.state = "reauthorization_required";
-    } else if (metaPilot.configured && pilotRep?.connection && !pilotRep.connection.authorizedForPilot) {
-      metaPilot.state = "authorized_page_mismatch";
-    }
-    res.json({ ...dashboard, representatives, metaPilot });
+    const matt = representatives.find((representative) => representative.pilotAllowed);
+    const metaPilotState = getMarketingMetaPilotAdminState({
+      configured: metaPilot.configured,
+      connectionStatus: matt?.connection?.status,
+      connectionAuthorized: matt?.connection?.authorizedForPilot,
+    });
+    res.json({ ...dashboard, readiness, representatives, companyConnections, metaPilot: { ...metaPilot, state: metaPilotState } });
   } catch (error) {
     console.error("[marketing-bot] dashboard failed:", error instanceof Error ? error.message : error);
     res.status(500).json({ error: "Failed to load Marketing Bot" });
@@ -201,8 +219,11 @@ router.post("/admin/marketing-bot/campaigns/:id/skip", requireMarketingAdmin, as
 router.post("/admin/marketing-bot/campaigns/:id/publish", requireMarketingAdmin, async (req, res) => {
   try {
     const id = z.string().uuid().parse(req.params.id);
-    const input = z.object({ channels: z.array(marketingBotChannelSchema).min(1).max(3).default(["facebook"]) }).parse(req.body || {});
-    const campaign = await publishMarketingBotCampaign(id, actorId(req), false, input.channels);
+    const input = z.object({
+      channels: z.array(marketingBotChannelSchema).min(1).max(3).default(["facebook"]),
+      facebookConnectionIds: z.array(z.string().uuid()).max(10).default([]),
+    }).parse(req.body || {});
+    const campaign = await publishMarketingBotCampaign(id, actorId(req), false, input.channels, input.facebookConnectionIds);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     res.json({ campaign });
   } catch (error) {
@@ -214,13 +235,46 @@ router.post("/admin/marketing-bot/campaigns/:id/publish", requireMarketingAdmin,
 router.post("/admin/marketing-bot/campaigns/:id/retry", requireMarketingAdmin, async (req, res) => {
   try {
     const id = z.string().uuid().parse(req.params.id);
-    const input = z.object({ channels: z.array(marketingBotChannelSchema).min(1).max(3).default(["facebook"]) }).parse(req.body || {});
-    const campaign = await publishMarketingBotCampaign(id, actorId(req), true, input.channels);
+    const input = z.object({
+      channels: z.array(marketingBotChannelSchema).min(1).max(3).default(["facebook"]),
+      facebookConnectionIds: z.array(z.string().uuid()).max(10).default([]),
+    }).parse(req.body || {});
+    const campaign = await publishMarketingBotCampaign(id, actorId(req), true, input.channels, input.facebookConnectionIds);
     if (!campaign) return res.status(404).json({ error: "Campaign not found" });
     res.json({ campaign });
   } catch (error) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: "Invalid campaign" });
     res.status(409).json({ error: error instanceof Error ? error.message : "Retry failed" });
+  }
+});
+
+router.post("/admin/marketing-bot/meta/connections/import", requireMarketingAdmin, oauthRateLimit, async (req, res) => {
+  try {
+    const input = companyMetaPageCredentialsSchema.parse(req.body || {});
+    res.status(201).json({ connections: await importCompanyMetaConnections(actorId(req), input.pages) });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: "Invalid Facebook Page credentials", issues: error.issues });
+    res.status(409).json({ error: error instanceof Error ? error.message : "Facebook Pages could not be connected" });
+  }
+});
+
+router.post("/admin/marketing-bot/meta/connections/:id/verify", requireMarketingAdmin, oauthRateLimit, async (req, res) => {
+  try {
+    const connectionId = z.string().uuid().parse(req.params.id);
+    res.json({ connection: await verifyCompanyMetaConnection(actorId(req), connectionId) });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: "Invalid Facebook Page connection" });
+    res.status(409).json({ error: error instanceof Error ? error.message : "Facebook Page verification failed" });
+  }
+});
+
+router.delete("/admin/marketing-bot/meta/connections/:id", requireMarketingAdmin, oauthRateLimit, async (req, res) => {
+  try {
+    const connectionId = z.string().uuid().parse(req.params.id);
+    res.json(await disconnectCompanyMetaConnection(actorId(req), connectionId));
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: "Invalid Facebook Page connection" });
+    res.status(409).json({ error: error instanceof Error ? error.message : "Facebook Page could not be disconnected" });
   }
 });
 
