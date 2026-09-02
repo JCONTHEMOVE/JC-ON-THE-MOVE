@@ -11,6 +11,7 @@
 
 import { EARN_RATE_PER_DOLLAR } from "../../shared/rewards";
 import { CANONICAL_PRICING_2026_08 } from "../../shared/canonicalPricing";
+import { REGULAR_PAYMENT_JCMOVES_BONUS_PERCENT } from "../../shared/paymentIncentives";
 
 /** Canonical per-service minimum line-subtotal floors (USD). */
 export const SERVICE_LINE_MINIMUMS: Record<string, number> = {
@@ -60,7 +61,7 @@ export interface BookingPricingItemInput {
   /** Task #218 — labor-hours breakdown for the customer-facing card.
    *  Always populated by routes/bookings.ts:resolveItems before the
    *  engine sees the input so the response can render
-   *  "2 movers × 4 hrs at $85/hr". Optional here only so unit tests of
+   *  "2 movers × 4 hrs at the active rate". Optional here only so unit tests of
    *  the pure engine don't have to fabricate it. */
   laborMeta?: {
     crewSize: number;
@@ -86,6 +87,8 @@ export interface BookingRewardInput {
   bonusMultiplier: number;
   /** True iff a discount-override audit row exists for the booking. */
   hasOverride: boolean;
+  /** Set to 0 for crypto rails; regular bookings default to the site-wide 5%. */
+  regularPaymentBonusPercent?: number;
 }
 
 export interface BookingRewardResult {
@@ -94,6 +97,7 @@ export interface BookingRewardResult {
   totalAward: number;
   /** The multiplier actually applied (1 when override / no bundle). */
   appliedMultiplier: number;
+  regularPaymentBonus: number;
 }
 
 export function computeBookingReward(input: BookingRewardInput): BookingRewardResult {
@@ -106,7 +110,7 @@ export function computeBookingReward(input: BookingRewardInput): BookingRewardRe
   // customer's earn while still blocking runaway bonus economics on
   // overrides and zero-priced bookings.
   if (finalTotal <= 0) {
-    return { flatAward: baseFlat, earnAward: 0, totalAward: baseFlat, appliedMultiplier: 1 };
+    return { flatAward: baseFlat, earnAward: 0, totalAward: baseFlat, appliedMultiplier: 1, regularPaymentBonus: 0 };
   }
   const m = hasOverride
     ? 1
@@ -114,13 +118,17 @@ export function computeBookingReward(input: BookingRewardInput): BookingRewardRe
       ? bonusMultiplier
       : 1;
   const baseEarn = Math.round(finalTotal * earnRate);
+  const bonusPercent = Number.isFinite(input.regularPaymentBonusPercent)
+    ? Math.max(0, Number(input.regularPaymentBonusPercent))
+    : REGULAR_PAYMENT_JCMOVES_BONUS_PERCENT;
+  const regularPaymentBonus = Math.round(baseEarn * bonusPercent / 100);
   // Apply the multiplier once, on the combined base, then round once.
-  const totalAward = Math.round((baseFlat + baseEarn) * m);
+  const totalAward = Math.round((baseFlat + baseEarn + regularPaymentBonus) * m);
   // Split the total proportionally so the issuer can credit two reward
   // rows (flat vs earn) that still sum to the unified total.
   const flatAward = Math.min(totalAward, Math.round(baseFlat * m));
   const earnAward = Math.max(0, totalAward - flatAward);
-  return { flatAward, earnAward, totalAward, appliedMultiplier: m };
+  return { flatAward, earnAward, totalAward, appliedMultiplier: m, regularPaymentBonus };
 }
 
 export interface BundleDefinitionLike {
@@ -184,13 +192,16 @@ export interface ComputeBookingQuoteOptions {
   earnRatePerDollar?: number;
   /** Override the global guardrail percentage (test seam). */
   maxDiscountPct?: number;
+  /** Active-version service floors. Keeps owner-publishable pricing out of
+   * code-level defaults until the version is actually activated. */
+  serviceMinimums?: Record<string, number>;
 }
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function computeLineSubtotal(item: BookingPricingItemInput): number {
+function computeLineSubtotal(item: BookingPricingItemInput, serviceMinimums = SERVICE_LINE_MINIMUMS): number {
   const qty = Math.max(0, Number.isFinite(item.quantity) ? item.quantity : 0);
   const unit = Math.max(0, Number.isFinite(item.unitPrice) ? item.unitPrice : 0);
   const raw = round2(qty * unit);
@@ -198,7 +209,7 @@ function computeLineSubtotal(item: BookingPricingItemInput): number {
   // priceMode is "quote" AND raw is 0 — those are still pending pricing and
   // are not yet a charge. Once a quoted line has any positive amount, we
   // clamp it up to the floor.
-  const floor = SERVICE_LINE_MINIMUMS[item.serviceCode];
+  const floor = serviceMinimums[item.serviceCode];
   if (floor != null && raw > 0 && raw < floor) {
     return round2(floor);
   }
@@ -264,7 +275,7 @@ export function computeBookingQuote(
   const items: BookingPricingItemResult[] = (rawItems || []).map((item) => ({
     ...item,
     discountEligible: item.discountEligible !== false,
-    lineSubtotal: computeLineSubtotal(item),
+    lineSubtotal: computeLineSubtotal(item, options.serviceMinimums || SERVICE_LINE_MINIMUMS),
     crewSize: item.laborMeta?.crewSize,
     laborHours: item.laborMeta?.laborHours,
     ratePerHour: item.laborMeta?.ratePerHour,

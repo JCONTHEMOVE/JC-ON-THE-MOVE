@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,8 +11,6 @@ import { ArrowLeft, Truck, Clock, Users, MapPin, CalendarDays, Shield, Loader2, 
 import { DatePicker } from "@/components/ui/date-picker";
 import promoImage from "@assets/file_00000000839871fd8e13378301744f2e_(1)_1771260918919.png";
 import truckImage from "@assets/file_00000000219471fdb0d2dab84a32d060_1771261914341.png";
-import { useCart } from "@/hooks/useCart";
-import { FloatingCartButton } from "@/components/cart-button";
 
 interface AddOnItem {
   id: string;
@@ -28,17 +25,7 @@ export default function PromoHalfDayPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [addOns, setAddOns] = useState<AddOnItem[]>([]);
-  const [showJewelry, setShowJewelry] = useState(false);
   const [payWithBtc, setPayWithBtc] = useState(false);
-  const { addItem: addToCart, isInCart, removeItem: removeFromCart, itemCount: cartCount } = useCart();
-  const promoCartId = "promo-half-day";
-  const promoInCart = isInCart(promoCartId);
-
-  const { data: jewelryItems } = useQuery<any[]>({
-    queryKey: ["/api/jewelry"],
-  });
-
-  const availableJewelry = jewelryItems?.filter((j: any) => j.inStock && !j.soldAt && j.price) || [];
 
   const [form, setForm] = useState({
     firstName: "",
@@ -55,12 +42,13 @@ export default function PromoHalfDayPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const basePrice = 1200;
-  const btcPrice = 1020;   // 15% off with Bitcoin payment
+  const basePrice = 600;
+  const btcPrice = 570;   // Site-wide 5% crypto discount
   const addOnsSubtotal = addOns.reduce((sum, item) => sum + item.price, 0);
   const discount = addOns.length > 0 ? Math.round(addOnsSubtotal * 0.1 * 100) / 100 : 0;
-  const serviceBase = payWithBtc ? btcPrice : basePrice;
-  const totalPrice = serviceBase + addOnsSubtotal - discount;
+  const serviceBase = basePrice;
+  const standardTotal = serviceBase + addOnsSubtotal - discount;
+  const totalPrice = payWithBtc ? Math.round(standardTotal * 0.95 * 100) / 100 : standardTotal;
 
   const toggleAddOn = (item: AddOnItem) => {
     setAddOns((prev) => {
@@ -108,6 +96,7 @@ export default function PromoHalfDayPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
+          paymentMethod: payWithBtc ? "crypto" : "card",
           addOns: addOns.map((a) => ({ id: a.id, name: a.name, price: a.price, type: a.type })),
         }),
       });
@@ -154,14 +143,14 @@ export default function PromoHalfDayPage() {
           <Card className="bg-blue-900/40 border-blue-500/30 text-center">
             <CardContent className="pt-5 pb-4">
               <Users className="h-8 w-8 text-blue-300 mx-auto mb-2" />
-              <p className="text-white font-bold text-lg">5 Movers</p>
+              <p className="text-white font-bold text-lg">3 Movers</p>
               <p className="text-blue-200 text-sm">Full professional crew</p>
             </CardContent>
           </Card>
           <Card className="bg-amber-900/40 border-amber-500/30 text-center">
             <CardContent className="pt-5 pb-4">
               <Clock className="h-8 w-8 text-amber-300 mx-auto mb-2" />
-              <p className="text-white font-bold text-lg">3 Hours</p>
+              <p className="text-white font-bold text-lg">4 Hours</p>
               <p className="text-amber-200 text-sm">Travel included</p>
             </CardContent>
           </Card>
@@ -172,7 +161,7 @@ export default function PromoHalfDayPage() {
                 <>
                   <p className="text-slate-400 text-sm line-through">${basePrice}</p>
                   <p className="text-orange-400 font-black text-xl">${btcPrice}</p>
-                  <p className="text-orange-300 text-xs">Bitcoin - 15% off</p>
+                  <p className="text-orange-300 text-xs">Crypto - 5% off</p>
                 </>
               ) : (
                 <>
@@ -195,7 +184,7 @@ export default function PromoHalfDayPage() {
         >
           <span className="flex items-center gap-2 font-bold">
             <Bitcoin className="h-4 w-4" />
-            Pay with Bitcoin - Save 15% (${basePrice - btcPrice} off)
+            Pay with crypto - Save 5% (${basePrice - btcPrice} off)
           </span>
           <span className={`text-xs font-black px-2.5 py-1 rounded-full ${payWithBtc ? "bg-orange-500 text-white" : "bg-orange-500/30 text-orange-300"}`}>
             {payWithBtc ? "Selected" : "Tap to select"}
@@ -265,70 +254,11 @@ export default function PromoHalfDayPage() {
               );
             })}
 
-            {/* Browse Jewelry Toggle */}
-            <div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowJewelry(!showJewelry)}
-                className="w-full bg-slate-800/60 border-amber-500/40 text-amber-200 hover:bg-amber-900/30 hover:text-amber-100"
-              >
-                <Gem className="h-4 w-4 mr-2" />
-                {showJewelry ? "Hide" : "Browse"} Ashley's Shop
-                <span className="ml-2 text-xs text-amber-400">({availableJewelry.length} items)</span>
+            <Link href="/handmade-jewels-by-ashley">
+              <Button type="button" variant="outline" className="w-full bg-slate-800/60 border-amber-500/40 text-amber-200 hover:bg-amber-900/30 hover:text-amber-100">
+                <Gem className="h-4 w-4 mr-2" /> Browse Ashley's Shop in the site-wide cart
               </Button>
-            </div>
-
-            {/* Jewelry Items Grid */}
-            {showJewelry && availableJewelry.length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {availableJewelry.map((item: any) => {
-                  const selected = isAddOnSelected(`jewelry-${item.id}`);
-                  const itemPrice = parseFloat(item.price);
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() =>
-                        toggleAddOn({
-                          id: `jewelry-${item.id}`,
-                          name: item.title,
-                          price: itemPrice,
-                          image: item.imageUrl || "",
-                          type: "jewelry",
-                        })
-                      }
-                      className={`relative rounded-xl overflow-hidden cursor-pointer transition-all duration-200 ${
-                        selected
-                          ? "ring-2 ring-purple-400 shadow-lg shadow-purple-500/20"
-                          : "hover:ring-1 hover:ring-purple-500/50"
-                      }`}
-                    >
-                      <div className="aspect-square bg-slate-800">
-                        <img
-                          src={item.imageUrl}
-                          alt={item.title}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div className="p-2 bg-slate-800/90">
-                        <p className="text-white text-xs font-medium truncate">{item.title}</p>
-                        <div className="flex items-center gap-1">
-                          <span className="text-yellow-400 font-bold text-sm">${itemPrice.toFixed(2)}</span>
-                          {selected && (
-                            <span className="text-purple-300 text-xs">-10%</span>
-                          )}
-                        </div>
-                      </div>
-                      {selected && (
-                        <div className="absolute top-2 right-2 bg-purple-500 rounded-full p-1">
-                          <Check className="h-3 w-3 text-white" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            </Link>
 
             {/* Cart Summary */}
             {addOns.length > 0 && (
@@ -340,7 +270,7 @@ export default function PromoHalfDayPage() {
                   </div>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between text-slate-300">
-                      <span>Half Day Move (5 Movers - 3 hrs)</span>
+                      <span>Half Day Move (3 Movers - 4 hrs)</span>
                       <span className="font-medium">
                         {payWithBtc ? (
                           <>
@@ -555,58 +485,19 @@ export default function PromoHalfDayPage() {
                 <div className="flex-1 border-t border-slate-600" />
               </div>
 
-              <Button
-                type="button"
-                variant={promoInCart ? "default" : "outline"}
-                className={`w-full py-5 text-sm font-semibold ${
-                  promoInCart
-                    ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                    : "border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/30"
-                }`}
-                onClick={() => {
-                  if (promoInCart) {
-                    removeFromCart(promoCartId);
-                    toast({ title: "Removed from cart" });
-                  } else {
-                    addToCart({
-                      id: promoCartId,
-                      name: `Half Day Package - 5 Movers - 3 Hours${payWithBtc ? " (BTC -15%)" : ""}`,
-                      price: serviceBase,
-                      image: promoImage,
-                      type: "promo",
-                    });
-                    toast({ title: "Added to cart!", description: cartCount > 0 ? "Stacking discount applied at checkout!" : "Add more items for 10% stacking discount" });
-                  }
-                }}
-              >
-                {promoInCart ? (
-                  <><Check className="h-4 w-4 mr-2" /> In Cart{cartCount > 1 ? " - 10% Bundle!" : ""}</>
-                ) : (
-                  <><ShoppingCart className="h-4 w-4 mr-2" /> Add to Cart{cartCount > 0 ? " - Save 10%" : " Instead"}</>
-                )}
-              </Button>
-
-              <a href="/bitcoin-payment" className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 transition-colors">
-                <Bitcoin className="h-4 w-4 text-orange-400" />
-                <span className="text-orange-300 text-sm font-medium">Pay with Bitcoin</span>
-                <span className="inline-flex items-center bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Save 10%</span>
-              </a>
-
-              {promoInCart && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-950/40 border border-orange-500/30">
-                  <Bitcoin className="h-3.5 w-3.5 text-orange-400 flex-shrink-0" />
-                  <p className="text-orange-300/90 text-xs">Added! Pay with Bitcoin at checkout to <span className="font-bold text-orange-300">save 10%</span></p>
-                </div>
-              )}
+              <Link href="/cart" className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 transition-colors">
+                <ShoppingCart className="h-4 w-4 text-orange-400" />
+                <span className="text-orange-300 text-sm font-medium">Review your site-wide cart</span>
+                <span className="inline-flex items-center bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Crypto -5%</span>
+              </Link>
 
               <p className="text-center text-xs text-slate-400">
-                Secure payment processed by Square. You'll be redirected to complete payment.
+                Secure payment processed by {payWithBtc ? "BitPay" : "Square"}. You'll be redirected to complete payment.
               </p>
             </form>
           </CardContent>
         </Card>
       </div>
-      <FloatingCartButton />
     </div>
   );
 }

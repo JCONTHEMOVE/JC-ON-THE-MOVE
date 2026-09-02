@@ -17,6 +17,7 @@ import { NotificationPrompt } from "@/components/notification-prompt";
 import { useMiningNotifications } from "@/hooks/useMiningNotifications";
 import { getVisitorId, usePageView } from "@/hooks/usePageView";
 import CookieBanner from "@/components/CookieBanner";
+import { FloatingCartButton } from "@/components/cart-button";
 
 // Layouts (kept eager — they render the shell before page content)
 import CrewLayout from "@/layouts/CrewLayout";
@@ -33,6 +34,7 @@ const MyJobsPage = lazy(() => import("@/pages/my-jobs"));
 const CustomerBookPage = lazy(() => import("@/pages/customer/book"));
 const InstantBookingPage = lazy(() => import("@/pages/instant-booking"));
 const JobCloseoutPage = lazy(() => import("@/pages/job-closeout"));
+const ScheduleRequestPage = lazy(() => import("@/pages/schedule-request"));
 const CustomerWalletPage = lazy(() => import("@/pages/customer/wallet"));
 const WalletAddCreditPage = lazy(() => import("@/pages/wallet-add-credit"));
 const CustomerEarnPage = lazy(() => import("@/pages/customer/earn"));
@@ -79,6 +81,7 @@ const QuotePage = lazy(() => import("@/pages/quote"));
 const PublicQuoteOrderPage = lazy(() => import("@/pages/public-quote-order"));
 const SponsorsPage = lazy(() => import("@/pages/sponsors"));
 const ServicesPage = lazy(() => import("@/pages/services"));
+const OffersPage = lazy(() => import("@/pages/offers"));
 const GiftCardsPage = lazy(() => import("@/pages/gift-cards"));
 const GiftCardBonusPage = lazy(() => import("@/pages/gift-card-bonus"));
 const RouteDaysPage = lazy(() => import("@/pages/route-days"));
@@ -103,6 +106,7 @@ const MovingEstimator = lazy(() => import("@/pages/moving-estimator"));
 const PaymentSuccessPage = lazy(() => import("@/pages/payment-success"));
 const PromoHalfDayPage = lazy(() => import("@/pages/promo-half-day"));
 const CartPage = lazy(() => import("@/pages/cart"));
+const AshleyShopAdminPage = lazy(() => import("@/pages/ashley-shop-admin"));
 const BitcoinPaymentPage = lazy(() => import("@/pages/bitcoin-payment"));
 const AdminBtcPaymentsPage = lazy(() => import("@/pages/admin-btc-payments"));
 const StakingPage = lazy(() => import("@/pages/staking"));
@@ -126,7 +130,9 @@ const AdminAnalyticsPage = lazy(() => import("@/pages/admin/analytics"));
 const AdminBookingAnalyticsPage = lazy(() => import("@/pages/admin/booking-analytics"));
 const AdminMarketingNetworkPage = lazy(() => import("@/pages/admin/marketing-network"));
 const AdminMarketingWebhooksPage = lazy(() => import("@/pages/admin/marketing-webhooks"));
-const AdminMarketingBotPage = lazy(() => import("@/pages/admin/marketing-bot"));
+const AdminNorthwoodsMarketingPage = lazy(() => import("@/pages/admin/northwoods-marketing"));
+const ChiefOfStaffPage = lazy(() => import("@/pages/admin/chief-of-staff"));
+const UhaulMarketPage = lazy(() => import("@/pages/uhaul-market"));
 const AdminPaymentsPage = lazy(() => import("@/pages/admin/AdminPaymentsPage"));
 const AdminWalletLedgerPage = lazy(() => import("@/pages/admin/AdminWalletLedgerPage"));
 const AdminCashoutsPage = lazy(() => import("@/pages/admin/AdminCashoutsPage"));
@@ -401,6 +407,9 @@ function CustomerApp() {
           <Route path="/book/chat">
             <CustomerBookPage />
           </Route>
+          <Route path="/schedule-request/:token">
+            <ScheduleRequestPage />
+          </Route>
           <Route path="/wallet">
             <CustomerWalletPage />
           </Route>
@@ -564,7 +573,8 @@ function AuthenticatedApp() {
               <Route path="/admin/analytics"><AdminAnalyticsPage /></Route>
               <Route path="/admin/booking-analytics"><AdminBookingAnalyticsPage /></Route>
               <Route path="/admin/marketing-network"><AdminMarketingNetworkPage /></Route>
-              <Route path="/admin/marketing"><AdminMarketingBotPage /></Route>
+              <Route path="/admin/marketing"><AdminNorthwoodsMarketingPage /></Route>
+              <Route path="/admin/chief-of-staff"><ChiefOfStaffPage /></Route>
               <Route path="/admin/marketing-webhooks"><AdminMarketingWebhooksPage /></Route>
               <Route path="/admin/payments"><AdminPaymentsPage /></Route>
               <Route path="/admin/wallet-ledger"><AdminWalletLedgerPage /></Route>
@@ -829,6 +839,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/demolition",
   "/sponsors",
   "/services",
+  "/offers",
   "/gift-cards",
   "/route-days",
   "/pricing",
@@ -836,6 +847,8 @@ const PUBLIC_PATH_PREFIXES = [
   "/reviews",
   "/pi-jackpot",
   "/nature-made-jewls",
+  "/handmade-jewels-by-ashley",
+  "/ashley-shop-admin",
   "/legacy-home",
   "/welcome",
   "/moving-estimator",
@@ -843,6 +856,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/promo/half-day",
   "/cart",
   "/bitcoin-payment",
+  "/uhaul",
 ];
 
 function isPublicPath(path: string) {
@@ -892,10 +906,14 @@ function Router() {
       <Route path="/quote" component={QuotePage} />
       <Route path="/quote-order/:id" component={PublicQuoteOrderPage} />
       <Route path="/job-closeout/:token" component={JobCloseoutPage} />
+      <Route path="/schedule-request/:token" component={ScheduleRequestPage} />
       
       {/* Book page - accessible to all users, authenticated or not */}
       <Route path="/book" component={InstantBookingPage} />
       <Route path="/book/chat" component={CustomerBookPage} />
+      <Route path="/offers/:code" component={OffersPage} />
+      <Route path="/offers" component={OffersPage} />
+      <Route path="/uhaul/:slug" component={UhaulMarketPage} />
 
       {/* Trash Valet pages - accessible to all */}
       <Route path="/trash-valet/book" component={TrashValetBookPage} />
@@ -935,9 +953,12 @@ function Router() {
       {/* Pi Jackpot - Pi Network lottery app landing page */}
       <Route path="/pi-jackpot" component={PiJackpotPage} />
       
-      {/* Ashley's Shop - Hand-Crafted Made With Love By Ashley */}
-      <Route path="/nature-made-jewls" component={NatureMadeJewls} />
-      <Route path="/nature-made-jewls/:id" component={JewelryDetailPage} />
+      {/* Handmade Jewels by Ashley — Made with Love */}
+      <Route path="/handmade-jewels-by-ashley" component={NatureMadeJewls} />
+      <Route path="/handmade-jewels-by-ashley/:id" component={JewelryDetailPage} />
+      <Route path="/nature-made-jewls/:id">{(params) => <Redirect to={`/handmade-jewels-by-ashley/${params.id}`} />}</Route>
+      <Route path="/nature-made-jewls"><Redirect to="/handmade-jewels-by-ashley" /></Route>
+      <Route path="/ashley-shop-admin" component={AshleyShopAdminPage} />
       {/* Legacy public homepage preserved for reference */}
       <Route path="/legacy-home" component={LegacyHomePage} />
       <Route path="/welcome" component={LegacyHomePage} />
@@ -973,6 +994,7 @@ function AppWithTracking() {
     <>
       <PageViewTracker />
       <Router />
+      <FloatingCartButton />
     </>
   );
 }

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { CalendarDays, CheckCircle2, CircleHelp, ClipboardPenLine, DollarSign, Loader2, PencilLine, Users } from "lucide-react";
-import { JobOrderBuilder, type JobQuoteDraft } from "@/components/JobOrderBuilder";
+import type { JobQuoteDraft, JobQuoteLineItem } from "@/components/JobOrderBuilder";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -105,6 +105,18 @@ const ARRIVAL_WINDOWS = [
   "1:00 PM – 3:00 PM", "2:00 PM – 4:00 PM", "3:00 PM – 5:00 PM", "Flexible / TBD",
 ];
 
+const PRICED_DRAFT_KEYS = new Set<keyof SetupDraft>([
+  "fromAddress",
+  "toAddress",
+  "truckConfig",
+  "trailerRequested",
+  "promoCode",
+  "crewSize",
+  "confirmedHours",
+  "stairsFlights",
+  "hasElevator",
+]);
+
 function setupDraftFromLead(lead: JobSetupLead): SetupDraft {
   return {
     firstName: lead.firstName || "",
@@ -176,34 +188,17 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
   const [quotePricingSource, setQuotePricingSource] = useState<"rate_card_auto" | "manual_override">(
     lead.quoteSnapshot?.manualQuoteOverride ? "manual_override" : "rate_card_auto",
   );
-  const [showQuoteBuilder, setShowQuoteBuilder] = useState(() => !savedQuote(lead));
 
   useEffect(() => {
     setDraft(setupDraftFromLead(lead));
     setQuoteDraft(savedQuote(lead));
     setQuoteDirty(false);
     setQuotePricingSource(lead.quoteSnapshot?.manualQuoteOverride ? "manual_override" : "rate_card_auto");
-    setShowQuoteBuilder(!savedQuote(lead));
   }, [lead]);
-
-  const quoteLead = useMemo(() => ({
-    ...lead,
-    firstName: draft.firstName,
-    lastName: draft.lastName,
-    email: draft.email,
-    phone: draft.phone,
-    fromAddress: draft.fromAddress,
-    toAddress: draft.toAddress,
-    moveDate: draft.moveDate,
-    confirmedDate: draft.confirmedDate,
-    arrivalWindow: draft.arrivalWindow,
-    truckConfig: draft.truckConfig,
-    crewSize: draft.crewSize,
-    confirmedHours: draft.confirmedHours,
-  }), [draft, lead]);
 
   const updateDraft = <Key extends keyof SetupDraft>(key: Key, value: SetupDraft[Key]) => {
     setDraft((current) => ({ ...current, [key]: value }));
+    if (PRICED_DRAFT_KEYS.has(key)) setQuotePricingSource("rate_card_auto");
   };
   const updateAdditionalStop = (index: number, key: "address" | "note", value: string) => {
     setDraft((current) => ({
@@ -267,7 +262,12 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
 
   const approvedEmployees = employees.filter((employee) => employee.isApproved || employee.status === "approved" || employee.status === "active");
   const quoteTotal = quoteDraft ? Number(quoteDraft.totalPrice || 0) : 0;
-  const { data: autoQuotePreview } = useQuery<{
+  const {
+    data: autoQuotePreview,
+    isFetching: quotePreviewFetching,
+    isError: quotePreviewFailed,
+    refetch: retryQuotePreview,
+  } = useQuery<{
     labor: number;
     truck: number;
     trailer: number;
@@ -327,9 +327,24 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
     if (!canManageSetup || !autoQuotePreview || quotePricingSource !== "rate_card_auto") return;
     setQuoteDraft((current) => {
       const basePrice = autoQuotePreview.total.toFixed(2);
+      const specialItems = [
+        { selected: current?.hasHotTub, id: "hot_tub", name: "Hot tub surcharge", amount: Number(current?.hotTubFee || 0) },
+        { selected: current?.hasHeavySafe, id: "heavy_safe", name: "Heavy safe surcharge", amount: Number(current?.heavySafeFee || 0) },
+        { selected: current?.hasPoolTable, id: "pool_table", name: "Pool table surcharge", amount: Number(current?.poolTableFee || 0) },
+        { selected: current?.hasPiano, id: "piano", name: "Piano surcharge", amount: Number(current?.pianoFee || 0) },
+      ].filter((item) => item.selected && Number.isFinite(item.amount) && item.amount > 0);
+      const totalSpecialItemsFee = specialItems.reduce((total, item) => total + item.amount, 0);
+      const lineItems: JobQuoteLineItem[] = [
+        { id: "labor", name: `Labor - ${draft.crewSize} ${draft.crewSize === 1 ? "mover" : "movers"} x ${draft.confirmedHours} ${draft.confirmedHours === 1 ? "hour" : "hours"}`, qty: 1, unitPrice: autoQuotePreview.labor, total: autoQuotePreview.labor, category: "labor" },
+        { id: "truck", name: "Truck", qty: 1, unitPrice: autoQuotePreview.truck, total: autoQuotePreview.truck, category: "truck" },
+        { id: "trailer", name: "Trailer", qty: 1, unitPrice: autoQuotePreview.trailer, total: autoQuotePreview.trailer, category: "trailer" },
+        { id: "stairs", name: "Stairs", qty: 1, unitPrice: autoQuotePreview.stairs, total: autoQuotePreview.stairs, category: "access" },
+        { id: "elevator", name: "Elevator", qty: 1, unitPrice: autoQuotePreview.elevator, total: autoQuotePreview.elevator, category: "access" },
+        ...specialItems.map((item) => ({ id: item.id, name: item.name, qty: 1, unitPrice: item.amount, total: item.amount, category: "specialty" })),
+      ].filter((item) => item.total > 0);
       const next = {
         basePrice,
-        totalPrice: basePrice,
+        totalPrice: (autoQuotePreview.total + totalSpecialItemsFee).toFixed(2),
         crewSize: draft.crewSize,
         confirmedHours: draft.confirmedHours,
         quoteNotes: autoQuotePreview.promotion
@@ -345,17 +360,22 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
         poolTableFee: current?.poolTableFee || "0",
         hasPiano: current?.hasPiano || false,
         pianoFee: current?.pianoFee || "0",
-        totalSpecialItemsFee: current?.totalSpecialItemsFee || "0",
-        lineItems: current?.lineItems || [],
+        totalSpecialItemsFee: totalSpecialItemsFee.toFixed(2),
+        lineItems,
       } as JobQuoteDraft;
       const changed = !current
         || current.basePrice !== next.basePrice
+        || current.totalPrice !== next.totalPrice
         || current.crewSize !== next.crewSize
-        || current.confirmedHours !== next.confirmedHours;
+        || current.confirmedHours !== next.confirmedHours
+        || JSON.stringify(current.lineItems) !== JSON.stringify(next.lineItems);
       if (changed) setQuoteDirty(true);
       return next;
     });
   }, [autoQuotePreview, canManageSetup, draft.confirmedHours, draft.crewSize, quotePricingSource]);
+
+  const quoteIsUpdating = canManageSetup && quotePricingSource === "rate_card_auto" && quotePreviewFetching;
+  const quoteCannotSave = canManageSetup && quotePricingSource === "rate_card_auto" && quotePreviewFailed;
 
   return (
     <Card id="job-setup" className="mb-4 scroll-mt-4 border-blue-500/35 bg-gradient-to-b from-blue-950/20 to-background" data-testid="job-setup-workspace">
@@ -407,15 +427,6 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
             <div className="space-y-2"><div className="flex items-center justify-between gap-3"><Label>Additional stops</Label><Button type="button" size="sm" variant="outline" onClick={() => updateDraft("additionalStops", [...draft.additionalStops, { address: "", note: "" }])}>Add stop</Button></div>{draft.additionalStops.map((stop, index) => <div key={index} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto]"><Input value={stop.address} onChange={(event) => updateAdditionalStop(index, "address", event.target.value)} placeholder="Stop address" /><Input value={stop.note} onChange={(event) => updateAdditionalStop(index, "note", event.target.value)} placeholder="Stop note (optional)" /><Button type="button" variant="ghost" size="sm" onClick={() => updateDraft("additionalStops", draft.additionalStops.filter((_, stopIndex) => stopIndex !== index))}>Remove</Button></div>)}</div>
           </section>
           <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"><div><Label htmlFor="setup-promo-code">Promo / package code</Label><Input id="setup-promo-code" value={draft.promoCode} onChange={(event) => updateDraft("promoCode", event.target.value.toUpperCase())} placeholder="e.g. LOCAL4X4" autoCapitalize="characters" /></div>{draft.promoCode && <Button type="button" variant="ghost" size="sm" onClick={() => updateDraft("promoCode", "")}>Clear code</Button>}</div>
-          {autoQuotePreview?.promo && !autoQuotePreview.promo.applied && <p className="text-xs text-amber-300">{autoQuotePreview.promo.reason}</p>}
-          {autoQuotePreview && <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
-            {autoQuotePreview.promotion?.kind === "fixed_moving_package" && <p className="mb-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: {autoQuotePreview.promotion.requiredCrewSize} movers x {autoQuotePreview.promotion.requiredHours} hours local special. JC truck and trailer are reserved. Verified {autoQuotePreview.promotion.verifiedLocalMiles} of {autoQuotePreview.promotion.localMilesMax} local miles; package $${autoQuotePreview.packagePrice?.toFixed(2)}.</p>}
-            {autoQuotePreview.promotion?.kind === "percentage_discount" && <p className="mb-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: {autoQuotePreview.promotion.discountPercent}% off the full automatic quote (save $${autoQuotePreview.promotion.discountAmount?.toFixed(2)}).</p>}
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="flex items-center gap-1 text-sm font-semibold text-emerald-300">Automatic rate-card quote<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain automatic quote"><CircleHelp className="h-3.5 w-3.5" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">The server applies the saved labor, equipment, stairs, and elevator rates. A manual adjustment never replaces this calculation in the audit history.</PopoverContent></Popover></p><p className="text-xs text-muted-foreground">Labor, equipment, and access fees are calculated by the server.</p><p className="mt-1 text-xs text-muted-foreground">Access: stairs ${autoQuotePreview.stairs.toFixed(2)} · elevator ${autoQuotePreview.elevator.toFixed(2)}</p><p className="mt-1 flex items-center gap-1 text-xs text-amber-300">JCMOVES projection<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain JCMOVES projection"><CircleHelp className="h-3 w-3" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">The customer and total crew pool each use this amount. The lead receives a 15% crew-pool bonus at paid completion; the rest splits evenly.</PopoverContent></Popover></p></div><p className="text-xl font-bold text-emerald-300">${autoQuotePreview.total.toFixed(2)}</p></div>
-            <p className="mt-2 text-xs text-muted-foreground">Labor ${autoQuotePreview.labor.toFixed(2)} · Truck ${autoQuotePreview.truck.toFixed(2)} · Trailer ${autoQuotePreview.trailer.toFixed(2)}</p>
-            <p className="mt-1 text-xs text-amber-300">Projected from the $${autoQuotePreview.rewardEligibleTotal.toFixed(2)} pre-discount rate-card quote: {autoQuotePreview.projectedCustomerJcMoves.toLocaleString()} customer JCMOVES and {autoQuotePreview.projectedCrewPoolJcMoves.toLocaleString()} crew-pool JCMOVES after full payment and completion.</p>
-            <Button type="button" size="sm" className="mt-3" onClick={() => { setQuoteDraft({ basePrice: autoQuotePreview.total.toFixed(2), totalPrice: autoQuotePreview.total.toFixed(2), crewSize: draft.crewSize, confirmedHours: draft.confirmedHours, quoteNotes: "Automatic rate-card quote.", hasHotTub: false, hotTubFee: "0", hasHeavySafe: false, heavySafeFee: "0", hasPoolTable: false, poolTableFee: "0", hasPiano: false, pianoFee: "0", totalSpecialItemsFee: "0", lineItems: [] } as JobQuoteDraft); setQuotePricingSource("rate_card_auto"); setQuoteDirty(true); setShowQuoteBuilder(false); }}>Use automatic quote</Button>
-          </div>}
 
           <section className="space-y-4 border-t pt-5">
             <div className="flex items-center gap-2"><Users className="h-4 w-4 text-blue-400" /><h3 className="font-semibold">Crew & schedule</h3></div>
@@ -434,15 +445,47 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
           </section>
 
           <section className="space-y-4 border-t pt-5">
-            <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-emerald-400" /><h3 className="font-semibold">Quote</h3></div><Button type="button" variant="outline" onClick={() => setShowQuoteBuilder((show) => !show)}>{showQuoteBuilder ? "Hide quote builder" : quoteDraft ? "Adjust quote" : "Build quote"}</Button></div>
-            {quoteDraft && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3"><div><p className="text-sm font-semibold text-emerald-300">{quotePricingSource === "manual_override" ? "Manual quote override" : quoteDirty ? "Automatic quote ready to save" : "Saved automatic quote"}</p><p className="text-xs text-muted-foreground">{quotePricingSource === "manual_override" ? `Automatic base: $${autoQuotePreview?.total.toFixed(2) || "TBD"}. Both values are retained for audit.` : quoteDirty ? "It will be saved only when you press Save Job Setup." : "Updates automatically when priced job details change."}</p></div><p className="text-2xl font-bold text-emerald-300">${quoteTotal.toFixed(2)}</p></div>}
-            {showQuoteBuilder && <JobOrderBuilder lead={quoteLead} disabled={saveMutation.isPending} applyLabel="Add quote to job setup" onApply={(quote) => { setQuoteDraft(quote); setQuotePricingSource("manual_override"); setQuoteDirty(true); setShowQuoteBuilder(false); toast({ title: "Manual quote adjustment added", description: "The saved rate-card quote is retained in the audit history." }); }} />}
+            <div className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-emerald-400" /><h3 className="font-semibold">Quote</h3></div>
+            {quotePreviewFailed && quotePricingSource === "rate_card_auto" ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
+                <p className="text-sm font-semibold text-red-300">The quote could not be recalculated.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Job setup will wait so crew, hours, and price cannot be saved out of sync.</p>
+                <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => retryQuotePreview()}>Retry quote</Button>
+              </div>
+            ) : quoteDraft ? (
+              <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3" data-testid="job-setup-quote-summary">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-1 text-sm font-semibold text-emerald-300">
+                      {quotePricingSource === "manual_override" ? "Saved manual quote" : quoteIsUpdating ? "Updating automatic quote..." : quoteDirty ? "Automatic quote ready to save" : "Saved automatic quote"}
+                      <Popover><PopoverTrigger asChild><button type="button" aria-label="Explain active quote"><CircleHelp className="h-3.5 w-3.5" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">This is the one active job price. The server rate card calculates it from the crew, hours, equipment, access, and promo fields above.</PopoverContent></Popover>
+                    </p>
+                    <p className="text-xs text-muted-foreground">{quotePricingSource === "manual_override" ? "This previously saved override remains active until you replace it with the current rate card." : `${draft.crewSize} ${draft.crewSize === 1 ? "mover" : "movers"} · ${draft.confirmedHours} ${draft.confirmedHours === 1 ? "hour" : "hours"} · updates from the setup fields above`}</p>
+                  </div>
+                  <p className="text-2xl font-bold text-emerald-300">${quoteTotal.toFixed(2)}</p>
+                </div>
+
+                {quotePricingSource === "manual_override" ? (
+                  <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => setQuotePricingSource("rate_card_auto")}>Replace with current rate-card quote</Button>
+                ) : autoQuotePreview ? (
+                  <>
+                    {autoQuotePreview.promo && !autoQuotePreview.promo.applied && <p className="mt-2 text-xs text-amber-300">{autoQuotePreview.promo.reason}</p>}
+                    {autoQuotePreview.promotion?.kind === "fixed_moving_package" && <p className="mt-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: {autoQuotePreview.promotion.requiredCrewSize} movers x {autoQuotePreview.promotion.requiredHours} hours local special. JC truck and trailer are reserved.</p>}
+                    {autoQuotePreview.promotion?.kind === "percentage_discount" && <p className="mt-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: {autoQuotePreview.promotion.discountPercent}% off the automatic quote.</p>}
+                    <p className="mt-2 text-xs text-muted-foreground">Labor ${autoQuotePreview.labor.toFixed(2)} · Truck ${autoQuotePreview.truck.toFixed(2)} · Trailer ${autoQuotePreview.trailer.toFixed(2)} · Access ${(autoQuotePreview.stairs + autoQuotePreview.elevator).toFixed(2)}</p>
+                    <p className="mt-1 flex items-center gap-1 text-xs text-amber-300">Projected from the $${autoQuotePreview.rewardEligibleTotal.toFixed(2)} reward-eligible rate: {autoQuotePreview.projectedCustomerJcMoves.toLocaleString()} customer JCMOVES and {autoQuotePreview.projectedCrewPoolJcMoves.toLocaleString()} crew-pool JCMOVES.<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain JCMOVES projection"><CircleHelp className="h-3 w-3" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">The customer and total crew pool each use this amount after full payment and completion. The lead receives a 15% crew-pool bonus; the rest splits evenly.</PopoverContent></Popover></p>
+                  </>
+                ) : null}
+              </div>
+            ) : (
+              <div className="rounded-lg border p-3 text-sm text-muted-foreground">Calculating the quote from the job setup...</div>
+            )}
           </section>
         </> : <p className="rounded-lg border border-muted bg-muted/30 p-3 text-sm text-muted-foreground">An owner or admin can add crew, scheduling, and pricing. Your edits to customer and job details will still save here.</p>}
 
         <div className="sticky bottom-3 z-10 flex flex-col gap-2 rounded-xl border border-blue-500/30 bg-background/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" onClick={() => { setDraft(setupDraftFromLead(lead)); setQuoteDraft(savedQuote(lead)); setQuoteDirty(false); }} disabled={saveMutation.isPending}>Reset</Button>
-          <Button type="button" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="bg-blue-600 hover:bg-blue-700" data-testid="button-save-job-setup">{saveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}Save Job Setup</Button>
+          <Button type="button" variant="outline" onClick={() => { setDraft(setupDraftFromLead(lead)); setQuoteDraft(savedQuote(lead)); setQuoteDirty(false); setQuotePricingSource(lead.quoteSnapshot?.manualQuoteOverride ? "manual_override" : "rate_card_auto"); }} disabled={saveMutation.isPending}>Reset</Button>
+          <Button type="button" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || quoteIsUpdating || quoteCannotSave} className="bg-blue-600 hover:bg-blue-700" data-testid="button-save-job-setup">{saveMutation.isPending || quoteIsUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}{quoteIsUpdating ? "Updating Quote" : "Save Job Setup"}</Button>
         </div>
       </CardContent>
     </Card>

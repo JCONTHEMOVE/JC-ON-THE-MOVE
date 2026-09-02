@@ -90,6 +90,7 @@ async function findCrossServiceHistory(
         and(
           gte(leads.createdAt, sinceDate),
           ne(leads.serviceType, currentService),
+          sql`COALESCE(${leads.source}, '') <> 'moving_help_uhaul'`,
           // Real-customer filter: deposit paid OR status indicates a booked /
           // active / completed job (not a stale quote_requested record).
           or(

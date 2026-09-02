@@ -39,6 +39,7 @@ type Publication = {
 type Campaign = {
   id: string;
   campaign_code: string;
+  brand?: string;
   local_date: string;
   service: string;
   territory: string;
@@ -98,9 +99,24 @@ type Dashboard = {
     displayName: string;
     promoCode?: string | null;
     pilotAllowed: boolean;
-    connection: { status: string; pageId: string; pageName: string; lastVerifiedAt?: string | null; lastError?: string | null } | null;
+    connection: { status: string; pageId: string; pageName: string; lastVerifiedAt?: string | null; lastError?: string | null; authorizedForPilot?: boolean } | null;
     publications: { published: number; failed: number; lastPublishedAt?: string | null };
   }>;
+  metaPilot: {
+    configured: boolean;
+    state: "owner_setup_required" | "awaiting_matt_oauth" | "ready" | "reauthorization_required" | "authorized_page_mismatch";
+    missing: string[];
+    configurationErrors: string[];
+    repSlug: string;
+    authorizedPageId?: string | null;
+    authorizedPageName?: string | null;
+    redirectUri?: string | null;
+    requiredScopes: string[];
+    channel: "facebook";
+    brand: "northwoods_moving";
+    instagramEnabled: false;
+    otherRepresentativesEnabled: false;
+  };
 };
 
 const serviceLabels: Record<string, string> = {
@@ -237,7 +253,7 @@ export default function AdminMarketingBotPage() {
 
   const companyVariants = campaign?.variants.filter((variant) => variant.is_company) || [];
   const shareKits = campaign?.variants.filter((variant) => !variant.is_company) || [];
-  const facebookReady = Boolean(dashboard?.readiness.find((entry) => entry.channel === "facebook")?.ready);
+  const companyFacebookReady = Boolean(dashboard?.readiness.find((entry) => entry.channel === "facebook")?.ready);
   const dirty = Boolean(campaign) && (
     edit.headline !== campaign?.headline ||
     edit.facebookCaption !== campaign?.facebook_caption ||
@@ -257,6 +273,7 @@ export default function AdminMarketingBotPage() {
   const publicationByChannel = useMemo(() => new Map((campaign?.publications || []).map((publication) => [publication.channel, publication])), [campaign?.publications]);
   const representativeBySlug = useMemo(() => new Map((dashboard?.representatives || []).map((rep) => [rep.slug, rep])), [dashboard?.representatives]);
   const facebookPublication = publicationByChannel.get("facebook");
+  const isNorthwoodsCampaign = campaign?.brand === "northwoods_moving";
 
   if (dashboardQuery.isLoading) {
     return <div className="min-h-[60vh] grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-blue-400" /></div>;
@@ -267,7 +284,7 @@ export default function AdminMarketingBotPage() {
       <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-black uppercase tracking-widest text-blue-200">
-            <Sparkles className="h-3.5 w-3.5" /> JC Marketing Bot
+            <Sparkles className="h-3.5 w-3.5" /> Campaign Publishing
           </div>
           <h1 className="mt-3 text-3xl font-black text-white md:text-4xl">Campaign command center</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-400">
@@ -355,8 +372,8 @@ export default function AdminMarketingBotPage() {
                   <div><Label>Headline</Label><Input value={edit.headline} onChange={(event) => setEdit((current) => ({ ...current, headline: event.target.value }))} className="mt-2 border-slate-700 bg-slate-950" /></div>
                   <div><Label>Facebook post</Label><Textarea value={edit.facebookCaption} onChange={(event) => setEdit((current) => ({ ...current, facebookCaption: event.target.value }))} className="mt-2 min-h-40 border-slate-700 bg-slate-950" /></div>
                   <div className="grid gap-4 lg:grid-cols-2">
-                    <div><Label>Instagram caption</Label><Textarea value={edit.instagramCaption} onChange={(event) => setEdit((current) => ({ ...current, instagramCaption: event.target.value }))} className="mt-2 min-h-36 border-slate-700 bg-slate-950" /></div>
-                    <div><Label>Google Business post</Label><Textarea value={edit.googleBusinessSummary} onChange={(event) => setEdit((current) => ({ ...current, googleBusinessSummary: event.target.value }))} className="mt-2 min-h-36 border-slate-700 bg-slate-950" /></div>
+                    <div><Label>Instagram caption {isNorthwoodsCampaign && <span className="text-amber-300">· disabled for pilot</span>}</Label><Textarea value={edit.instagramCaption} disabled={isNorthwoodsCampaign} onChange={(event) => setEdit((current) => ({ ...current, instagramCaption: event.target.value }))} className="mt-2 min-h-36 border-slate-700 bg-slate-950" /></div>
+                    <div><Label>Google Business post {isNorthwoodsCampaign && <span className="text-amber-300">· disabled for pilot</span>}</Label><Textarea value={edit.googleBusinessSummary} disabled={isNorthwoodsCampaign} onChange={(event) => setEdit((current) => ({ ...current, googleBusinessSummary: event.target.value }))} className="mt-2 min-h-36 border-slate-700 bg-slate-950" /></div>
                   </div>
                   <div className="grid gap-4 md:grid-cols-[1fr_180px]">
                     <div><Label>Short caption</Label><Input value={edit.shortCaption} onChange={(event) => setEdit((current) => ({ ...current, shortCaption: event.target.value }))} className="mt-2 border-slate-700 bg-slate-950" /></div>
@@ -368,10 +385,15 @@ export default function AdminMarketingBotPage() {
                   <Button variant="outline" className="border-slate-700" disabled={!dirty || action.isPending || campaign.status === "published"} onClick={() => action.mutate({ method: "PATCH", url: `/api/admin/marketing-bot/campaigns/${campaign.id}`, body: edit, success: "Edits saved; approval reset" })}>Save edits</Button>
                   <Button className="bg-emerald-600 hover:bg-emerald-500" disabled={action.isPending || Boolean(campaign.approved_at) || campaign.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/approve`, success: "Campaign approved" })}><Check className="mr-2 h-4 w-4" />Approve</Button>
                   <Button variant="outline" className="border-slate-700" disabled={action.isPending || campaign.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/skip`, body: { reason: "Skipped from approval queue" }, success: "Campaign skipped" })}>Skip</Button>
-                  <Button className="bg-blue-600 hover:bg-blue-500" disabled={action.isPending || !campaign.approved_at || !facebookReady || facebookPublication?.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/publish`, body: { channels: ["facebook"] }, success: "JC Facebook post published" })}><Send className="mr-2 h-4 w-4" />Post to JC Facebook</Button>
-                  {facebookPublication?.status === "failed" ? <Button variant="outline" className="border-amber-500/40 text-amber-100" disabled={action.isPending} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/retry`, body: { channels: ["facebook"] }, success: "Facebook post retried" })}><RefreshCw className="mr-2 h-4 w-4" />Retry Facebook</Button> : null}
+                  {!isNorthwoodsCampaign && <Button className="bg-blue-600 hover:bg-blue-500" disabled={action.isPending || !campaign.approved_at || !companyFacebookReady || facebookPublication?.status === "published"} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/publish`, body: { channels: ["facebook"] }, success: "JC Facebook post published" })}><Send className="mr-2 h-4 w-4" />Post to JC Facebook</Button>}
+                  {!isNorthwoodsCampaign && facebookPublication?.status === "failed" ? <Button variant="outline" className="border-amber-500/40 text-amber-100" disabled={action.isPending} onClick={() => action.mutate({ method: "POST", url: `/api/admin/marketing-bot/campaigns/${campaign.id}/retry`, body: { channels: ["facebook"] }, success: "Facebook post retried" })}><RefreshCw className="mr-2 h-4 w-4" />Retry Facebook</Button> : null}
                 </div>
-                {!facebookReady && <p className="mt-3 flex items-start gap-2 text-xs text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Configure the JC Facebook Page connection before publishing. Instagram and Google are not required for this rollout.</p>}
+                {isNorthwoodsCampaign ? (
+                  <div className={`mt-3 rounded-xl border p-3 text-sm ${dashboard?.metaPilot.state === "ready" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : "border-amber-500/30 bg-amber-500/10 text-amber-100"}`}>
+                    <p className="font-bold">Approval hands this campaign to Matt; it does not publish it.</p>
+                    <p className="mt-1 text-xs">Matt can publish the approved Facebook variant only to {dashboard?.metaPilot.authorizedPageName || dashboard?.metaPilot.authorizedPageId || "the configured pilot Page"}. Instagram, company publishing, and every other representative are blocked by the server.</p>
+                  </div>
+                ) : !companyFacebookReady && <p className="mt-3 flex items-start gap-2 text-xs text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Configure the JC company Facebook Page connection before publishing.</p>}
 
                 <div className="mt-6 grid gap-3 md:grid-cols-3">
                   {companyVariants.map((variant) => {
@@ -424,6 +446,22 @@ export default function AdminMarketingBotPage() {
         </TabsContent>
 
         <TabsContent value="connections" className="mt-0">
+          <div className={`mb-5 rounded-2xl border p-5 ${dashboard?.metaPilot.state === "ready" ? "border-emerald-500/30 bg-emerald-500/10" : "border-amber-500/30 bg-amber-500/10"}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-blue-200">Matt Facebook Page pilot</p>
+                <h3 className="mt-1 text-lg font-black text-white">{dashboard?.metaPilot.state.replaceAll("_", " ")}</h3>
+                <p className="mt-2 text-sm text-slate-300">Authorized Page: {dashboard?.metaPilot.authorizedPageName ? `${dashboard.metaPilot.authorizedPageName} (${dashboard.metaPilot.authorizedPageId})` : dashboard?.metaPilot.authorizedPageId || "not configured"}</p>
+                <p className="mt-1 text-xs text-slate-400">Northwoods Facebook only. Instagram is disabled. Other representatives are disabled. Approval never auto-publishes.</p>
+              </div>
+              {dashboard?.metaPilot.state === "ready" ? <CheckCircle2 className="h-6 w-6 text-emerald-300" /> : <AlertTriangle className="h-6 w-6 text-amber-300" />}
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-700/70 bg-slate-950/50 p-3"><p className="text-xs font-bold text-white">OAuth callback</p><p className="mt-1 break-all font-mono text-[11px] text-slate-400">{dashboard?.metaPilot.redirectUri || "META_OAUTH_REDIRECT_URI missing"}</p></div>
+              <div className="rounded-xl border border-slate-700/70 bg-slate-950/50 p-3"><p className="text-xs font-bold text-white">Required permissions</p><p className="mt-1 text-[11px] text-slate-400">{dashboard?.metaPilot.requiredScopes.join(", ")}</p></div>
+            </div>
+            {Boolean(dashboard?.metaPilot.missing.length || dashboard?.metaPilot.configurationErrors.length) && <div className="mt-3 flex flex-wrap gap-1.5">{[...(dashboard?.metaPilot.missing || []), ...(dashboard?.metaPilot.configurationErrors || [])].map((item) => <code key={item} className="rounded bg-slate-950 px-2 py-1 text-[11px] text-amber-100">{item}</code>)}</div>}
+          </div>
           <div className="grid gap-4 md:grid-cols-3">
             {(dashboard?.readiness || []).map((connection) => <div key={connection.channel} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5"><div className="flex items-center justify-between"><h3 className="font-bold text-white">{channelLabels[connection.channel]}</h3>{connection.ready ? <CheckCircle2 className="h-5 w-5 text-emerald-400" /> : <AlertTriangle className="h-5 w-5 text-amber-400" />}</div><p className="mt-3 text-sm text-slate-400">{connection.note}</p>{connection.missing.length > 0 && <div className="mt-3 space-y-1">{connection.missing.map((name) => <code key={name} className="block rounded bg-slate-950 px-2 py-1 text-[11px] text-slate-400">{name}</code>)}</div>}</div>)}
           </div>

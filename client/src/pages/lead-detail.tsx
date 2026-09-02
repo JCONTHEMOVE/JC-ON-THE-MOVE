@@ -202,6 +202,9 @@ interface Lead {
     locked: Array<{ key: string; label: string; unlockAt: string }>;
   };
   depositPaid?: boolean;
+  paymentPaidAt?: string | null;
+  paymentPlan?: string | null;
+  financialStatus?: string | null;
   isQuoteOnly?: boolean;
   selectedPackageId?: string;
   flow?: JobFlow;
@@ -239,6 +242,17 @@ interface JcMovesPayoutStatus {
   customerPool: number;
   crewPool: number;
   records: Array<{ recipient_type: string; recipient_label: string | null; reward_kind: string; token_amount: string; created_at: string }>;
+}
+
+interface OfflineCloseoutResponse {
+  success: boolean;
+  alreadyRecorded: boolean;
+  completion: { ok: boolean; tokensAwarded?: number; error?: string };
+  jcmoves: {
+    creditedAccountIds: string[];
+    creditedAccountCount: number;
+    pendingCustomerClaim: boolean;
+  };
 }
 
 interface Employee {
@@ -363,6 +377,25 @@ function packageDraftPrice(draft: PackageDraft): number | null {
 function formatMoney(value: unknown): string {
   const n = numericValue(value);
   return n && n > 0 ? `$${n.toFixed(2)}` : "Not set";
+}
+
+function businessDateString(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function normalizeJobDate(value: unknown): string | null {
+  const text = String(value || "").trim();
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const us = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return us ? `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}` : null;
 }
 
 function displayStatus(status: string | null | undefined): string {
@@ -494,6 +527,11 @@ export default function LeadDetailPage() {
   // essentials. Quote delivery is a focused dialog from the primary action.
   const [activeTab, setActiveTab] = useState("notes");
   const [showQuoteDeliveryDialog, setShowQuoteDeliveryDialog] = useState(false);
+  const [showOfflineCloseoutDialog, setShowOfflineCloseoutDialog] = useState(false);
+  const [offlinePaymentMethod, setOfflinePaymentMethod] = useState<"cash" | "check">("cash");
+  const [offlinePaymentDate, setOfflinePaymentDate] = useState("");
+  const [offlinePaymentReference, setOfflinePaymentReference] = useState("");
+  const [offlinePaymentNote, setOfflinePaymentNote] = useState("");
   const [showInlineScheduler, setShowInlineScheduler] = useState(false);
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleArrivalWindow, setScheduleArrivalWindow] = useState("");
@@ -1008,6 +1046,43 @@ export default function LeadDetailPage() {
     },
   });
 
+  const offlineCloseoutMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/leads/${params?.id}/record-offline-payment`, {
+        method: offlinePaymentMethod,
+        paidDate: offlinePaymentDate,
+        reference: offlinePaymentReference.trim() || null,
+        note: offlinePaymentNote.trim() || null,
+        completeJob: true,
+      });
+      return await response.json() as OfflineCloseoutResponse;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "jcmoves-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rewards"] });
+      setShowOfflineCloseoutDialog(false);
+      const accountText = `${data.jcmoves.creditedAccountCount} linked account${data.jcmoves.creditedAccountCount === 1 ? "" : "s"}`;
+      toast({
+        title: data.completion.ok ? "Paid job closed out" : "Paid job closed; JCMOVES needs review",
+        description: data.completion.ok
+          ? `Payment and completion were recorded. JCMOVES was credited to ${accountText}${data.jcmoves.pendingCustomerClaim ? "; the customer portion is safely held for account claim" : ""}.`
+          : `Payment and completion were recorded, but JCMOVES issuance needs a safe retry: ${data.completion.error || "unknown error"}`,
+        variant: data.completion.ok ? "default" : "destructive",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not close out this job",
+        description: error.message || "Failed to record the offline payment",
+        variant: "destructive",
+      });
+    },
+  });
+
   const retryDisbursementMutation = useMutation({
     mutationFn: async () => apiRequest("POST", `/api/leads/${params?.id}/retry-disbursement`, {}),
     onSuccess: async (response) => {
@@ -1271,6 +1346,32 @@ export default function LeadDetailPage() {
     .map(id => employees.find(e => e.id === id))
     .filter(Boolean)
     .map(emp => `${emp!.firstName || ""} ${emp!.lastName || ""}`.trim() || emp!.email);
+  const rewardCrewIds = Array.from(new Set([
+    ...(lead.crewMembers || []),
+    ...(lead.assignedToUserId ? [lead.assignedToUserId] : []),
+  ].filter(Boolean)));
+  const rewardCrewNames = rewardCrewIds.map((id) => {
+    const employee = employees.find((candidate) => candidate.id === id);
+    return employee
+      ? `${employee.firstName || ""} ${employee.lastName || ""}`.trim() || employee.email
+      : `Assigned account ${id.slice(0, 8)}`;
+  });
+  const scheduledJobDate = normalizeJobDate(lead.confirmedDate || lead.moveDate);
+  const currentBusinessDate = businessDateString();
+  const isPastScheduledJob = Boolean(scheduledJobDate && scheduledJobDate < currentBusinessDate);
+  const paymentRecorded = Boolean(lead.paymentPaidAt)
+    || ["fully_paid", "wallet_paid"].includes(String(lead.flow?.payment?.key || ""));
+  const canCloseOutPastJob = hasAdminAccess
+    && isPastScheduledJob
+    && !paymentRecorded
+    && ["confirmed", "available", "assigned", "accepted", "dispatched", "in_progress", "completed"].includes(statusKey);
+  const openOfflineCloseout = () => {
+    setOfflinePaymentMethod("cash");
+    setOfflinePaymentDate(scheduledJobDate || currentBusinessDate);
+    setOfflinePaymentReference("");
+    setOfflinePaymentNote("");
+    setShowOfflineCloseoutDialog(true);
+  };
   // Keep the default view intentionally small. The detailed workflow below remains
   // the source of truth for editing, quoting, payment, media, and payout controls.
   const jobBrief = (() => {
@@ -1303,9 +1404,21 @@ export default function LeadDetailPage() {
   })();
   const actionPending = updateStatus.isPending
     || markAsPaidMutation.isPending
+    || offlineCloseoutMutation.isPending
     || sendQuoteMutation.isPending
     || applyPackageDraftMutation.isPending;
   const nextStep = (() => {
+    if (canCloseOutPastJob) {
+      return {
+        key: "offline_closeout",
+        title: "Past job needs closeout",
+        detail: rewardCrewIds.length > 0
+          ? "Record the cash or check payment, complete the job, and credit JCMOVES without sending a late dispatch."
+          : "Assign the crew accounts that performed this job, then record payment so JCMOVES goes to the right users.",
+        button: "Close Out Past Job",
+        icon: CheckCircle,
+      };
+    }
     if (statusKey === "completed" && hasAdminAccess) {
       return {
         key: "review_payout",
@@ -1388,6 +1501,9 @@ export default function LeadDetailPage() {
         break;
       case "send_quote":
         setShowQuoteDeliveryDialog(true);
+        break;
+      case "offline_closeout":
+        openOfflineCloseout();
         break;
       case "dispatch":
         markAsPaidMutation.mutate();
@@ -3253,6 +3369,129 @@ export default function LeadDetailPage() {
             <Button variant="outline" onClick={() => setShowInlineScheduler(false)}>Cancel</Button>
             <Button onClick={() => saveInlineScheduleMutation.mutate()} disabled={saveInlineScheduleMutation.isPending || !scheduleDate || !scheduleArrivalWindow} className="bg-cyan-600 text-white hover:bg-cyan-700">
               {saveInlineScheduleMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}Save schedule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showOfflineCloseoutDialog} onOpenChange={setShowOfflineCloseoutDialog}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-emerald-400" />
+              Record Payment &amp; Complete Past Job
+            </DialogTitle>
+            <DialogDescription>
+              This records a paid-in-full cash or check payment, completes the past job, and issues JCMOVES to eligible linked accounts. It does not dispatch the crew.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm">
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Paid-in-full amount</span>
+                <span className="font-bold text-emerald-300">{formatMoney(lead.totalPrice || lead.basePrice)}</span>
+              </div>
+              <div className="mt-1 flex justify-between gap-3">
+                <span className="text-muted-foreground">Job date</span>
+                <span className="font-medium">{scheduledJobDate || "Not set"}</span>
+              </div>
+            </div>
+
+            <div className={`rounded-lg border p-3 text-sm ${rewardCrewIds.length > 0 ? "border-amber-500/25 bg-amber-500/10" : "border-red-500/30 bg-red-500/10"}`}>
+              <p className="font-semibold">JCMOVES recipients</p>
+              {rewardCrewNames.length > 0 ? (
+                <>
+                  <p className="mt-1 text-muted-foreground">Assigned crew accounts:</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                    {rewardCrewNames.map((name, index) => (
+                      <li key={`${rewardCrewIds[index]}-${name}`}>{name}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Customer JCMOVES is credited to a matching customer account or held safely for account claim.
+                  </p>
+                </>
+              ) : (
+                <div className="mt-1">
+                  <p className="text-red-200">Assign the user accounts that worked this job before closing it. This prevents JCMOVES from going to the wrong people.</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => {
+                      setShowOfflineCloseoutDialog(false);
+                      openJobSetup();
+                    }}
+                  >
+                    <Users className="mr-2 h-4 w-4" />Assign Crew in Job Setup
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label>Payment method</Label>
+                <Select value={offlinePaymentMethod} onValueChange={(value) => setOfflinePaymentMethod(value as "cash" | "check")}>
+                  <SelectTrigger className="mt-1" data-testid="select-offline-payment-method"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="check">Check</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="offline-payment-date">Payment date</Label>
+                <Input
+                  id="offline-payment-date"
+                  type="date"
+                  className="mt-1"
+                  value={offlinePaymentDate}
+                  max={currentBusinessDate}
+                  onChange={(event) => setOfflinePaymentDate(event.target.value)}
+                  data-testid="input-offline-payment-date"
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="offline-payment-reference">{offlinePaymentMethod === "check" ? "Check number / reference" : "Receipt reference"} (optional)</Label>
+              <Input
+                id="offline-payment-reference"
+                className="mt-1"
+                value={offlinePaymentReference}
+                maxLength={200}
+                onChange={(event) => setOfflinePaymentReference(event.target.value)}
+                placeholder={offlinePaymentMethod === "check" ? "e.g. Check 1042" : "e.g. Cash receipt 0824"}
+              />
+            </div>
+            <div>
+              <Label htmlFor="offline-payment-note">Closeout note (optional)</Label>
+              <Textarea
+                id="offline-payment-note"
+                className="mt-1 resize-none"
+                rows={3}
+                value={offlinePaymentNote}
+                maxLength={1000}
+                onChange={(event) => setOfflinePaymentNote(event.target.value)}
+                placeholder="Anything the payment and job history should preserve."
+              />
+            </div>
+            <div className="flex items-start gap-2 rounded-md border border-blue-500/25 bg-blue-500/10 p-3 text-xs text-blue-100">
+              <Check className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>No dispatch text, email, or crew offer is sent. Payment, completion, accounting, and JCMOVES issuance are recorded with an owner audit trail.</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowOfflineCloseoutDialog(false)} disabled={offlineCloseoutMutation.isPending}>Cancel</Button>
+            <Button
+              onClick={() => offlineCloseoutMutation.mutate()}
+              disabled={offlineCloseoutMutation.isPending || rewardCrewIds.length === 0 || !offlinePaymentDate}
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+              data-testid="button-confirm-offline-closeout"
+            >
+              {offlineCloseoutMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+              Record {formatMoney(lead.totalPrice || lead.basePrice)} Paid &amp; Complete
             </Button>
           </DialogFooter>
         </DialogContent>

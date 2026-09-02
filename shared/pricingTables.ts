@@ -41,7 +41,7 @@ export const JUNK_TIERS: JunkTier[] = [
 /** Bedroom → canonical crew size for moving matrix. Mirrors the labor
  *  tuples in SERVICE_LABOR_DEFAULTS["moving"] (small=2, medium=2, large=4)
  *  so any caller of quoteMovingFromTable can render a chat-card breakdown
- *  whose crew × hours × $85 = the matrix amount. */
+ *  whose crew × hours × the canonical worker rate = the matrix amount. */
 const MOVING_MATRIX_CREW: Record<string, number> = {
   studio: 2,  // small
   "1br": 2,   // small
@@ -55,7 +55,7 @@ export function quoteMovingFromTable(opts: { bedrooms?: string; stairs?: number 
   amount: number;
   base: number;
   multiplier: number;
-  /** Canonical labor tuple — crew × hours × $85 = `amount` (to the cent). */
+  /** Canonical labor tuple — crew × hours × canonical rate = `amount`. */
   labor: { crewSize: number; laborHours: number; totalLaborHours: number; ratePerHour: number };
 } {
   const br = String(opts.bedrooms || "1br");
@@ -65,8 +65,8 @@ export function quoteMovingFromTable(opts: { bedrooms?: string; stairs?: number 
   const multiplier = MOVING_LOAD_TYPE_MULTIPLIER[lt] ?? 1;
   const amount = Math.round(base * multiplier * 100) / 100;
   // Canonical labor tuple: crew is fixed by bedroom tier, hours derived
-  // so crew × hours × $85 ≈ amount (within $1 due to 2-decimal hour
-  // rounding — matrix amounts like $1365 are not divisible by $85, so
+  // so crew × hours × the canonical rate approximates amount (within $1
+  // due to 2-decimal hour rounding, so some matrix values produce
   // some cent-level slip is unavoidable). The tuple is what the chat
   // card displays; the matrix `amount` remains the billed truth.
   const crewSize = MOVING_MATRIX_CREW[br] ?? 2;
@@ -178,11 +178,11 @@ export const SERVICE_LINE_FLOORS: Record<string, number> = {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Task #218 — Labor-hours pricing model. Every service is fundamentally
-// "crew × hours × $85/hr". The matrices above stay (they encode all the
+// "crew × hours × the canonical worker rate". The matrices above stay (they encode all the
 // per-service nuance — bedrooms/stairs for moving, tier for junk, etc.),
 // but every quoted line ALSO carries a labor-hours breakdown so the
 // chat-intake card, /book wizard, and admin pricing-calibrate can show
-// "2 movers × 4 hrs at $85/hr" and have it match the actual price.
+// "2 movers × 4 hrs at the active rate" and have it match the actual price.
 // ─────────────────────────────────────────────────────────────────────────
 
 /** Single rate that drives every labor-hours quote across the platform.
@@ -201,7 +201,7 @@ export const LABOR_RATE_PER_HOUR = MOVER_RATE_PER_HOUR;
  *    moving large  = 4×4hr ≈ 26ft truck load
  *    lawn_care     ≈ 0.5hr ($45)
  *    trash_valet   ≈ 0.33hr (~$28)
- *    rate          $85/hr
+ *    rate          canonical pricing snapshot
  */
 export interface ServiceLaborDefaults {
   defaultCrew: number;

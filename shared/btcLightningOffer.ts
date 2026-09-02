@@ -7,7 +7,7 @@ import {
 
 /** Customer-facing Bitcoin Lightning job-payment offer. */
 export const BTC_LIGHTNING_DISCOUNT_PERCENT = 5;
-export const BTC_LIGHTNING_REWARD_PERCENT = 5;
+export const BTC_LIGHTNING_REWARD_PERCENT = 0;
 export const BTC_LIGHTNING_TREASURY_RETENTION_PERCENT = 100;
 export const BTC_LIGHTNING_PAYMENT_RAIL = "btc_lightning";
 export const BTC_LIGHTNING_SETTLEMENT_CURRENCY = "BTC";
@@ -32,9 +32,9 @@ export type BtcLightningOffer = {
 };
 
 /**
- * The reward is 5% of the discounted amount actually paid. Its JCMOVES amount
- * is calculated at the platform redemption rate; this calculation does not
- * convert or move the BTC received by treasury.
+ * Crypto receives the site-wide 5% price discount. The separate 5% JCMOVES
+ * bonus belongs to regular payments, so this rail does not mint a payment
+ * bonus. Normal job-completion rewards remain governed by the job program.
  */
 export function calculateBtcLightningOffer(originalAmountUsd: number): BtcLightningOffer {
   if (!Number.isFinite(originalAmountUsd) || originalAmountUsd <= 0) {

@@ -85,13 +85,14 @@ function normalizeEmailAddress(value: string): string {
   return trimmed.replace(/^["']+|["']+$/g, '').trim();
 }
 
-function buildRawEmail(to: string, from: string, subject: string, html?: string, text?: string): string {
+function buildRawEmail(to: string, from: string, subject: string, html?: string, text?: string, replyTo?: string): string {
   const boundary = 'boundary_' + Date.now();
   const normalizedTo = normalizeEmailAddress(to);
   const normalizedFrom = normalizeEmailAddress(from);
   const lines = [
     `From: JC ON THE MOVE <${normalizedFrom}>`,
     `To: ${normalizedTo}`,
+    ...(replyTo ? [`Reply-To: ${normalizeEmailAddress(replyTo)}`] : []),
     `Subject: ${encodeSubject(subject)}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
@@ -111,13 +112,14 @@ function buildRawEmail(to: string, from: string, subject: string, html?: string,
   return Buffer.from(rawMessage).toString('base64url');
 }
 
-function buildSmtpEmail(to: string, from: string, subject: string, html?: string, text?: string): string {
+function buildSmtpEmail(to: string, from: string, subject: string, html?: string, text?: string, replyTo?: string): string {
   const boundary = 'boundary_' + Date.now();
   const normalizedTo = normalizeEmailAddress(to);
   const normalizedFrom = normalizeEmailAddress(from);
   const lines = [
     `From: JC ON THE MOVE <${normalizedFrom}>`,
     `To: ${normalizedTo}`,
+    ...(replyTo ? [`Reply-To: ${normalizeEmailAddress(replyTo)}`] : []),
     `Subject: ${encodeSubject(subject)}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
@@ -230,6 +232,7 @@ async function connectSmtpSocket(host: string, port: number): Promise<SmtpSocket
 async function sendGmailSmtpEmail(params: {
   to: string;
   from: string;
+  replyTo?: string;
   subject: string;
   text?: string;
   html?: string;
@@ -258,6 +261,7 @@ async function sendGmailSmtpEmail(params: {
       params.subject,
       params.html,
       params.text,
+      params.replyTo,
     );
     await sendSmtpCommand(socket, `${escapeSmtpData(raw)}\r\n.`, [250]);
     await sendSmtpCommand(socket, 'QUIT', [221]);
@@ -275,6 +279,7 @@ async function sendGmailSmtpEmail(params: {
 async function sendGmailApiEmail(params: {
   to: string;
   from: string;
+  replyTo?: string;
   subject: string;
   text?: string;
   html?: string;
@@ -285,7 +290,7 @@ async function sendGmailApiEmail(params: {
     const configuredFrom = envCredentials?.user || params.from;
     const from = normalizeEmailAddress(configuredFrom);
     const to = normalizeEmailAddress(params.to);
-    const raw = buildRawEmail(to, from, params.subject, params.html, params.text);
+    const raw = buildRawEmail(to, from, params.subject, params.html, params.text, params.replyTo);
 
     const response = await gmail.users.messages.send({
       userId: 'me',
@@ -309,6 +314,7 @@ async function sendGmailApiEmail(params: {
 export async function sendGmailEmail(params: {
   to: string;
   from: string;
+  replyTo?: string;
   subject: string;
   text?: string;
   html?: string;
@@ -329,7 +335,7 @@ export async function sendGmailEmail(params: {
     const configuredFrom = envCredentials?.user || params.from;
     const from = normalizeEmailAddress(configuredFrom);
     const to = normalizeEmailAddress(params.to);
-    const raw = buildRawEmail(to, from, params.subject, params.html, params.text);
+    const raw = buildRawEmail(to, from, params.subject, params.html, params.text, params.replyTo);
     
     const response = await gmail.users.messages.send({
       userId: 'me',

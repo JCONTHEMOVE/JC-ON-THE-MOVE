@@ -266,7 +266,7 @@ export async function verifyBitcoinPayment(
             </div>
             <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
               <span style="color:#94a3b8;">Amount Paid</span>
-              <span style="color:#4ade80;font-weight:bold;">$${parseFloat(payment.usdAmount).toFixed(2)} (10% BTC Discount Applied)</span>
+              <span style="color:#4ade80;font-weight:bold;">$${parseFloat(payment.usdAmount).toFixed(2)} (${Number(payment.discountPercent || 5).toFixed(0)}% Crypto Discount Applied)</span>
             </div>
             <div style="display:flex;justify-content:space-between;">
               <span style="color:#94a3b8;">BTC Amount</span>

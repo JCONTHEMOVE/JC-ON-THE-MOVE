@@ -297,8 +297,8 @@ export async function quoteService(
   }
 
   if (serviceCode === "handyman") {
-    // Task #218 — Per-hour labor model at the platform-wide $85/hr (was
-    // $75 — a stale legacy rate). 2-hr minimum. crewSize defaults to 1.
+    // Per-hour labor model at the canonical worker rate. Two-hour minimum;
+    // crewSize defaults to one.
     const crewSize = Math.max(1, Number(d.crewSize ?? d.movers ?? 1));
     const hours = Math.max(2, Number(d.hours ?? 2));
     const totalLaborHours = +(crewSize * hours).toFixed(2);
@@ -310,7 +310,7 @@ export async function quoteService(
   }
 
   if (serviceCode === "labor") {
-    // Task #218 — Crew × hours × $85/hr. 2-mover, 2-hr minimum.
+    // Crew × hours × the canonical worker rate. Two-mover, two-hour minimum.
     const crewSize = Math.max(1, Number(d.crewSize ?? d.movers ?? 2));
     const hours = Math.max(2, Number(d.hours ?? 2));
     const totalLaborHours = +(crewSize * hours).toFixed(2);
@@ -401,7 +401,7 @@ export async function quoteService(
 
   // ── Task #218 — Labor-hours fallback ────────────────────────────────────
   // Any service that didn't match a per-service handler above and is in
-  // SERVICE_LABOR_DEFAULTS gets priced as crew × hours × $85/hr. Honors
+  // SERVICE_LABOR_DEFAULTS gets priced from the canonical worker rate. Honors
   // an explicit `jobSize` from the chat-intake parser when present.
   // Currently catches: lawn_care, trash_valet, window_cleaning,
   // demolition, junk_reset, deep_clean_turnover, assembly_finish,
@@ -518,6 +518,14 @@ export async function quoteBundle(
     bundleDefinitions?: BundleDefinitionLike[];
   } = {},
 ): Promise<BookingPricingResult> {
+  const { getActivePricingSnapshot } = await import("./pricingVersions");
+  const activePricing = await getActivePricingSnapshot();
+  const operations = activePricing.snapshot.operationsPolicy;
+  const activeServiceMinimums = operations ? {
+    moving: operations.serviceMinimums.moving,
+    labor: operations.serviceMinimums.labor,
+    junk_removal: operations.serviceMinimums.junkRemoval,
+  } : undefined;
   const bundles =
     options.bundleDefinitions ??
     (await db
@@ -525,5 +533,9 @@ export async function quoteBundle(
       .from(bundleDefinitions)
       .where(eq(bundleDefinitions.isActive, true))
       .then((rows) => rows.map(bundleRowToLike)));
-  return computeBookingQuote(items, { ...options, bundleDefinitions: bundles });
+  return computeBookingQuote(items, {
+    ...options,
+    serviceMinimums: options.serviceMinimums || activeServiceMinimums,
+    bundleDefinitions: bundles,
+  });
 }

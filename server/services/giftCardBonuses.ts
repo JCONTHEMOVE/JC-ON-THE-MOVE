@@ -4,6 +4,14 @@ import { pool } from "../db";
 import { getAppUrl } from "../appUrl";
 import { sendEmail } from "./email";
 import {
+  getGiftCardBonusReadiness,
+  getGiftCardBonusStartAt,
+  getSquareAccessToken,
+  getSquareEnvironment,
+  getSquareLocationId,
+} from "./squareConfig";
+export { getGiftCardBonusReadiness } from "./squareConfig";
+import {
   GIFT_CARD_BONUS_AMOUNTS,
   GIFT_CARD_BONUS_HOLD_DAYS,
   GIFT_CARD_BONUS_MINIMUM_CENTS,
@@ -91,36 +99,10 @@ function safeDate(value: unknown, fallback = new Date()): Date {
   return Number.isFinite(date.getTime()) ? date : fallback;
 }
 
-function configuredStartAt(): Date | null {
-  const value = process.env.GIFT_CARD_BONUS_START_AT?.trim();
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date : null;
-}
-
-export function getGiftCardBonusReadiness() {
-  const requested = process.env.GIFT_CARD_BONUS_ENABLED === "true";
-  const startAt = configuredStartAt();
-  const blockers: string[] = [];
-  if (!requested) blockers.push("GIFT_CARD_BONUS_ENABLED must be true");
-  if (!startAt) blockers.push("GIFT_CARD_BONUS_START_AT must be a valid timestamp");
-  if (!process.env.SQUARE_ACCESS_TOKEN?.trim()) blockers.push("SQUARE_ACCESS_TOKEN is required");
-  if (!process.env.SQUARE_LOCATION_ID?.trim()) blockers.push("SQUARE_LOCATION_ID is required");
-  if (!process.env.SQUARE_WEBHOOK_SIGNATURE_KEY?.trim()) blockers.push("SQUARE_WEBHOOK_SIGNATURE_KEY is required");
-  try {
-    const webhookUrl = new URL(process.env.SQUARE_WEBHOOK_URL || "");
-    if (webhookUrl.protocol !== "https:") throw new Error("not HTTPS");
-  } catch {
-    blockers.push("SQUARE_WEBHOOK_URL must be a valid HTTPS URL");
-  }
-  const enabled = blockers.length === 0;
-  return { enabled, requested, startAt: startAt?.toISOString() || null, blockers };
-}
-
 export function getPublicGiftCardBonusConfig() {
   const readiness = getGiftCardBonusReadiness();
   return {
-    enabled: readiness.enabled,
+    enabled: readiness.publicEnabled,
     startAt: readiness.startAt,
     tokensPerDollar: GIFT_CARD_BONUS_TOKENS_PER_DOLLAR,
     minimumAmountUsd: GIFT_CARD_BONUS_MINIMUM_CENTS / 100,
@@ -216,8 +198,8 @@ export async function ensureGiftCardBonusTables(): Promise<void> {
 async function getSquareClient(): Promise<SquareClient> {
   const { SquareClient, SquareEnvironment } = await import("square");
   return new SquareClient({
-    token: process.env.SQUARE_ACCESS_TOKEN || "",
-    environment: process.env.SQUARE_ENVIRONMENT === "production"
+    token: getSquareAccessToken(),
+    environment: getSquareEnvironment() === "production"
       ? SquareEnvironment.Production
       : SquareEnvironment.Sandbox,
   });
@@ -283,7 +265,7 @@ async function reconcileStoredPurchase(squareOrderId: string): Promise<void> {
   const purchase = rows[0];
   if (!purchase) return;
   const metadata = record(purchase.metadata);
-  const startAt = configuredStartAt();
+  const startAt = getGiftCardBonusStartAt();
   if (!getGiftCardBonusReadiness().enabled || !startAt || !purchase.purchased_at || purchase.purchased_at < startAt) {
     await pool.query(
       "UPDATE gift_card_bonus_purchases SET status='disabled', updated_at=NOW() WHERE id=$1 AND credited_at IS NULL",
@@ -352,7 +334,7 @@ export async function handleSquareGiftCardActivityEvent(activityValue: unknown):
   const activityId = stringField(activity, "id");
   const amountCents = moneyCents(details.amountMoney ?? details.amount_money);
   const activatedAt = safeDate(activity.createdAt ?? activity.created_at);
-  const startAt = configuredStartAt();
+  const startAt = getGiftCardBonusStartAt();
   if (!orderId || !activityId || amountCents <= 0 || !startAt || activatedAt < startAt) return;
 
   await pool.query(
@@ -391,11 +373,11 @@ export async function handleSquareGiftCardPaymentEvent(paymentValue: unknown): P
   }
   const buyerEmail = await buyerEmailForPayment(payment);
   const purchasedAt = safeDate(payment.createdAt ?? payment.created_at);
-  const startAt = configuredStartAt();
+  const startAt = getGiftCardBonusStartAt();
   if (!startAt || purchasedAt < startAt) return;
   const paidCents = moneyCents(payment.amountMoney ?? payment.amount_money);
   const locationId = stringField(payment, "locationId", "location_id") || order.locationId;
-  const requiredLocation = process.env.SQUARE_LOCATION_ID?.trim();
+  const requiredLocation = getSquareLocationId();
   const locationMismatch = Boolean(requiredLocation && locationId !== requiredLocation);
 
   await pool.query(

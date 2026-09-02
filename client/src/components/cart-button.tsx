@@ -16,7 +16,7 @@ export function FloatingCartButton() {
         </span>
         {itemCount > 1 && (
           <span className="absolute -top-8 right-0 bg-emerald-700 text-emerald-100 text-xs px-2 py-1 rounded-full whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
-            10% off bundle!
+            Review bundle savings
           </span>
         )}
       </button>

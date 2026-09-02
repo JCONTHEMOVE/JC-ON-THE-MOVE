@@ -29,6 +29,7 @@ import {
   beginMetaOAuth,
   completeMetaOAuthCallback,
   disconnectMetaPage,
+  getMetaPilotAdminSetup,
   getRepMarketingBotDashboard,
   listMetaManagedPages,
   listOwnerRepPublishingOverview,
@@ -46,7 +47,7 @@ const router = Router();
 async function requireMarketingAdmin(req: Request, res: Response, next: NextFunction) {
   try {
     const sessionUser = (req as any).user || (req as any).currentUser;
-    const sessionUserId = (req.session as any)?.userId;
+    const sessionUserId = (req as any).session?.userId;
     const user = sessionUser || (sessionUserId
       ? (await db.select().from(users).where(eq(users.id, sessionUserId)).limit(1))[0]
       : null);
@@ -64,7 +65,7 @@ async function requireMarketingAdmin(req: Request, res: Response, next: NextFunc
 async function requireMarketingEmployee(req: Request, res: Response, next: NextFunction) {
   try {
     const sessionUser = (req as any).user || (req as any).currentUser;
-    const sessionUserId = (req.session as any)?.userId;
+    const sessionUserId = (req as any).session?.userId;
     const user = sessionUser || (sessionUserId
       ? (await db.select().from(users).where(eq(users.id, sessionUserId)).limit(1))[0]
       : null);
@@ -111,7 +112,16 @@ router.get("/admin/marketing-bot/dashboard", requireMarketingAdmin, async (_req,
       listMarketingBotDashboard(),
       listOwnerRepPublishingOverview(),
     ]);
-    res.json({ ...dashboard, representatives });
+    const metaPilot = getMetaPilotAdminSetup();
+    const pilotRep = representatives.find((representative) => representative.pilotAllowed);
+    if (metaPilot.configured && pilotRep?.connection?.status === "connected" && pilotRep.connection.authorizedForPilot) {
+      metaPilot.state = "ready";
+    } else if (metaPilot.configured && pilotRep?.connection?.status === "reauth_required") {
+      metaPilot.state = "reauthorization_required";
+    } else if (metaPilot.configured && pilotRep?.connection && !pilotRep.connection.authorizedForPilot) {
+      metaPilot.state = "authorized_page_mismatch";
+    }
+    res.json({ ...dashboard, representatives, metaPilot });
   } catch (error) {
     console.error("[marketing-bot] dashboard failed:", error instanceof Error ? error.message : error);
     res.status(500).json({ error: "Failed to load Marketing Bot" });
@@ -350,7 +360,9 @@ router.get("/public/marketing-bot/click/:variantCode/:intent", async (req, res) 
     await logMarketingBotEvent({ variantCode, eventType, visitorId: visitorId(req, res), metadata: { referrer: req.get("referer") || "", userAgent: req.get("user-agent") || "" } });
     if (intent === "call") return res.redirect(302, `tel:+${phoneDigits()}`);
     if (intent === "message") return res.redirect(302, `sms:+${phoneDigits()}?body=${encodeURIComponent(`I'm contacting JC ON THE MOVE about ${variant.variant_code}.`)}`);
-    const destination = new URL("/book", `${req.protocol}://${req.get("host")}`);
+    const catalogOffer = variant.facts && typeof variant.facts === "object" ? variant.facts.offer : null;
+    const offerCode = typeof catalogOffer?.offerCode === "string" ? catalogOffer.offerCode : null;
+    const destination = new URL(offerCode ? `/offers/${encodeURIComponent(offerCode)}` : "/book", `${req.protocol}://${req.get("host")}`);
     destination.searchParams.set("utm_source", variant.channel);
     destination.searchParams.set("utm_medium", "organic");
     destination.searchParams.set("utm_campaign", variant.campaign_code);

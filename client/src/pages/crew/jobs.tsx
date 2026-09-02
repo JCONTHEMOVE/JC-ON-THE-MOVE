@@ -28,6 +28,7 @@ import type { SmartBookingAnswers } from "@shared/smartBookingEngine";
 import type { JobFlow } from "@shared/job-flow";
 import { useAdminViewMode } from "@/hooks/useAdminViewMode";
 import { CrewCloseoutDialog } from "@/components/crew-closeout-dialog";
+import { ScheduleRequestQueue } from "@/components/schedule-request-queue";
 
 const SERVICE_ICONS: Record<string, string> = {
   residential: "🚛", commercial: "🏢", junk: "🗑️", snow: "❄️",
@@ -1750,6 +1751,8 @@ export default function CrewJobsPage() {
           <ChevronRight className="h-4 w-4 shrink-0 text-blue-200" />
         </button>
       )}
+
+      <ScheduleRequestQueue className="mb-5" />
 
       <Tabs defaultValue="board">
         <TabsList className="bg-slate-800/50 border border-slate-700/50 mb-5 w-full">

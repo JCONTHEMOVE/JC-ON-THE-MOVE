@@ -4,12 +4,15 @@ import {
   Radio, Briefcase, Users, Wallet, Sliders, ChevronRight, LogOut,
   Menu, X, CalendarDays, FileBarChart, Rocket, AlertTriangle,
   ClipboardList, Megaphone, Lightbulb, Store, GraduationCap, MapPinned, Coins,
+  Bot,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, clearTokens, queryClient } from "@/lib/queryClient";
 import { TutorialInviteDialog } from "@/components/tutorial-invite-dialog";
 import { Switch } from "@/components/ui/switch";
 import { useAdminViewMode } from "@/hooks/useAdminViewMode";
+import { NotificationBell } from "@/components/notification-bell";
+import { NotificationList } from "@/components/notification-list";
 
 // Task #196 — Lead funnel outage banner. Shown across every admin page
 // when the customer-quote submission rate drops to zero during a window
@@ -57,6 +60,7 @@ function LeadFunnelOutageBanner() {
 // Keep this list in sync with the routes wired in client/src/App.tsx.
 const TASKS = [
   { label: "Job Planner", icon: CalendarDays, path: "/admin/schedule" },
+  { label: "Chief of Staff", icon: Bot, path: "/admin/chief-of-staff" },
   { label: "Ops Board", icon: ClipboardList, path: "/admin/ops-board" },
   { label: "Dispatch", icon: Radio, path: "/admin/dispatch" },
   { label: "Jobs", icon: Briefcase, path: "/admin/schedule" },
@@ -69,7 +73,7 @@ const OPTIONS = [
   { label: "Gift Bonuses", icon: Coins, path: "/admin/gift-card-bonuses" },
   { label: "Funnel", icon: FileBarChart, path: "/admin/booking-analytics" },
   { label: "Regional", icon: MapPinned, path: "/admin/regional-automation" },
-  { label: "Marketing", icon: Megaphone, path: "/admin/marketing" },
+  { label: "Northwoods Bot", icon: Megaphone, path: "/admin/marketing" },
   { label: "Marketplace", icon: Store, path: "/admin/marketplace" },
   { label: "Playbook", icon: Lightbulb, path: "/admin/marketplace-playbook" },
   { label: "Tutorials", icon: GraduationCap, path: "/admin/tutorials" },
@@ -100,6 +104,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
   const { isCrewPreview, setCrewPreview } = useAdminViewMode();
 
   const handleLogout = async () => {
@@ -223,10 +228,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <Menu className="h-5 w-5" />
           </button>
           <span className="text-sm font-semibold text-white">Admin</span>
+          <div className="ml-auto"><NotificationBell onClick={() => setNotificationOpen(true)} /></div>
           <button
             type="button"
             onClick={() => setCrewView(true)}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2 py-1.5 text-xs font-semibold text-cyan-100"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2 py-1.5 text-xs font-semibold text-cyan-100"
             data-testid="button-mobile-crew-view"
           >
             <Users className="h-3.5 w-3.5" />
@@ -269,9 +275,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
         {/* Main content */}
         <main className="min-w-0 w-full flex-1 md:ml-56 pt-12 md:pt-0 pb-6">
+          <div className="fixed right-4 top-4 z-40 hidden md:block rounded-full border border-slate-700 bg-slate-950/90 shadow-xl"><NotificationBell onClick={() => setNotificationOpen(true)} /></div>
           <LeadFunnelOutageBanner />
           {children}
         </main>
+        <NotificationList open={notificationOpen} onOpenChange={setNotificationOpen} />
         <TutorialInviteDialog audience="admin" currentPath={location} onNavigate={go} />
       </div>
     </div>

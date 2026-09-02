@@ -1,5 +1,12 @@
 # Solana Blockchain Integration Guide
 
+> **Reference-only document.** The current business sequence, rollout gates, and
+> environment rules live in [`MASTER_GAME_PLAN.md`](../MASTER_GAME_PLAN.md).
+> Nothing in this file authorizes a Mainnet launch, treasury transfer, customer
+> reward, or automated payout. All wallet addresses and balances below are
+> historical snapshots that must be reconciled against the current database and
+> chain before they are used for migration planning.
+
 ## Overview
 Instructions for linking the JC ON THE MOVE application to the Solana blockchain for cryptocurrency functionality and smart contract integration.
 
@@ -98,4 +105,4 @@ Use the command `solana-keygen new --outfile ~/my-keypair.json` to create a new 
 **Important:** These transfers need to be replicated on the real Solana blockchain when transitioning from the simulated custodial system to actual blockchain wallets. The treasury funding transactions must be properly recorded on-chain to maintain accurate accounting.
 
 ---
-*Last Updated: October 6, 2025*
+*Last reviewed: September 2, 2026. Historical values retained for reconciliation only.*

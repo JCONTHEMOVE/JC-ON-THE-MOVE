@@ -104,6 +104,7 @@ import serviceRebookRouter from "./routes/serviceRebookReminders";
 import serviceRebookPublicRouter from "./routes/serviceRebookPublic";
 import marketingWebhookRemindersRouter from "./routes/marketingWebhookReminders";
 import marketingBotRouter from "./routes/marketingBot";
+import northwoodsMarketingRouter from "./routes/northwoodsMarketing";
 import { createMarketingExecutionRouter } from "./routes/marketingExecution";
 import bookingsRouter from "./routes/bookings";
 import quotesRouter from "./routes/quotes";
@@ -112,6 +113,7 @@ import regionalAutomationRouter from "./routes/regionalAutomation";
 import pipelineRouter from "./routes/pipeline";
 import aiBookingRouter from "./routes/aiBooking";
 import giftCardBonusesRouter from "./routes/giftCardBonuses";
+import commerceCatalogRouter from "./routes/commerceCatalog";
 import { ensureGiftCardBonusTables } from "./services/giftCardBonuses";
 import { ensureBookingCatalogSeeded } from "./services/bookingCatalogSeed";
 import { getActivePricingSnapshot } from "./services/pricingVersions";
@@ -141,6 +143,11 @@ import {
   settleBtcLightningJobPayment,
   type BtcLightningIntentRow,
 } from "./services/btcLightningJobPayments";
+import {
+  ensureOfflineJobPaymentTables,
+  OfflineJobCloseoutError,
+  recordOfflineJobCloseout,
+} from "./services/offlineJobCloseout";
 import {
   MARKETPLACE_ACTION_TASKS,
   getMarketplaceLaunchTasks,
@@ -1504,6 +1511,14 @@ async function findOrCreateGoogleUser(profile: {
 }
 
 export async function registerRoutes(app: Express, httpServer: Server = createServer(app)): Promise<Server> {
+  try {
+    const { registerAshleyShopRoutes } = await import("./routes/ashleyShop");
+    await registerAshleyShopRoutes(app);
+    console.log("Handmade Jewels by Ashley routes registered");
+  } catch (error) {
+    console.error("Ashley shop route initialization failed:", error);
+    if (process.env.NODE_ENV === "production") throw error;
+  }
   try {
     const { ensureRegionalAutomationSchema } = await import("./services/regionalAutomationMigration");
     await ensureRegionalAutomationSchema();
@@ -5459,10 +5474,21 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
   }
 
   const quickRequestSchema = z.object({
+    requestType: z.enum(["callback", "scheduled"]).optional().default("callback"),
     firstName: z.string().trim().min(1).max(80),
     lastName: z.string().trim().min(1).max(80),
+    email: z.string().trim().email().max(255).optional().default(""),
     phone: leadPhoneNumberSchema,
     serviceCode: z.string().trim().min(1).max(80),
+    serviceAddress: z.string().trim().max(500).optional().default(""),
+    zip: z.string().trim().max(12).optional().default(""),
+    workScope: z.string().trim().max(1500).optional().default(""),
+    sizingBasis: z.enum(["square_footage", "truck"]).optional(),
+    squareFootage: z.number().int().min(1).max(100000).optional(),
+    truckSize: z.enum(["pickup_van_10", "15_ft", "20_ft", "26_ft"]).optional(),
+    selectedCrewSize: z.union([z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    preferredDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    preferredStartTime: z.string().regex(/^\d{2}:00$/).optional(),
     notes: z.string().trim().max(2500).optional().default(""),
     mediaLink: z.string().trim().max(1000).optional().default(""),
     promoCode: z.string().trim().max(50).optional().default(""),
@@ -5491,6 +5517,26 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         });
       }
     })).max(5).optional().default([]),
+  }).superRefine((value, ctx) => {
+    if (value.requestType !== "scheduled") return;
+    const required: Array<[keyof typeof value, unknown, string]> = [
+      ["email", value.email, "Enter your email"],
+      ["serviceAddress", value.serviceAddress, "Enter the service address"],
+      ["zip", value.zip, "Enter the service ZIP code"],
+      ["workScope", value.workScope, "Describe the work"],
+      ["sizingBasis", value.sizingBasis, "Choose home size or truck size"],
+      ["preferredDate", value.preferredDate, "Choose a preferred date"],
+      ["preferredStartTime", value.preferredStartTime, "Choose a preferred start time"],
+    ];
+    for (const [field, current, message] of required) {
+      if (!current) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message });
+    }
+    if (value.sizingBasis === "square_footage" && !value.squareFootage) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["squareFootage"], message: "Enter the approximate home square footage" });
+    }
+    if (value.sizingBasis === "truck" && !value.truckSize) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["truckSize"], message: "Choose the truck size" });
+    }
   });
 
   const QUICK_REQUEST_SERVICE_MAP: Record<string, { serviceType: string; label: string }> = {
@@ -5550,11 +5596,14 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           ? parsed.marketingCampaignId.trim()
           : marketingTracking.jcCampaign || marketingTracking.utmContent || "";
         const photoNames = parsed.photos.map((photo) => photo.name).filter(Boolean);
+        const scheduledRequest = parsed.requestType === "scheduled";
+        const leadSource = scheduledRequest ? "scheduled_request" : "quick_request";
         const details = [
-          "[QUICK REQUEST - CALL REQUIRED]",
-          "Customer needs quote",
+          scheduledRequest ? "[DATE-FIRST REQUEST - CONFIRMATION REQUIRED]" : "[QUICK REQUEST - CALL REQUIRED]",
+          scheduledRequest ? `Preferred start: ${parsed.preferredDate} at ${parsed.preferredStartTime} Central (tentative)` : "Customer needs quote",
           `Service: ${service.label}`,
-          "Source: 60-second quick request",
+          scheduledRequest ? `Work scope: ${parsed.workScope}` : "Source: 60-second quick request",
+          scheduledRequest ? `Sizing: ${parsed.sizingBasis === "square_footage" ? `${parsed.squareFootage} sq. ft.` : parsed.truckSize}` : "",
           normalizedPromoCode ? `Referral code: ${normalizedPromoCode}` : "",
           referralSlug ? `Rep page: ${referralSlug}` : "",
           marketingCampaignId ? `Marketing campaign: ${marketingCampaignId}` : "",
@@ -5577,7 +5626,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
         const recentQuickRequest = await db.select()
           .from(leads)
           .where(and(
-            eq(leads.source, "quick_request"),
+            eq(leads.source, leadSource),
             sql`regexp_replace(${leads.phone}, '\\D', '', 'g') = ${phoneDigits}`,
             eq(leads.serviceType, service.serviceType),
             eq(leads.details, details),
@@ -5588,6 +5637,25 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
 
         if (recentQuickRequest[0]) {
           const existingLead = recentQuickRequest[0];
+          const existingSchedule = scheduledRequest
+            ? await import("./services/jcOperations").then(async ({ createLeadScheduleRequest, rotateScheduleManageToken }) => (
+                await rotateScheduleManageToken(existingLead.id)
+                || createLeadScheduleRequest({
+                  leadId: existingLead.id,
+                  customerEmail: parsed.email,
+                  customerName: `${parsed.firstName} ${parsed.lastName}`,
+                  serviceAddress: parsed.serviceAddress,
+                  zip: parsed.zip,
+                  workScope: parsed.workScope,
+                  sizingBasis: parsed.sizingBasis!,
+                  squareFootage: parsed.squareFootage,
+                  truckSize: parsed.truckSize,
+                  selectedCrewSize: parsed.selectedCrewSize,
+                  preferredDate: parsed.preferredDate!,
+                  preferredStartTime: parsed.preferredStartTime!,
+                })
+              ))
+            : null;
           return res.status(200).json({
             success: true,
             duplicate: true,
@@ -5602,6 +5670,11 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
               referralSlug: referralSlug || null,
               marketingCampaignId: marketingCampaignId || null,
             },
+            scheduleRequest: existingSchedule ? {
+              id: existingSchedule.scheduleRequest.id,
+              status: existingSchedule.scheduleRequest.status,
+              manageUrl: existingSchedule.manageUrl,
+            } : null,
           });
         }
 
@@ -5612,16 +5685,20 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           // was deterministic, so retrying the same number could collide with
           // a production uniqueness constraint. This stays synthetic but is
           // unique for every lead.
-          email: `quick-request+${phoneDigits || "callback"}-${crypto.randomUUID()}@jconthemove.local`,
+          email: scheduledRequest
+            ? parsed.email
+            : `quick-request+${phoneDigits || "callback"}-${crypto.randomUUID()}@jconthemove.local`,
           phone: parsed.phone,
           serviceType: service.serviceType,
-          fromAddress: "Callback requested",
+          fromAddress: scheduledRequest ? parsed.serviceAddress : "Callback requested",
           toAddress: "",
           moveDate: "",
-          propertySize: "quick-request",
+          propertySize: scheduledRequest
+            ? (parsed.sizingBasis === "square_footage" ? `${parsed.squareFootage}-sq-ft` : parsed.truckSize)
+            : "quick-request",
           details,
           truckConfig: "quote_needed",
-          crewSize: 2,
+          crewSize: parsed.selectedCrewSize || 2,
           photos: parsed.photos.map((photo) => ({
             url: photo.url || "",
             name: photo.name,
@@ -5632,7 +5709,7 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
             timestamp: new Date().toISOString(),
           })),
           urgency: "normal",
-          source: "quick_request",
+          source: leadSource,
           promoCode: normalizedPromoCode || null,
           quoteSnapshot: marketingCampaignId || Object.keys(marketingTracking).length
             ? {
@@ -5649,6 +5726,34 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           .values({ ...leadData, status: "quote_requested" })
           .returning();
         if (!lead) throw new Error("Quick request lead insert returned no record");
+        let scheduleResult = null;
+        if (scheduledRequest) {
+          try {
+            scheduleResult = await import("./services/jcOperations").then(({ createLeadScheduleRequest }) => createLeadScheduleRequest({
+              leadId: lead.id,
+              customerEmail: parsed.email,
+              customerName: `${parsed.firstName} ${parsed.lastName}`,
+              serviceAddress: parsed.serviceAddress,
+              zip: parsed.zip,
+              workScope: parsed.workScope,
+              sizingBasis: parsed.sizingBasis!,
+              squareFootage: parsed.squareFootage,
+              truckSize: parsed.truckSize,
+              selectedCrewSize: parsed.selectedCrewSize,
+              preferredDate: parsed.preferredDate!,
+              preferredStartTime: parsed.preferredStartTime!,
+            }));
+          } catch (scheduleError) {
+            // A date-first submission is only successful when its structured
+            // schedule row exists. Remove the just-created orphan lead so a
+            // retry can create the complete request instead of returning a
+            // misleading duplicate response.
+            await db.delete(leads).where(eq(leads.id, lead.id)).catch((cleanupError) => {
+              console.error("[quick-request] failed to remove incomplete scheduled lead:", cleanupError);
+            });
+            throw scheduleError;
+          }
+        }
         if (normalizedPromoCode || referralSlug || marketingCampaignId) {
           try {
             let repUserId: string | null = null;
@@ -5784,6 +5889,9 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
             serviceCode: parsed.serviceCode,
             serviceType: service.serviceType,
             mediaLink: parsed.mediaLink || null,
+            requestType: parsed.requestType,
+            preferredDate: parsed.preferredDate || null,
+            preferredStartTime: parsed.preferredStartTime || null,
             marketingCampaignId: marketingCampaignId || null,
             marketingTracking,
           },
@@ -5802,6 +5910,13 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
             referralSlug: referralSlug || null,
             marketingCampaignId: marketingCampaignId || null,
           },
+          scheduleRequest: scheduleResult ? {
+            id: scheduleResult.scheduleRequest.id,
+            status: scheduleResult.scheduleRequest.status,
+            capacityStatus: scheduleResult.capacity.status,
+            estimate: scheduleResult.estimate,
+            manageUrl: scheduleResult.manageUrl,
+          } : null,
         });
       } catch (error) {
         return respondLeadError(res, error, {
@@ -5863,6 +5978,15 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           }
         : leadData;
       const lead = await storage.createLead(createPayload);
+
+      // The public quote form is the primary lead-request entry point. Keep
+      // its operational alert beside the successful insert so later email or
+      // reward work cannot prevent Discord from seeing the new request.
+      await emitJobEvent("quote_requested", lead, {
+        eventId: `public-quote:${lead.id}`,
+        source: "public_quote_form",
+        status: lead.status || "new",
+      });
 
       if (bundleDiscount.applied) {
         logBundleDiscountApplication({
@@ -6494,6 +6618,8 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
       promoCode: row.promo_code || "",
       source: input.source,
       previous,
+      brandName: previous?.overlay?.brandName,
+      siteLabel: previous?.overlay?.siteLabel,
     });
     const trackedLink = safeMarketingCampaignDestination(row.cta_url);
     const facebookPost = input.refreshCaption
@@ -6629,8 +6755,10 @@ export async function registerRoutes(app: Express, httpServer: Server = createSe
           area: row.area || "Northwoods",
           focus: row.focus || "U-Haul load/unload",
           promoCode: row.promo_code || "BOOK NOW",
-          offerLine: creative?.overlay?.offerLine,
-          secondaryLine: creative?.overlay?.secondaryLine,
+           offerLine: creative?.overlay?.offerLine,
+           secondaryLine: creative?.overlay?.secondaryLine,
+           brandName: creative?.overlay?.brandName,
+           siteLabel: creative?.overlay?.siteLabel,
         },
       });
       res.set({
@@ -12706,6 +12834,9 @@ Thank you for your business!
       const { id } = req.params;
       const lead = await storage.getLead(id) as any;
       if (!lead) return res.status(404).json({ error: "Lead not found" });
+      if (lead.source === "moving_help_uhaul") {
+        return res.status(400).json({ error: "Moving Help reservations are operational-only and are not eligible for JCMOVES awards" });
+      }
       if (lead.status !== "completed") {
         return res.status(400).json({ error: "Lead is not completed" });
       }
@@ -14543,33 +14674,39 @@ Thank you for your business!
         console.error("Error sending job assignment notification:", notificationError);
       }
 
-      // Award JCMOVES tokens for accepting a job
+      // Award JCMOVES tokens for accepting a job. Moving Help/U-Haul imports
+      // are operational-only and cannot create automatic financial/reward
+      // effects from an external marketplace reservation.
       let acceptRewardAmount = 0;
       try {
-        const { ensureIdempotent } = await import('./lib/idempotency');
-        const idemKey = `job-accept-reward-${id}-${employeeId}`;
-        const isNew = await ensureIdempotent(idemKey, 'job_accepted');
-        if (!isNew) {
-          console.log(`[idempotency] job_accepted reward already credited for job ${id} employee ${employeeId} — skipping`);
+        if (lead.source === "moving_help_uhaul") {
+          console.log(`[rewards] acceptance reward skipped for operational-only Moving Help job ${id}`);
         } else {
-          const settings = await db.select().from(rewardSettings).where(eq(rewardSettings.settingKey, 'employee_job_accepted'));
-          const bonusTokens = settings.length > 0 && settings[0].isActive
-            ? parseFloat(settings[0].tokenAmount)
-            : 100;
+          const { ensureIdempotent } = await import('./lib/idempotency');
+          const idemKey = `job-accept-reward-${id}-${employeeId}`;
+          const isNew = await ensureIdempotent(idemKey, 'job_accepted');
+          if (!isNew) {
+            console.log(`[idempotency] job_accepted reward already credited for job ${id} employee ${employeeId} — skipping`);
+          } else {
+            const settings = await db.select().from(rewardSettings).where(eq(rewardSettings.settingKey, 'employee_job_accepted'));
+            const bonusTokens = settings.length > 0 && settings[0].isActive
+              ? parseFloat(settings[0].tokenAmount)
+              : 100;
 
-          await storage.creditWalletTokens(employeeId, bonusTokens);
-          await db.insert(rewards).values({
-            userId: employeeId,
-            rewardType: 'job_accepted',
-            tokenAmount: bonusTokens.toFixed(8),
-            cashValue: (bonusTokens * 0.01).toFixed(2),
-            status: 'confirmed',
-            earnedDate: new Date(),
-            referenceId: id,
-            metadata: { leadId: id, source: 'crew_acceptance' }
-          });
-          acceptRewardAmount = bonusTokens;
-          console.log(`🎁 Awarded ${bonusTokens} JCMOVES to employee ${employeeId} for accepting job ${id}`);
+            await storage.creditWalletTokens(employeeId, bonusTokens);
+            await db.insert(rewards).values({
+              userId: employeeId,
+              rewardType: 'job_accepted',
+              tokenAmount: bonusTokens.toFixed(8),
+              cashValue: (bonusTokens * 0.01).toFixed(2),
+              status: 'confirmed',
+              earnedDate: new Date(),
+              referenceId: id,
+              metadata: { leadId: id, source: 'crew_acceptance' }
+            });
+            acceptRewardAmount = bonusTokens;
+            console.log(`🎁 Awarded ${bonusTokens} JCMOVES to employee ${employeeId} for accepting job ${id}`);
+          }
         }
       } catch (rewardErr) {
         console.error("Job acceptance reward error:", rewardErr);
@@ -14816,12 +14953,34 @@ Thank you for your business!
       let pendingShopCardLines: Array<{ id: string; name: string; unitPrice: number; qty: number }> = [];
       if (!existingPaymentUrl && squareInvoiceService.isConfigured()) {
         try {
-          // Build a single-line itemized invoice from the quote total.
-          // Task #199 — append any pending shop-card grants so the
-          // customer is billed for them on the same Square invoice.
-          const lineItems: Array<{ id?: string; name: string; qty: number; unitPrice: number; total: number; excludeFromBundleDiscount?: boolean }> = [
-            { name: `${serviceLabel} — ${customerName}`, qty: 1, unitPrice: price, total: price },
-          ];
+          // Preserve the approved quote revision as real invoice lines. The
+          // Square order is reconciled to the approved total before it can be
+          // published, so catalog mappings cannot silently change the price.
+          const lineItems: Array<{ id?: string; name: string; qty: number; unitPrice: number; total: number; excludeFromBundleDiscount?: boolean }> =
+            (approvedQuote.lineItems || []).map((line) => ({
+              id: line.serviceCode || line.id,
+              name: line.name,
+              qty: Math.max(1, Number(line.quantity) || 1),
+              unitPrice: Number(line.unitPrice) || (Number(line.total) / Math.max(1, Number(line.quantity) || 1)),
+              total: Number(line.total) || 0,
+              excludeFromBundleDiscount: line.discountEligible === false,
+            }));
+          if (lineItems.length === 0) {
+            lineItems.push({ name: `${serviceLabel} — ${customerName}`, qty: 1, unitPrice: price, total: price });
+          }
+          const quoteGrossTarget = approvedQuote.customerTotal + approvedQuote.discountTotal;
+          const currentGross = lineItems.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
+          const quoteAdjustment = Math.round((quoteGrossTarget - currentGross) * 100) / 100;
+          const quoteReconciliationDiscount = Math.max(0, -quoteAdjustment);
+          if (quoteAdjustment > 0.01) {
+            lineItems.push({
+              name: "Approved quote adjustment",
+              qty: 1,
+              unitPrice: quoteAdjustment,
+              total: quoteAdjustment,
+              excludeFromBundleDiscount: true,
+            });
+          }
           try {
             const { rows: grantRows } = await pool.query<{
               id: string; addon_id: string; amount_usd: string; metadata: any;
@@ -14853,7 +15012,23 @@ Thank you for your business!
             lead,
             lineItems,
             undefined,
-            "none"   // SHARE_MANUALLY: creates invoice but Square sends NO email/SMS
+            "none",   // SHARE_MANUALLY: creates invoice but Square sends NO email/SMS
+            {
+              purpose: "legacy_unknown",
+              quoteRevisionId: approvedQuote.id,
+              pricingRevision: approvedQuote.pricingVersionCode,
+              discounts: [
+                ...(approvedQuote.discountTotal > 0
+                  ? [{ code: "APPROVED_QUOTE_DISCOUNT", name: "Eligible discounts", amount: approvedQuote.discountTotal }]
+                  : []),
+                ...(quoteReconciliationDiscount > 0.01
+                  ? [{ code: "QUOTE_RECONCILIATION", name: "Approved quote adjustment", amount: quoteReconciliationDiscount }]
+                  : []),
+              ],
+              expectedTotal: price + pendingShopCardLines.reduce((sum, line) => sum + line.unitPrice * line.qty, 0),
+              idempotencyKey: `quote-${approvedQuote.id}`,
+              description: `${serviceLabel} approved quote`,
+            },
           );
           squarePaymentUrl = invoiceResult.invoiceUrl || null;
           squareInvoiceCreated = true;
@@ -18332,6 +18507,7 @@ Thank you for your business!
            FROM job_assignments ja
            JOIN leads l ON l.id = ja.lead_id
           WHERE ja.actual_hours_approved_at IS NOT NULL
+            AND COALESCE(l.source,'') <> 'moving_help_uhaul'
             AND ${payrollTimestampDateSql("ja.actual_hours_approved_at")} < $1::date`,
         [bounds.nextPeriodStart, timezone],
       ),
@@ -18342,6 +18518,7 @@ Thank you for your business!
            JOIN job_payout_calculations jpc ON jpc.id = jwp.calculation_id
            JOIN leads l ON l.id = jwp.lead_id
           WHERE jpc.status = 'calculated'
+            AND COALESCE(l.source,'') <> 'moving_help_uhaul'
             AND jpc.finalized_at IS NOT NULL
             AND ${payrollTimestampDateSql("jpc.finalized_at")} < $1::date`,
         [bounds.nextPeriodStart, timezone],
@@ -18352,6 +18529,7 @@ Thank you for your business!
            FROM review_tip_allocations rta
            JOIN leads l ON l.id = rta.lead_id
           WHERE rta.status = 'confirmed'
+            AND COALESCE(l.source,'') <> 'moving_help_uhaul'
             AND rta.payroll_eligible_at IS NOT NULL
             AND rta.payroll_entry_id IS NULL
             AND rta.tip_method IN ('cash', 'cart', 'bitcoin')
@@ -18365,7 +18543,8 @@ Thank you for your business!
                 l.order_number
            FROM job_cash_payout_adjustments jcpa
            JOIN leads l ON l.id = jcpa.lead_id
-          WHERE ${payrollTimestampDateSql("jcpa.created_at")} < $1::date`,
+          WHERE COALESCE(l.source,'') <> 'moving_help_uhaul'
+            AND ${payrollTimestampDateSql("jcpa.created_at")} < $1::date`,
         [bounds.nextPeriodStart, timezone],
       ),
       pool.query<{ source_type: string; source_id: string }>("SELECT source_type, source_id FROM payroll_entries"),
@@ -23690,7 +23869,11 @@ Thank you for your business!
 
       const { squareInvoiceService } = await import("./services/square-invoice");
 
-      if (eventType === "gift_card.activity.created" || eventType === "gift_card.activity.updated") {
+      if (eventType === "catalog.version.updated") {
+        const { scanSquareCatalogDrift } = await import("./services/commerceSquareCatalog");
+        const drift = await scanSquareCatalogDrift();
+        console.log(`[Square webhook] Catalog drift scan checked ${drift.checked} managed objects; ${drift.drift.length} require review`);
+      } else if (eventType === "gift_card.activity.created" || eventType === "gift_card.activity.updated") {
         const { handleSquareGiftCardActivityEvent } = await import("./services/giftCardBonuses");
         await handleSquareGiftCardActivityEvent(data?.gift_card_activity || data?.giftCardActivity);
       } else if (eventType === "refund.updated") {
@@ -23758,6 +23941,13 @@ Thank you for your business!
           const localInvoice = await storage.getSquareInvoiceBySquareId(squareInvoiceId);
           if (localInvoice) {
             await storage.updateSquareInvoiceStatus(squareInvoiceId, "paid", new Date());
+            try {
+              const { markCommerceCheckoutPaid } = await import("./services/commerceCheckout");
+              await markCommerceCheckoutPaid(squareInvoiceId);
+            } catch (checkoutError) {
+              console.error("[Square webhook] commerce checkout update failed:", checkoutError);
+              throw checkoutError;
+            }
             console.log(`[Square webhook] Invoice ${squareInvoiceId} marked as paid`);
 
             if (localInvoice.squareOrderId) {
@@ -23940,6 +24130,12 @@ Thank you for your business!
           const orderId = typeof payment?.order_id === "string" ? payment.order_id : undefined;
           const paymentId = typeof payment?.id === "string" ? payment.id : undefined;
           if (status === "COMPLETED" && orderId && paymentId) {
+            await pool.query(`
+              UPDATE commerce_checkout_intents c
+              SET status='paid', square_payment_id=$2, updated_at=now()
+              FROM square_invoices si
+              WHERE c.square_invoice_id=si.square_invoice_id AND si.square_order_id=$1
+            `, [orderId, paymentId]).catch(() => undefined);
             try {
               const { handleSquareGiftCardPaymentEvent, recordSquareGiftCardTenderForOrder } = await import("./services/giftCardBonuses");
               await handleSquareGiftCardPaymentEvent(payment);
@@ -24404,6 +24600,9 @@ Thank you for your business!
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       items = items.filter((item: any) => {
+        if (item.approvalStatus !== 'approved' || !Number.isFinite(Number(item.price)) || Number(item.price) <= 0) {
+          return false;
+        }
         if (item.soldAt) {
           return new Date(item.soldAt) > thirtyDaysAgo;
         }
@@ -24432,7 +24631,7 @@ Thank you for your business!
   app.get("/api/jewelry/:id", async (req: any, res) => {
     try {
       const item = await storage.getJewelryItem(req.params.id);
-      if (!item) {
+      if (!item || item.approvalStatus !== 'approved' || !Number.isFinite(Number(item.price)) || Number(item.price) <= 0) {
         return res.status(404).json({ error: "Item not found" });
       }
       res.json(item);
@@ -24528,17 +24727,29 @@ Thank you for your business!
       if (!allowedRoles.includes(req.user?.role)) {
         return res.status(403).json({ error: "Access denied" });
       }
+      const { isAshleyFinalApprovalActor } = await import('./services/ashleyShopPolicy');
+      if (!isAshleyFinalApprovalActor(req.user?.email)) {
+        return res.status(403).json({ error: "Ashley must sign in with the authorized shop account to publish jewelry listings" });
+      }
       
       const { title, price, ...rest } = req.body;
       if (!title) {
         return res.status(400).json({ error: "Title is required" });
       }
+      const finalPrice = Number(price);
+      if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
+        return res.status(400).json({ error: "Ashley must enter a final price greater than zero before publishing" });
+      }
       
       const cleanedData = {
         ...rest,
         title,
-        price: price && price !== '' ? price : '0.00',
+        price: finalPrice.toFixed(2),
         postedBy: req.user.id,
+        approvalStatus: 'approved',
+        approvedByUserId: req.user.id,
+        approvedAt: new Date(),
+        publishedAt: new Date(),
       };
       
       const item = await storage.createJewelryItem(cleanedData);
@@ -24593,6 +24804,12 @@ Thank you for your business!
       
       const isOwner = existing.postedBy === req.user.id;
       const isAdmin = req.user.role === 'admin' || req.user.role === 'business_owner';
+      if (existing.sourceBatchId) {
+        const { isAshleyFinalApprovalActor } = await import('./services/ashleyShopPolicy');
+        if (!isAshleyFinalApprovalActor(req.user?.email)) {
+          return res.status(403).json({ error: "Ashley must sign in with the authorized shop account to edit an approved jewelry listing" });
+        }
+      }
       if (!isOwner && !isAdmin) {
         return res.status(403).json({ error: "Only the item owner or admin can edit this item" });
       }
@@ -25090,9 +25307,10 @@ Thank you for your business!
     }
   });
 
-  // ── Square: Create Order on Build (admin only) ─────────────────────────────
-  // Called by JobOrderBuilder "Apply Order" — creates a Square Order immediately.
-  // Uses catalog variation IDs from mappings where available; falls back to ad-hoc line items.
+  // ── Order-builder validation (admin only) ──────────────────────────────────
+  // Applying an order saves the approved local line-item draft. Square orders
+  // are deliberately created only when an invoice or checkout is issued so a
+  // later quote revision cannot leave a duplicate/stale Square order behind.
   app.post("/api/square/create-order/:leadId", isAuthenticated, requireBusinessOwner, async (req: any, res) => {
     const { leadId } = req.params;
     try {
@@ -25102,57 +25320,12 @@ Thank you for your business!
       const lineItems: Array<{ id?: string; name: string; qty: number; unitPrice: number; total: number }> = req.body.lineItems || [];
       if (!lineItems.length) return res.status(400).json({ error: "No line items provided" });
 
-      const squareToken = process.env.SQUARE_ACCESS_TOKEN;
-      if (!squareToken) {
-        // Square not configured: just save totals with no square order
-        return res.json({ success: true, squareOrderId: null, note: "Square not configured — order saved locally" });
-      }
-
-      const { squareInvoiceService } = await import("./services/square-invoice");
-      const catalogMappings = await squareInvoiceService.getCatalogMappings();
-
-      const { SquareClient, SquareEnvironment } = await import("square");
-      const client = new SquareClient({
-        token: squareToken,
-        environment: process.env.SQUARE_ENVIRONMENT === "production"
-          ? SquareEnvironment.Production
-          : SquareEnvironment.Sandbox,
+      return res.json({
+        success: true,
+        squareOrderId: null,
+        orderState: "LOCAL_DRAFT",
+        note: "Order saved locally. Square order will be created with the invoice.",
       });
-
-      const locationId = await squareInvoiceService.getLocationId();
-
-      const squareLineItems: any[] = lineItems.map(li => {
-        const catalogVariationId = li.id ? catalogMappings[li.id] : undefined;
-        if (catalogVariationId) {
-          return { catalogObjectId: catalogVariationId, quantity: String(li.qty) };
-        }
-        return {
-          name: li.name,
-          quantity: String(li.qty),
-          basePriceMoney: {
-            amount: BigInt(Math.round(li.unitPrice * 100)),
-            currency: "USD" as const,
-          },
-        };
-      });
-
-      const orderResponse = await client.orders.create({
-        order: {
-          locationId,
-          lineItems: squareLineItems,
-          state: "OPEN",
-        },
-        idempotencyKey: `order-${leadId}-${Date.now()}`,
-      });
-
-      const squareOrderId = orderResponse.order?.id ?? null;
-
-      // Persist the Square order ID on the lead
-      if (squareOrderId) {
-        await storage.updateLeadQuote(leadId, { squareOrderId });
-      }
-
-      res.json({ success: true, squareOrderId, orderState: orderResponse.order?.state });
     } catch (err) {
       console.error("Error creating Square order:", err);
       // Non-fatal — order totals already saved locally on lead; return gracefully
@@ -25175,7 +25348,8 @@ Thank you for your business!
           : SquareEnvironment.Sandbox,
       });
       const response = await client.catalog.list({ types: "ITEM" });
-      const objects = (response as any).objects || [];
+      const objects: any[] = [];
+      for await (const object of response) objects.push(object);
       const items = objects
         .filter((o: any) => o.type === "ITEM" && o.itemData)
         .map((o: any) => ({
@@ -25262,14 +25436,19 @@ Thank you for your business!
   app.post("/api/promo/half-day-checkout", async (req: any, res) => {
     try {
       const { firstName, lastName, email, phone, fromAddress, toAddress, moveDate, details, addOns } = req.body;
+      const paymentMethod = req.body?.paymentMethod === "crypto" ? "crypto" : "card";
 
       if (!firstName || !lastName || !email || !phone || !fromAddress || !moveDate) {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
       const squareToken = process.env.SQUARE_ACCESS_TOKEN;
-      if (!squareToken) {
+      if (paymentMethod === "card" && !squareToken) {
         return res.status(500).json({ error: "Payment processing is not configured. Please call us at 906-285-9312 to book." });
+      }
+      if (paymentMethod === "crypto") {
+        const readiness = getBtcLightningReadiness();
+        if (!readiness.ready) return res.status(503).json({ error: "Crypto checkout is not fully configured", blockers: readiness.blockers });
       }
 
       const validAddOnPrices: Record<string, number> = {
@@ -25287,10 +25466,7 @@ Thank you for your business!
               validatedAddOns.push({ id: addon.id, name: addon.name, price: expected, type: addon.type });
             }
           } else if (addon.type === "jewelry") {
-            const price = parseFloat(addon.price);
-            if (!isNaN(price) && price > 0) {
-              validatedAddOns.push({ id: addon.id, name: addon.name, price, type: addon.type });
-            }
+            return res.status(400).json({ error: "Add jewelry through the site-wide cart so inventory and pricing can be verified." });
           }
         }
       }
@@ -25320,6 +25496,75 @@ Thank you for your business!
         basePrice: "600.00",
         totalPrice: totalPrice.toFixed(2),
       });
+
+      if (paymentMethod === "crypto") {
+        await ensureBtcLightningJobPaymentTables();
+        const offer = calculateBtcLightningOffer(totalPrice);
+        const customerUser = await pool.query<{ id: string }>(
+          "SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1",
+          [email.trim()],
+        );
+        const customerUserId = customerUser.rows[0]?.id || null;
+        const provider = cryptoPaymentsProvider();
+        const statusToken = crypto.randomUUID();
+        const customerName = `${firstName} ${lastName}`.trim();
+        const metadata = {
+          source: "public_half_day_checkout",
+          offerVersion: "sitewide-crypto-5-v1",
+          leadId: lead.id,
+          eligibleChargesExcludeTips: true,
+          treasuryRetentionPercent: offer.treasuryRetentionPercent,
+          receivedAsset: offer.receivedAsset,
+          valuationCurrency: offer.valuationCurrency,
+          custodyPolicy: offer.custodyPolicy,
+          conversionPolicy: offer.conversionPolicy,
+        };
+        const intent = await pool.query<{ id: number }>(
+          `INSERT INTO crypto_payment_intents
+            (user_id,provider,amount_usd,original_amount_usd,discount_percent,discount_amount_usd,
+             reward_percent,reward_value_usd,currency,status,reference_type,reference_id,bonus_tokens,
+             retention_percent,payment_rail,settlement_currency,customer_name,customer_email,
+             customer_phone,status_token,metadata)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'USD','pending',$9,$10,$11,$12,'btc_lightning','BTC',$13,$14,$15,$16,$17::jsonb)
+           RETURNING id`,
+          [customerUserId, provider, offer.amountDueUsd.toFixed(2), offer.originalAmountUsd.toFixed(2),
+            offer.discountPercent.toFixed(2), offer.discountAmountUsd.toFixed(2), offer.rewardPercent.toFixed(2),
+            offer.rewardValueUsd.toFixed(2), BTC_LIGHTNING_JOB_REFERENCE_TYPE, lead.id, offer.rewardTokens.toFixed(8),
+            offer.treasuryRetentionPercent.toFixed(2), customerName, email.trim().toLowerCase(), phone || null,
+            statusToken, JSON.stringify(metadata)],
+        );
+        const intentId = intent.rows[0].id;
+        try {
+          const protocol = String(req.headers["x-forwarded-proto"] || req.protocol || "https").split(",")[0];
+          const host = String(req.headers["x-forwarded-host"] || req.headers.host);
+          const baseUrl = `${protocol}://${host}`;
+          const checkout = await createBitPayCheckoutIntent({
+            amountUsd: offer.amountDueUsd,
+            userId: customerUserId || `lead:${lead.id}`,
+            referenceType: BTC_LIGHTNING_JOB_REFERENCE_TYPE,
+            referenceId: lead.id,
+            itemDesc: `Half Day Move - 5% crypto discount`,
+            redirectUrl: `${baseUrl}/payment-success?type=btc-lightning&intent=${intentId}&token=${encodeURIComponent(statusToken)}`,
+            closeUrl: `${baseUrl}/promo/half-day?crypto=cancelled`,
+            notificationUrl: `${baseUrl}/api/webhooks/crypto/bitpay`,
+            customer: { name: customerName, email, phone },
+            metadata: { ...metadata, cryptoIntentId: intentId, rewardTokens: offer.rewardTokens },
+            paymentCurrencies: ["BTC"],
+            forcedBuyerSelectedTransactionCurrency: "BTC",
+          });
+          await pool.query(
+            `UPDATE crypto_payment_intents SET provider_invoice_id=$1,provider_invoice_token=$2,
+                provider_checkout_url=$3,provider_status=$4,raw_provider_payload=$5::jsonb,updated_at=now()
+              WHERE id=$6`,
+            [checkout.providerInvoiceId, checkout.providerInvoiceToken, checkout.checkoutUrl,
+              checkout.providerStatus, JSON.stringify(checkout.raw), intentId],
+          );
+          return res.json({ success: true, checkoutUrl: checkout.checkoutUrl, leadId: lead.id, intentId, offer });
+        } catch (error) {
+          await pool.query("UPDATE crypto_payment_intents SET status='failed',updated_at=now() WHERE id=$1", [intentId]).catch(() => {});
+          throw error;
+        }
+      }
 
       const { SquareClient, SquareEnvironment } = await import("square");
       const { randomUUID } = await import("crypto");
@@ -25689,6 +25934,12 @@ Thank you for your business!
   });
 
   app.post("/api/cart/checkout", async (req: any, res) => {
+    if (process.env.UNIFIED_CART_ENABLED !== "false") {
+      return res.status(410).json({
+        error: "This checkout has moved to secure server-verified pricing. Refresh the cart and try again.",
+        checkoutEndpoint: "/api/commerce/checkout",
+      });
+    }
     try {
       const { firstName, lastName, email, phone, fromAddress, toAddress, moveDate, details, items } = req.body;
 
@@ -26203,7 +26454,8 @@ Thank you for your business!
       let effectiveOriginalUsd: number | null = null;
       if (referenceType === "jewelry" && referenceId) {
         const dbItem = await storage.getJewelryItem(String(referenceId));
-        if (dbItem && dbItem.status === "pending_balance") {
+        if (!dbItem) return res.status(404).json({ error: "Jewelry item not found" });
+        if (dbItem.status === "pending_balance") {
           const expired = dbItem.pendingExpiresAt
             && new Date(dbItem.pendingExpiresAt).getTime() < Date.now();
           if (expired) {
@@ -26226,10 +26478,19 @@ Thank you for your business!
             if (remaining <= 0) {
               return res.status(400).json({ error: "No remaining balance — your credit already covers this item." });
             }
-            // Charge only the remaining balance. The 10% BTC discount still
+            // Charge only the remaining balance. The site-wide 5% crypto discount still
             // applies to the customer's portion below.
             effectiveOriginalUsd = remaining;
           }
+        } else {
+          if (!dbItem.inStock || dbItem.status !== "active") {
+            return res.status(409).json({ error: "This jewelry item is no longer available" });
+          }
+          const authoritativePrice = parseFloat(dbItem.price || "0");
+          if (!Number.isFinite(authoritativePrice) || authoritativePrice <= 0) {
+            return res.status(400).json({ error: "This jewelry item does not have a valid price" });
+          }
+          effectiveOriginalUsd = authoritativePrice;
         }
       }
 
@@ -26253,7 +26514,7 @@ Thank you for your business!
         return res.status(400).json({ error: "Invalid amount" });
       }
 
-      const discountedUsd = Math.round(originalUsd * 0.9 * 100) / 100;
+      const discountedUsd = Math.round(originalUsd * 0.95 * 100) / 100;
       const btcAmount = parseFloat((discountedUsd / btcPrice).toFixed(8));
 
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
@@ -26288,7 +26549,7 @@ Thank you for your business!
         usdAmount: discountedUsd.toFixed(2),
         btcAmount: btcAmount.toFixed(8),
         btcPrice: btcPrice.toFixed(2),
-        discountPercent: "10.00",
+        discountPercent: "5.00",
         originalUsdAmount: originalUsd.toFixed(2),
         jcmovesAmount: computedJcmovesAmount,
         btcAddress,
@@ -26338,7 +26599,7 @@ Thank you for your business!
                 <p><strong>Email:</strong> ${customerEmail}</p>
                 ${customerPhone ? `<p><strong>Phone:</strong> ${customerPhone}</p>` : ""}
                 <p><strong>Original Amount:</strong> $${originalUsd.toFixed(2)}</p>
-                <p style="color: #4ade80;"><strong>BTC Discount (10%):</strong> -$${(originalUsd - discountedUsd).toFixed(2)}</p>
+                <p style="color: #4ade80;"><strong>Crypto Discount (5%):</strong> -$${(originalUsd - discountedUsd).toFixed(2)}</p>
                 <p><strong>Amount Due:</strong> $${discountedUsd.toFixed(2)}</p>
                 <p style="color: #f7931a;"><strong>BTC Amount:</strong> ${btcAmount.toFixed(8)} BTC</p>
                 <p><strong>BTC Price:</strong> $${btcPrice.toLocaleString()}</p>
@@ -26361,7 +26622,7 @@ Thank you for your business!
           usdAmount: discountedUsd,
           originalUsdAmount: originalUsd,
           btcPrice,
-          discountPercent: 10,
+          discountPercent: 5,
           expiresAt: expiresAt.toISOString(),
         },
       });
@@ -29711,6 +29972,7 @@ Thank you for your business!
           const { previewZoneQuote } = await import("./marketplace/zonePricing");
           const preview = await previewZoneQuote({
             zip: fromZip || customerZip || undefined,
+            addresses: [billingPickupAddress, billingDropoffAddress].filter((address) => address.trim().length >= 4),
             moveDate: typeof a.moveDate === "string" ? a.moveDate : undefined,
             serviceCode: "load_unload",
             crewSize: requestedCrew,
@@ -29736,10 +29998,28 @@ Thank you for your business!
 
       // Store all chatbot Q&A in details as JSON (uses server-computed deposit values)
       const photoList = Array.isArray(submittedPhotos) ? submittedPhotos : [];
+      const canonicalStoredQuote = canonicalLaborBooking
+        ? (() => {
+            const specialSurcharge = Math.max(0, Number(quote?.specialSurcharge || 0));
+            const total = Number(canonicalLaborBooking.laborTotal || 0)
+              + Number(canonicalLaborBooking.travel || 0)
+              + specialSurcharge;
+            return {
+              ...quote,
+              crew: canonicalLaborBooking.crewSize,
+              minHrs: canonicalLaborBooking.billableHours,
+              maxHrs: canonicalLaborBooking.billableHours,
+              minPrice: total,
+              maxPrice: total,
+              travelCharge: Number(canonicalLaborBooking.travel || 0),
+              rateSource: canonicalLaborBooking.rateSource || "local_canonical",
+            };
+          })()
+        : quote;
       const detailsJson = JSON.stringify({
         _source: "chatbot",
         answers,
-        estimatedQuote: quote,
+        estimatedQuote: canonicalStoredQuote,
         bookingIntake: bookingIntake && typeof bookingIntake === "object" ? bookingIntake : null,
         bookingEngineQuote: bookingEngineQuote && typeof bookingEngineQuote === "object" ? bookingEngineQuote : null,
         laborBooking: canonicalLaborBooking,
@@ -30171,6 +30451,131 @@ Thank you for your business!
     }
   });
 
+  // ── Owner: Record an offline full payment and close a past job ───────────────
+  app.post("/api/leads/:id/record-offline-payment", isAuthenticated, async (req: any, res) => {
+    try {
+      const actorId = (req.session as any)?.userId ?? req.user?.id ?? null;
+      const user = actorId ? await storage.getUser(actorId) : null;
+      if (!user || !["admin", "business_owner"].includes(user.role || "")) {
+        return res.status(403).json({ error: "Administrator access required to record an offline payment" });
+      }
+      const input = z.object({
+        method: z.enum(["cash", "check"]),
+        paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a valid payment date"),
+        reference: z.string().trim().max(200).optional().nullable(),
+        note: z.string().trim().max(1000).optional().nullable(),
+        completeJob: z.literal(true),
+      }).parse(req.body);
+
+      const result = await recordOfflineJobCloseout({
+        leadId: req.params.id,
+        actorUserId: actorId,
+        method: input.method,
+        paidDate: input.paidDate,
+        reference: input.reference,
+        note: input.note,
+      });
+      const closedLead = await storage.getLead(req.params.id);
+      if (!closedLead) return res.status(404).json({ error: "Job not found" });
+
+      // Every payment effect is independently idempotent. Retrying after a
+      // process interruption safely fills in any missing accounting, wallet,
+      // or paid-and-completed JCMOVES record without crediting twice.
+      await recordRevenueSplit(result.total, req.params.id, "admin_offline_payment");
+      await creditJcMovesUsd(req.params.id, result.total, "admin_offline_payment");
+      try {
+        const { rows: pendingGrants } = await pool.query<{ source_id: string }>(
+          `SELECT DISTINCT source_id FROM wallet_credit_grants
+            WHERE source_type='lead' AND source_id=$1 AND status='pending'`,
+          [req.params.id],
+        );
+        if (pendingGrants.length > 0) {
+          const { grantWalletCreditForSource } = await import("./services/bundleBilling");
+          for (const grant of pendingGrants) {
+            await grantWalletCreditForSource({
+              sourceType: "lead",
+              sourceId: grant.source_id,
+              paymentReference: `offline_payment:${result.payment.id}`,
+            });
+          }
+        }
+      } catch (grantError) {
+        console.error("[offline closeout] bundled wallet-credit grant failed:", grantError);
+      }
+
+      const { runCompletionStep } = await import("./pipeline/steps/completion.step");
+      const completion = await runCompletionStep(req.params.id);
+      const jcMovesRecords = await pool.query<{
+        recipient_type: string;
+        recipient_user_id: string | null;
+        recipient_label: string | null;
+        reward_kind: string;
+        token_amount: string;
+        wallet_credited_at: string | null;
+      }>(
+        `SELECT recipient_type, recipient_user_id, recipient_label, reward_kind, token_amount,
+                NULLIF(metadata->>'walletCreditedAt','') AS wallet_credited_at
+           FROM job_jcmoves_ledger
+          WHERE lead_id=$1
+          ORDER BY id`,
+        [req.params.id],
+      ).then((query) => query.rows).catch(() => []);
+
+      let review: ReviewRequestResult | null = null;
+      try {
+        review = await sendCompletedJobReviewRequest(closedLead);
+      } catch (reviewError) {
+        console.warn("[offline closeout] completion review not sent:", reviewError instanceof Error ? reviewError.message : reviewError);
+      }
+      if (!result.alreadyRecorded) {
+        await emitJobEvent("job_updated", closedLead, {
+          actorId,
+          source: "admin_offline_payment",
+          previousStatus: result.previousStatus,
+          status: "completed",
+          note: `${input.method === "check" ? "Check" : "Cash"} payment recorded in full without dispatch.`,
+          extra: { paymentReceived: true, paymentMethod: input.method, paymentRecordId: result.payment.id },
+        });
+        await emitJobEvent("job_completed", closedLead, {
+          actorId,
+          source: "admin_past_job_closeout",
+          previousStatus: result.previousStatus,
+          status: "completed",
+          note: "Past job closed after owner-confirmed offline payment; no dispatch event was sent.",
+        });
+      }
+
+      const creditedAccountIds = Array.from(new Set(
+        jcMovesRecords
+          .filter((record) => record.recipient_user_id && record.wallet_credited_at)
+          .map((record) => record.recipient_user_id as string),
+      ));
+      return res.json({
+        success: true,
+        alreadyRecorded: result.alreadyRecorded,
+        lead: closedLead,
+        payment: result.payment,
+        completion,
+        review,
+        jcmoves: {
+          records: jcMovesRecords,
+          creditedAccountIds,
+          creditedAccountCount: creditedAccountIds.length,
+          pendingCustomerClaim: jcMovesRecords.some((record) => record.reward_kind === "customer_paid_completed_pool_pending_claim"),
+        },
+      });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.issues[0]?.message || "Invalid offline payment" });
+      }
+      if (error instanceof OfflineJobCloseoutError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error("[offline closeout] failed:", error);
+      return res.status(500).json({ error: error?.message || "Failed to close out the paid job" });
+    }
+  });
+
   // ── Admin: Mark Lead as Paid + Dispatch Crew SMS ─────────────────────────────
   app.post("/api/leads/:id/mark-paid", isAuthenticated, async (req: any, res) => {
     try {
@@ -30387,6 +30792,8 @@ Thank you for your business!
   // ── Treasury Revenue Split Tracking ──────────────────────────────────────────
   await ensureRevenueAllocationsTable();
   console.log('💰 Revenue allocations table ready');
+  await ensureOfflineJobPaymentTables();
+  console.log('💵 Offline job payment records table ready');
 
   // ── JCMOVES Prepaid Credit Top-Up ─────────────────────────────────────────────
   await ensurePrepaidIntentsTable();
@@ -30649,7 +31056,7 @@ Thank you for your business!
       const customerName = `${lead.firstName || ""} ${lead.lastName || ""}`.trim() || "JC ON THE MOVE customer";
       const metadata = {
         source: "admin_job_checkout",
-        offerVersion: "btc-lightning-5-5-v1",
+        offerVersion: "sitewide-crypto-5-v1",
         leadId: lead.id,
         orderNumber: lead.orderNumber || null,
         eligibleChargesExcludeTips: true,
@@ -30697,7 +31104,7 @@ Thank you for your business!
         userId: customerUserId || `lead:${lead.id}`,
         referenceType: BTC_LIGHTNING_JOB_REFERENCE_TYPE,
         referenceId: lead.id,
-        itemDesc: `Job ${lead.orderNumber || lead.id} - 5% Bitcoin discount + 5% JCMOVES`,
+        itemDesc: `Job ${lead.orderNumber || lead.id} - 5% crypto discount`,
         redirectUrl: `${baseUrl}/payment-success?type=btc-lightning&intent=${intentId}&token=${encodeURIComponent(statusToken)}`,
         closeUrl: `${baseUrl}/payment-success?type=btc-lightning-cancelled&intent=${intentId}&token=${encodeURIComponent(statusToken)}`,
         notificationUrl: `${baseUrl}/api/webhooks/crypto/bitpay`,
@@ -32424,6 +32831,7 @@ Thank you for your business!
   app.use("/api/service-rebook", serviceRebookPublicRouter);
   app.use("/api", marketingWebhookRemindersRouter);
   app.use("/api", marketingBotRouter);
+  app.use("/api", northwoodsMarketingRouter);
   app.use("/api", await createMarketingExecutionRouter());
 
   // Multi-Service Booking Foundation (Task #128) — parent bookings table,
@@ -32433,6 +32841,7 @@ Thank you for your business!
   app.use("/api", bookingsRouter);
   app.use("/api", quotesRouter);
   app.use("/api", pricingV2Router);
+  app.use("/api", commerceCatalogRouter);
   app.use("/api", regionalAutomationRouter);
   app.use("/api", aiBookingRouter);
   await ensureGiftCardBonusTables();
@@ -33043,6 +33452,27 @@ async function settleCryptoPaymentIntentFromProviderInvoice(
 
   if (intent.reference_type === BTC_LIGHTNING_JOB_REFERENCE_TYPE) {
     return settleBtcLightningJobPayment(intent, providerInvoice, source);
+  }
+
+  if (intent.reference_type === "commerce_order") {
+    const orderId = String(intent.reference_id || "");
+    if (!orderId) throw new Error("Crypto commerce intent is missing its order id");
+    const { finalizeCommerceCryptoOrder } = await import("./services/ashleyShopCommerce");
+    await finalizeCommerceCryptoOrder(orderId, providerInvoiceId);
+    await pool.query(
+      `UPDATE crypto_payment_intents
+          SET status='paid', provider_status=$1, paid_at=COALESCE(paid_at,now()),
+              raw_provider_payload=$2::jsonb, updated_at=now()
+        WHERE id=$3`,
+      [mapping.providerStatus, rawProviderPayload, intent.id],
+    );
+    return {
+      success: true,
+      status: "paid",
+      providerStatus: mapping.providerStatus,
+      commerceOrderId: orderId,
+      bonusTokens: 0,
+    };
   }
 
   if (intent.status === "paid") {

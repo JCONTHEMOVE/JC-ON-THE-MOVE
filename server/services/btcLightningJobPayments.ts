@@ -426,7 +426,9 @@ export async function settleBtcLightningJobPayment(
     ).catch(() => {});
   }
 
-  const reward = await createOrCreditRewardClaim(intent);
+  const reward = rewardTokens > 0
+    ? await createOrCreditRewardClaim(intent)
+    : { awarded: false, pendingClaim: false, userId: null };
   await pool.query(
     `UPDATE crypto_payment_intents
         SET status='paid',

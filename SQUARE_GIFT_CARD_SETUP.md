@@ -46,7 +46,7 @@ Use the exact production notification URL `https://www.jconthemove.com/api/webho
 
 Set `SQUARE_WEBHOOK_SIGNATURE_KEY`, `SQUARE_WEBHOOK_URL`, and `SQUARE_LOCATION_ID` in Railway. The app verifies every signature before processing an event and applies unique database constraints so duplicate or out-of-order events cannot double-credit a wallet.
 
-Leave `GIFT_CARD_BONUS_ENABLED=false` while wiring the webhook. Immediately before launch, set a new ISO timestamp such as `2026-08-18T15:00:00-05:00` in `GIFT_CARD_BONUS_START_AT`, then set `GIFT_CARD_BONUS_ENABLED=true` and redeploy. Never move the timestamp backward to award old purchases.
+Leave `GIFT_CARD_BONUS_ENABLED=false` while wiring the webhook, and keep `GIFT_CARD_BONUS_PUBLIC_ENABLED=false` throughout the owner-controlled test. Immediately before that test, set a new ISO timestamp in `GIFT_CARD_BONUS_START_AT`, then set `GIFT_CARD_BONUS_ENABLED=true` and redeploy. This enables signed webhook processing and the owner-only reconciliation tools without advertising the bonus publicly. Never move the timestamp backward to award old purchases. Only after the $50 → 1,250 JCMOVES flow passes end to end should the owner set `GIFT_CARD_BONUS_PUBLIC_ENABLED=true` and redeploy.
 
 ## 4. Published Terms
 
@@ -83,6 +83,6 @@ Only the owner should perform this test using a payment method and recipient inb
 6. Confirm the payment appears in Square and the remaining balance is correct.
 7. Recheck the page and checkout link on a phone before publicly announcing the program.
 
-The $25 card confirms Square delivery and partial redemption but is below the $50 bonus minimum. Before enabling public bonus marketing, also perform an owner-controlled $50 purchase after `GIFT_CARD_BONUS_START_AT`: confirm the assignment email, assign it to a test account, verify the 14-day pending state, use the owner-only sweep/reconciliation controls as needed, and confirm exactly 1,250 JCMOVES are released once eligible.
+The $25 card confirms Square delivery and partial redemption but is below the $50 bonus minimum. With `GIFT_CARD_BONUS_ENABLED=true` and `GIFT_CARD_BONUS_PUBLIC_ENABLED=false`, also perform an owner-controlled $50 purchase after `GIFT_CARD_BONUS_START_AT`: confirm the assignment email, assign it to a test account, verify the 14-day pending state, use the owner-only sweep/reconciliation controls as needed, and confirm exactly 1,250 JCMOVES are released once eligible. Keep public bonus marketing off until that flow passes.
 
 Outstanding cards from the retired JC custom flow remain visible to their owners and should be handled manually. Do not delete their historical balances.

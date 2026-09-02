@@ -16,7 +16,7 @@ import { ArrowLeft, Gem, Search, Plus, ChevronLeft, ChevronRight, Mail, Phone, I
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useCart } from "@/hooks/useCart";
-import { FloatingCartButton } from "@/components/cart-button";
+import { ShopConcierge } from "@/components/shop-concierge";
 
 const jewelryVideoSrc = "/jewelry-video.mp4";
 
@@ -100,6 +100,7 @@ function CartButtons({ item }: { item: JewelryItem }) {
           } else {
             addItem({
               id: cartId,
+              referenceId: item.id,
               name: item.title,
               price: parseFloat(item.price!),
               image: item.imageUrl || "",
@@ -115,11 +116,24 @@ function CartButtons({ item }: { item: JewelryItem }) {
         )}
       </Button>
 
-      <a href="/bitcoin-payment" className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-orange-400/40 bg-orange-50 hover:bg-orange-100 transition-colors">
+      <Link
+        href="/cart"
+        onClick={() => {
+          if (!inCart) addItem({
+            id: cartId,
+            referenceId: item.id,
+            name: item.title,
+            price: parseFloat(item.price!),
+            image: item.imageUrl || "",
+            type: "jewelry",
+          });
+        }}
+        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-orange-400/40 bg-orange-50 hover:bg-orange-100 transition-colors"
+      >
         <Bitcoin className="h-4 w-4 text-orange-500" />
-        <span className="text-orange-600 text-sm font-medium">Pay with Bitcoin</span>
-        <span className="inline-flex items-center bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Save 10%</span>
-      </a>
+        <span className="text-orange-600 text-sm font-medium">Crypto checkout</span>
+        <span className="inline-flex items-center bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Save 5%</span>
+      </Link>
     </div>
   );
 }
@@ -369,6 +383,11 @@ export default function AshleyShop() {
     },
   });
 
+  const { data: dailyFeatured } = useQuery<JewelryItem & { featuredDiscountPercent?: number; featuredRewardBonusMoves?: number }>({
+    queryKey: ["/api/ashley-shop/featured"],
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: ratingStats } = useQuery<{ averageRating?: number; totalCount?: number }>({
     queryKey: ["/api/testimonials/stats"],
     staleTime: 5 * 60 * 1000,
@@ -554,7 +573,7 @@ export default function AshleyShop() {
 
   const openItem = (item: JewelryItem) => {
     if (isMobile) {
-      navigate(`/nature-made-jewls/${item.id}`);
+      navigate(`/handmade-jewels-by-ashley/${item.id}`);
     } else {
       setSelectedItem(item);
       setCurrentPhotoIndex(0);
@@ -586,7 +605,7 @@ export default function AshleyShop() {
   };
 
   const shareItem = (item: JewelryItem) => {
-    const url = `${window.location.origin}/nature-made-jewls/${item.id}`;
+    const url = `${window.location.origin}/handmade-jewels-by-ashley/${item.id}`;
     navigator.clipboard.writeText(url)
       .then(() => toast({ title: "Link copied!" }))
       .catch(() => toast({ title: "Share link", description: url }));
@@ -608,6 +627,7 @@ export default function AshleyShop() {
     const photos = getItemPhotos(item);
     const itemHeight = heights[origIdx % heights.length];
     const greatPrice = isGreatPrice(item);
+    const featuredToday = dailyFeatured?.id === item.id;
     return (
       <div
         key={item.id}
@@ -648,13 +668,13 @@ export default function AshleyShop() {
               </div>
             )}
 
-            {item.featured && (
+            {featuredToday && (
               <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-400/95 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
-                <Sparkles className="h-2.5 w-2.5" /> Featured
+                <Sparkles className="h-2.5 w-2.5" /> Today: 5% off + 500 Moves
               </div>
             )}
 
-            {!item.featured && greatPrice && (
+            {!featuredToday && greatPrice && (
               <div className="absolute top-2 left-2 flex items-center gap-1 bg-emerald-500/95 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
                 <Star className="h-2.5 w-2.5 fill-white" /> Great Price
               </div>
@@ -715,7 +735,7 @@ export default function AshleyShop() {
           <div className="flex items-center gap-2">
             <span className="text-rose-400">🌸</span>
             <h1 className="font-serif text-base md:text-lg font-bold text-stone-700 leading-tight text-center">
-              Hand-Crafted Made With Love<br className="hidden sm:block" /> <span className="text-rose-500">By Ashley</span>
+              Handmade Jewels by Ashley<br className="hidden sm:block" /> <span className="text-rose-500">Made with Love</span>
             </h1>
             <span className="text-amber-400">✨</span>
           </div>
@@ -731,11 +751,11 @@ export default function AshleyShop() {
               )}
             </button>
             {!user && (
-              <Link href="/login?redirect=/nature-made-jewls">
+              <Link href="/login?redirect=/handmade-jewels-by-ashley">
                 <Button variant="ghost" size="sm" className="text-rose-500 font-semibold text-xs">Login</Button>
               </Link>
             )}
-            <a href="mailto:upmichiganstatemovers@gmail.com">
+            <a href="mailto:ashleyseegert64@gmail.com">
               <Button variant="ghost" size="sm"><Mail className="h-4 w-4 text-stone-500" /></Button>
             </a>
             <a href="tel:906-285-9312">
@@ -944,7 +964,7 @@ export default function AshleyShop() {
               <p className="text-amber-400/80 text-[9px] uppercase tracking-widest leading-none mb-0.5">Handmade with love ♡</p>
               <p className="text-amber-100 font-serif font-bold text-sm md:text-base leading-tight truncate"
                 style={{ fontFamily: "'Georgia', serif" }}>
-                Nature Made Jewls — Handmade Jewelry &amp; Custom Creations
+                Handmade Jewels by Ashley — Made with Love
               </p>
             </div>
           </div>
@@ -1052,7 +1072,7 @@ export default function AshleyShop() {
       {/* Footer */}
       <footer className="border-t border-rose-100 py-8 mt-8" style={{ background: "linear-gradient(135deg, #fdf2f8 0%, #fff8f0 100%)" }}>
         <div className="container mx-auto px-4 text-center space-y-3">
-          <p className="font-serif text-stone-700 font-bold text-lg">Hand-Crafted Made With Love By Ashley</p>
+          <p className="font-serif text-stone-700 font-bold text-lg">Handmade Jewels by Ashley — Made with Love</p>
           <p className="text-rose-400 text-sm flex items-center justify-center gap-1.5">
             <MapPin className="h-3.5 w-3.5" /> Ships from Michigan with love 💛
           </p>
@@ -1449,7 +1469,7 @@ export default function AshleyShop() {
         </div>
       )}
 
-      <FloatingCartButton />
+      <ShopConcierge />
     </div>
   );
 }

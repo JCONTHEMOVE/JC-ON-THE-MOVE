@@ -35,6 +35,7 @@ isGmailAvailable().then(available => {
 export interface EmailParams {
   to: string;
   from?: string;
+  replyTo?: string;
   subject: string;
   text?: string;
   html?: string;
@@ -74,6 +75,7 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
     
     if (params.text) emailData.text = params.text;
     if (params.html) emailData.html = params.html;
+    if (params.replyTo) emailData.replyTo = params.replyTo;
     
     await mailService.send(emailData);
     return true;

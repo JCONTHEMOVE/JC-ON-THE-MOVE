@@ -33,6 +33,7 @@ import { eq, and } from "drizzle-orm";
 import { storage } from "../storage";
 import type { Lead } from "@shared/schema";
 import { EARN_RATE_PER_DOLLAR } from "../../shared/rewards";
+import { regularPaymentRewardBonus } from "@shared/paymentIncentives";
 import { getJobRateCard } from "./jobRateCard";
 import { emitJobEvent } from "./jobEventBus";
 import { calculateCustomerRewardBase } from "../../shared/giftCardBonuses";
@@ -431,6 +432,14 @@ export async function disburseJobTokens(leadId: string): Promise<DisbursementSum
   });
   if (!lead) throw new Error(`Lead ${leadId} not found`);
 
+  // Moving Help/U-Haul imports are operational records only. U-Haul owns the
+  // customer transaction and settlement, so these jobs must never mint JC
+  // rewards from an email-derived amount or a normal completion event.
+  if (lead.source === "moving_help_uhaul") {
+    console.log(`ℹ️ Job ${leadId} is an operational-only Moving Help import — JCMOVES disbursement skipped`);
+    return null;
+  }
+
   // Level 1 — fast-path: skip if already fully disbursed
   if (lead.tokensDisbursedAt || lead.completionRewardedAt) {
     console.log(`ℹ️ Job ${leadId} already disbursed — skipping`);
@@ -600,9 +609,13 @@ export async function disburseJobTokens(leadId: string): Promise<DisbursementSum
           }
 
           // ── B2. Per-dollar earn (tokenAllocation override OR rate × price) ─
-          const earnTokens = explicitAlloc > 0
+          const baseEarnTokens = explicitAlloc > 0
             ? Math.round(explicitAlloc)
             : (jobPrice > 0 ? Math.round(jobPrice * earnRate) : 0);
+          const isCryptoPayment = String(lead.paymentPlan || "").toLowerCase().includes("btc")
+            || String(lead.paymentPlan || "").toLowerCase().includes("crypto");
+          const regularPaymentBonus = isCryptoPayment ? 0 : regularPaymentRewardBonus(baseEarnTokens);
+          const earnTokens = baseEarnTokens + regularPaymentBonus;
 
           if (earnTokens > 0) {
             const earnExists = await rewardAlreadyExists(leadId, customer.id, "loyalty_booking");
@@ -634,6 +647,9 @@ export async function disburseJobTokens(leadId: string): Promise<DisbursementSum
                   jobPrice,
                   earnRate: explicitAlloc > 0 ? "override" : earnRate,
                   source: explicitAlloc > 0 ? "tokenAllocation" : "formula",
+                  paymentRail: isCryptoPayment ? "crypto" : "regular",
+                  regularPaymentBonusPercent: isCryptoPayment ? 0 : 5,
+                  regularPaymentBonusMoves: regularPaymentBonus,
                 },
               });
         await storage.creditWalletTokens(customer.id, earnTokens, { skipRewardLedger: true });
@@ -642,7 +658,7 @@ export async function disburseJobTokens(leadId: string): Promise<DisbursementSum
 
               summary.customerTokens += earnTokens;
               summary.customerId = customer.id;
-              console.log(`🎁 Customer ${customer.email}: per-dollar earn +${earnTokens} JCMOVES (job $${jobPrice})`);
+              console.log(`🎁 Customer ${customer.email}: per-dollar earn +${earnTokens} JCMOVES (job $${jobPrice}${regularPaymentBonus ? `, includes +${regularPaymentBonus} regular-payment bonus` : ""})`);
             } else {
               console.log(`ℹ️ Customer ${customer.email}: earn reward already exists — skipping`);
             }

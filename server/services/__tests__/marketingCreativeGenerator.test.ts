@@ -52,6 +52,16 @@ assert.ok(escapedSvg.includes("NORTH &lt; WOODS &amp; MORE U-HAUL"));
 assert.ok(escapedSvg.includes("CODE A&amp;B&lt;&apos;"));
 assert.ok(!escapedSvg.includes("NORTH < WOODS"));
 
+const northwoodsSvg = buildMarketingOverlaySvg("feed", {
+  ...overlay,
+  brandName: "NORTHWOODS MOVING",
+  siteLabel: "BOOK THROUGH MOVING HELP",
+  promoCode: "BOOK ON MOVING HELP",
+}).toString("utf8");
+assert.ok(northwoodsSvg.includes("NORTHWOODS MOVING"));
+assert.ok(northwoodsSvg.includes("BOOK THROUGH MOVING HELP • BOOK ON MOVING HELP"));
+assert.ok(!northwoodsSvg.includes("JC ON THE MOVE"));
+
 assert.equal(
   marketingCreativeImageUrl("campaign-123", "feed", 4, "https://www.jconthemove.com"),
   "https://www.jconthemove.com/api/public/marketing/campaigns/campaign-123/creative/feed.jpg?v=4",

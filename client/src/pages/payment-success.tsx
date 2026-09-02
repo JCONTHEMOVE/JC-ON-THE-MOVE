@@ -7,6 +7,7 @@ import { CheckCircle, ShoppingBag, ArrowLeft, Truck, Coins, Gem, Star } from "lu
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { BtcAutoConfirmStatus } from "@/components/btc-auto-confirm-status";
+import { useCart } from "@/hooks/useCart";
 
 type LightningPaymentStatus = {
   status: string;
@@ -23,6 +24,9 @@ type LightningPaymentStatus = {
 export default function PaymentSuccessPage() {
   const params = new URLSearchParams(window.location.search);
   const type = params.get("type");
+  const commerceOrderId = params.get("commerceOrder");
+  const isCommerceCrypto = type === "commerce-crypto";
+  const isCommerce = (type === "commerce" || isCommerceCrypto) && Boolean(commerceOrderId);
   const isPromo = type === "promo";
   const isBtcLightning = type === "btc-lightning" || type === "btc-lightning-cancelled";
   const lightningCancelled = type === "btc-lightning-cancelled";
@@ -35,6 +39,7 @@ export default function PaymentSuccessPage() {
   const btcPaymentId = params.get("btcPaymentId");
 
   const { user } = useAuth();
+  const { clearCart } = useCart();
 
   const [shopRewardTotal, setShopRewardTotal] = useState(0);
   const [jewelryReward, setJewelryReward] = useState<{ tokensEarned: number; earnRate: number; purchasePrice: number; itemTitle: string } | null>(null);
@@ -52,6 +57,25 @@ export default function PaymentSuccessPage() {
     enabled: isBtcLightning && Boolean(lightningIntentId) && Boolean(lightningStatusToken),
     refetchInterval: isBtcLightning && !lightningCancelled ? 5000 : false,
   });
+  const { data: commerceOrder, isLoading: commerceLoading } = useQuery<any>({
+    queryKey: ["/api/commerce/orders", commerceOrderId, "verify"],
+    queryFn: async () => {
+      const response = await fetch(`/api/commerce/orders/${encodeURIComponent(commerceOrderId || "")}${isCommerceCrypto ? "" : "/verify"}`, {
+        method: isCommerceCrypto ? "GET" : "POST",
+        credentials: "include",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Payment verification is unavailable");
+      return data;
+    },
+    enabled: isCommerce,
+    refetchInterval: (query) => query.state.data?.status === "paid" ? false : 3_000,
+    retry: 3,
+  });
+
+  useEffect(() => {
+    if (commerceOrder?.status === "paid") clearCart();
+  }, [clearCart, commerceOrder?.status]);
 
   useEffect(() => {
     if (shopItemIds.length > 0 && !rewardCalled.current) {
@@ -134,6 +158,46 @@ export default function PaymentSuccessPage() {
     );
   }
 
+  if (isCommerce) {
+    const paid = commerceOrder?.status === "paid";
+    const rewardMoves = Number(commerceOrder?.reward_moves || 0);
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-amber-50 to-emerald-50 flex items-center justify-center p-4">
+        <Card className="max-w-md w-full shadow-2xl border-rose-200">
+          <CardContent className="pt-8 pb-6 px-6 text-center space-y-5">
+            <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto ${paid ? "bg-emerald-100" : "bg-amber-100"}`}>
+              {paid ? <CheckCircle className="h-12 w-12 text-emerald-600" /> : <Coins className="h-12 w-12 text-amber-600 animate-pulse" />}
+            </div>
+            <div>
+              <h1 className="text-2xl font-serif font-bold text-stone-800">{paid ? "Payment verified!" : "Confirming your payment"}</h1>
+              <p className="text-stone-600 mt-2">
+                {paid
+                  ? "Thank you for supporting Handmade Jewels by Ashley — Made with Love. Your order and service add-ons are together in one receipt."
+                  : `${isCommerceCrypto ? "The crypto provider" : "Square"} is finishing the payment record. This page checks automatically; please keep it open for a moment.`}
+              </p>
+            </div>
+            {paid && rewardMoves > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-left">
+                <p className="font-bold text-amber-900">+{rewardMoves.toLocaleString()} JC Moves</p>
+                <p className="text-xs text-amber-800 mt-1">Issued to the signed-in rewards account after verified payment, including any daily-feature bonus.</p>
+              </div>
+            )}
+            <p className="text-xs text-stone-500">Order {commerceOrderId}</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Link href="/handmade-jewels-by-ashley">
+                <Button variant="outline" className="w-full border-rose-300 text-rose-700"><Gem className="h-4 w-4 mr-2" /> Shop</Button>
+              </Link>
+              <Link href="/">
+                <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"><ArrowLeft className="h-4 w-4 mr-2" /> Home</Button>
+              </Link>
+            </div>
+            {commerceLoading && <p className="text-xs text-stone-500">Checking Square…</p>}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (isPromo) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
@@ -193,7 +257,7 @@ export default function PaymentSuccessPage() {
             <p className="text-stone-500 mt-2">
               {shopItemIds.length > 0
                 ? "Your purchase is complete. Sellers have been notified."
-                : "Thank you for your purchase from Hand-Crafted Made With Love By Ashley. You'll receive a confirmation from Square shortly."}
+                : "Thank you for your purchase from Handmade Jewels by Ashley — Made with Love. You'll receive a confirmation from Square shortly."}
             </p>
           </div>
 
@@ -283,7 +347,7 @@ export default function PaymentSuccessPage() {
                     </Button>
                   </Link>
                 )}
-                <Link href="/nature-made-jewls">
+                <Link href="/handmade-jewels-by-ashley">
                   <Button variant="outline" className="w-full py-5 border-purple-300 text-purple-700 hover:bg-purple-50">
                     <ShoppingBag className="h-5 w-5 mr-2" />
                     Continue Shopping

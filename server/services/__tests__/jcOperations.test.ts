@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { applyServiceFloor, estimateJobDuration, exactHourlyStarts, quoteLocalCrewPackage } from "../../../shared/jcOperations";
+import { dueLeadSafetyAlertKind } from "../jcOperations";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -75,6 +76,15 @@ test("applies the service floor before a standard discount", () => {
 
 test("offers exact hourly starts from 8 AM through 5 PM", () => {
   assert.deepEqual(exactHourlyStarts(), ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]);
+});
+
+test("chooses one duplicate-safe safety alert per lead state", () => {
+  assert.equal(dueLeadSafetyAlertKind({ ageHours: 23.9, hasAttempt: false, hasReached: false }), null);
+  assert.equal(dueLeadSafetyAlertKind({ ageHours: 24, hasAttempt: false, hasReached: false }), "24h_reminder");
+  assert.equal(dueLeadSafetyAlertKind({ ageHours: 30, hasAttempt: true, hasReached: false }), null);
+  assert.equal(dueLeadSafetyAlertKind({ ageHours: 48, hasAttempt: false, hasReached: false }), "48h_red_flag");
+  assert.equal(dueLeadSafetyAlertKind({ ageHours: 72, hasAttempt: true, hasReached: false }), "48h_red_flag");
+  assert.equal(dueLeadSafetyAlertKind({ ageHours: 72, hasAttempt: true, hasReached: true }), null);
 });
 
 if (!process.exitCode) console.log(`\n${passed} tests passed.`);

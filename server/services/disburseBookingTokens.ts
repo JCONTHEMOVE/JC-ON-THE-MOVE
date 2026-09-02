@@ -213,6 +213,8 @@ export async function disburseBookingTokens(bookingId: string): Promise<BookingD
           bookingId,
           finalTotal,
           earnRate,
+          regularPaymentBonusPercent: 5,
+          regularPaymentBonusMoves: reward.regularPaymentBonus,
           bundleAppliedCode: booking.bundleAppliedCode || null,
           bonusMultiplier,
         },

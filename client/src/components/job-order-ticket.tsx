@@ -30,6 +30,8 @@ export type JobOrderTicketData = {
   totalPrice?: number | string | null;
   basePrice?: number | string | null;
   estimatedTokens?: number | null;
+  createdAt?: string | null;
+  leadSafety?: { ageHours: number; reminder: boolean; redFlag: boolean } | null;
   lineItems?: JobOrderLine[] | null;
   orderLineItems?: JobOrderLine[] | null;
   flow?: {
@@ -97,6 +99,19 @@ function ticketStatus(order: JobOrderTicketData) {
   return status ? status.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Order draft";
 }
 
+function createdTimestamp(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const exact = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+  }).format(parsed);
+  const minutes = Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 60_000));
+  const relative = minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / 1440)}d ago`;
+  return { exact, relative };
+}
+
 export function JobOrderTicket({ order, viewer = "admin", action, compact = false, className, onClick, onScheduleEdit }: JobOrderTicketProps) {
   const total = Number(order.totalPrice ?? order.basePrice ?? 0) || 0;
   const credits = order.personalEarnings?.jcmoves.amount ?? order.estimatedTokens ?? (total > 0 ? Math.round(total * 15) : null);
@@ -104,6 +119,7 @@ export function JobOrderTicket({ order, viewer = "admin", action, compact = fals
   const address = order.confirmedFromAddress || order.fromAddress || order.confirmedToAddress || order.toAddress;
   const lines = order.lineItems || order.orderLineItems || [];
   const isInteractive = Boolean(onClick);
+  const created = createdTimestamp(order.createdAt);
 
   return (
     <article
@@ -131,6 +147,7 @@ export function JobOrderTicket({ order, viewer = "admin", action, compact = fals
       </div>
 
       <div className={cn("p-4", compact ? "space-y-3" : "space-y-4")}>
+        {created ? <div className={cn("flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[11px]", order.leadSafety?.redFlag ? "border-red-500/50 bg-red-500/10 text-red-100" : order.leadSafety?.reminder ? "border-amber-400/40 bg-amber-400/10 text-amber-100" : "border-slate-700 bg-slate-950/40 text-slate-400")}><span>Created {created.exact}</span><span className="font-bold">{order.leadSafety?.redFlag ? `RED FLAG · ${created.relative}` : order.leadSafety?.reminder ? `Contact reminder · ${created.relative}` : created.relative}</span></div> : null}
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
             {order.orderNumber != null ? `Order JC-${order.orderNumber}` : "Job order"}

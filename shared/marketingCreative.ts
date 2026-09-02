@@ -70,6 +70,8 @@ export type MarketingCreativeResult = {
   overlay?: {
     offerLine?: string;
     secondaryLine?: string;
+    brandName?: string;
+    siteLabel?: string;
   };
 };
 

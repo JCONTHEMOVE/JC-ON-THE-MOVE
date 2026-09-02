@@ -83,13 +83,13 @@ test("1-service booking: no bundle, no discount", () => {
   assert.equal(r.items[0].lineSubtotal, 1200);
 });
 
-test("1-service booking: token estimate = post-discount * earn rate + flat bonus", () => {
+test("1-service booking: token estimate includes the 5% regular-payment earn bonus", () => {
   const r = computeBookingQuote([item("custom_service", 100)], {
     bundleDefinitions: [],
     earnRatePerDollar: 15,
     flatBookingBonus: 250,
   });
-  assert.equal(r.tokenEstimate, 100 * 15 + 250);
+  assert.equal(r.tokenEstimate, 100 * 15 + 75 + 250);
 });
 
 test("2-service bundle: percent discount applied below cap", () => {

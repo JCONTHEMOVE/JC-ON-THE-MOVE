@@ -15,7 +15,6 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { ArrowLeft, Gem, ChevronLeft, ChevronRight, Pencil, Trash2, Video, Loader2, Tag, RotateCcw, ShoppingCart, Check, Bitcoin, Heart, Share2, Sparkles, Star, Coins, DollarSign } from "lucide-react";
 import { useCart } from "@/hooks/useCart";
-import { FloatingCartButton } from "@/components/cart-button";
 import { BtcAutoConfirmStatus } from "@/components/btc-auto-confirm-status";
 
 const EARN_RATE = 15; // JCMOVES per $1 spent
@@ -113,7 +112,7 @@ function WalletUsdRedeemPanel({ item }: { item: JewelryItem }) {
   if (userHasPending) {
     const credit = parseFloat(item.pendingCreditCents || "0");
     const remaining = Math.max(0, itemPrice - credit);
-    const remainingAfterBtcDiscount = Math.round(remaining * 0.9 * 100) / 100;
+    const remainingAfterBtcDiscount = Math.round(remaining * 0.95 * 100) / 100;
 
     const continueToSquare = async () => {
       setSubmitting(true);
@@ -222,7 +221,7 @@ function WalletUsdRedeemPanel({ item }: { item: JewelryItem }) {
             <>
               <Bitcoin className="h-3.5 w-3.5 mr-1.5" />
               Pay ${remainingAfterBtcDiscount.toFixed(2)} with Bitcoin
-              <span className="ml-1.5 inline-flex items-center bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">Save 10%</span>
+              <span className="ml-1.5 inline-flex items-center bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">Save 5%</span>
             </>
           )}
         </Button>
@@ -484,6 +483,7 @@ function DetailCartButtons({ item, onBtcCheckout, btcLoading, onCheckoutWithDisc
           } else {
             addItem({
               id: cartId,
+              referenceId: item.id,
               name: item.title,
               price: parseFloat(item.price!),
               image: item.imageUrl || "",
@@ -511,7 +511,7 @@ function DetailCartButtons({ item, onBtcCheckout, btcLoading, onCheckoutWithDisc
             <>
               <Bitcoin className="h-4 w-4 text-orange-500" />
               <span className="text-orange-600 text-sm font-medium">Pay with Bitcoin</span>
-              <span className="inline-flex items-center bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Save 10%</span>
+              <span className="inline-flex items-center bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Save 5%</span>
             </>
           )}
         </button>
@@ -520,7 +520,7 @@ function DetailCartButtons({ item, onBtcCheckout, btcLoading, onCheckoutWithDisc
       {inCart && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-50 border border-orange-200">
           <Bitcoin className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
-          <p className="text-orange-600 text-xs">Added! Pay with Bitcoin at checkout to <span className="font-bold">save 10%</span></p>
+          <p className="text-orange-600 text-xs">Added! Pay with crypto at checkout to <span className="font-bold">save 5%</span></p>
         </div>
       )}
 
@@ -586,7 +586,7 @@ export default function JewelryDetailPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/jewelry"] });
       toast({ title: "Item Deleted" });
-      navigate("/nature-made-jewls");
+      navigate("/handmade-jewels-by-ashley");
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -723,7 +723,7 @@ export default function JewelryDetailPage() {
       <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: "linear-gradient(160deg, #fdf6f0 0%, #fef1f2 100%)" }}>
         <div className="text-5xl mb-4">🌸</div>
         <p className="text-stone-500 text-lg font-serif">Item not found</p>
-        <Link href="/nature-made-jewls">
+        <Link href="/handmade-jewels-by-ashley">
           <Button variant="outline" className="mt-4 border-rose-300 text-rose-500"><ArrowLeft className="h-4 w-4 mr-2" /> Back to Shop</Button>
         </Link>
       </div>
@@ -742,7 +742,7 @@ export default function JewelryDetailPage() {
       {/* Sticky Header */}
       <div className="sticky top-0 z-50 backdrop-blur border-b border-rose-100/80 shadow-sm" style={{ background: "rgba(253,246,240,0.97)" }}>
         <div className="flex items-center justify-between px-4 py-3">
-          <Link href="/nature-made-jewls">
+          <Link href="/handmade-jewels-by-ashley">
             <Button variant="ghost" size="sm" className="text-stone-500 hover:text-rose-500">
               <ArrowLeft className="h-4 w-4 mr-1" /> Back
             </Button>
@@ -1014,7 +1014,6 @@ export default function JewelryDetailPage() {
         </DialogContent>
       </Dialog>
 
-      <FloatingCartButton />
     </div>
   );
 }

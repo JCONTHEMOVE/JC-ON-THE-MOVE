@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useCart } from "@/hooks/useCart";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { ArrowLeft, Trash2, ShoppingCart, Percent, Shield, Loader2, CreditCard, Gem, Truck, Plus, MapPin, CalendarDays, Heart, Building2, Trophy, Check, Bitcoin, Tag, X, CheckCircle2, Package, Home, DollarSign, Zap, Sparkles } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 
@@ -24,8 +24,7 @@ interface PromoResult {
 
 export default function CartPage() {
   const { toast } = useToast();
-  const [, navigate] = useLocation();
-  const { items, addItem, removeItem, clearCart, subtotal, discount, total, hasMultipleItems, isInCart, itemCount, breakdown } = useCart();
+  const { items, guestCartId, addItem, removeItem, subtotal: estimatedSubtotal, discount: estimatedDiscount, total: estimatedTotal, hasMultipleItems, isInCart, itemCount, breakdown } = useCart();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isBtcSubmitting, setIsBtcSubmitting] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
@@ -33,13 +32,13 @@ export default function CartPage() {
   const hasJewelryItems = items.some((i) => i.type === "jewelry");
   const hasSponsorItems = items.some((i) => i.type === "sponsor");
   const hasShippableItems = items.some((i) => i.type === "shop" || i.type === "jewelry");
-  const needsMoveInfo = hasServiceItems;
+  const needsMoveInfo = items.some((item) => (item.type === "service" || item.type === "promo") && item.settlementMode !== "linked_booking");
 
   // Shipping/pickup selection (for shop & jewelry items)
   const [shippingMethod, setShippingMethod] = useState<'shipping' | 'pickup' | null>(null);
   const [shippingAddress, setShippingAddress] = useState("");
   const SHIPPING_FEE = 10;
-  const shippingFee = hasShippableItems && shippingMethod === 'shipping' ? SHIPPING_FEE : 0;
+  const estimatedShippingFee = hasShippableItems && shippingMethod === 'shipping' ? SHIPPING_FEE : 0;
 
   // Promo code state
   const [promoInput, setPromoInput] = useState("");
@@ -83,12 +82,6 @@ export default function CartPage() {
     }
   };
 
-  const promoDiscountAmount = promoResult && promoApplied
-    ? Math.round(total * (promoResult.discountPercent / 100) * 100) / 100
-    : 0;
-
-  const finalTotal = Math.max(0, total - promoDiscountAmount + shippingFee);
-
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -100,6 +93,58 @@ export default function CartPage() {
     details: "",
     enrollRewards: false,
   });
+
+  useEffect(() => {
+    const linkedEmail = items
+      .filter((item) => item.settlementMode === "linked_booking")
+      .map((item) => item.metadata?.customerEmail)
+      .find((email): email is string => typeof email === "string" && email.includes("@"));
+    if (linkedEmail) setForm((current) => current.email ? current : { ...current, email: linkedEmail });
+  }, [items]);
+
+  const [pricing, setPricing] = useState<any>(null);
+  const [pricingError, setPricingError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/commerce/preview", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            guestCartId,
+            items,
+            shippingMethod: shippingMethod || undefined,
+            promoCode: promoApplied && promoResult ? promoResult.code : undefined,
+            customerEmail: form.email || undefined,
+          }),
+          signal: controller.signal,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Pricing is unavailable");
+        setPricing(data);
+        setPricingError("");
+      } catch (error: any) {
+        if (error.name !== "AbortError") {
+          setPricing(null);
+          setPricingError(error.message || "Pricing is unavailable");
+        }
+      }
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [form.email, guestCartId, items, promoApplied, promoResult, shippingMethod]);
+
+  const subtotal = pricing ? pricing.subtotalCents / 100 : estimatedSubtotal;
+  const discount = pricing ? pricing.discountCents / 100 : estimatedDiscount;
+  const total = pricing ? (pricing.subtotalCents - pricing.discountCents) / 100 : estimatedTotal;
+  const shippingFee = pricing ? pricing.shippingCents / 100 : estimatedShippingFee;
+  const promoDiscountAmount = 0;
+  const finalTotal = pricing ? pricing.dueNowCents / 100 : Math.max(0, total + shippingFee);
 
   const updateField = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -167,21 +212,25 @@ export default function CartPage() {
       toast({ title: "Please agree to the terms", variant: "destructive" });
       return;
     }
+    if (!pricing || pricingError) {
+      toast({ title: pricingError || "Waiting for verified pricing", variant: "destructive" });
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      const res = await fetch("/api/cart/checkout", {
+      const res = await fetch("/api/commerce/checkout", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          items: items.map((i) => ({ id: i.id, name: i.name, price: i.price, type: i.type })),
+          guestCartId,
+          items,
           promoCode: promoApplied && promoResult ? promoResult.code : undefined,
-          promoDiscountPercent: promoApplied && promoResult ? promoResult.discountPercent : 0,
           enrollRewards: form.enrollRewards,
           shippingMethod: hasShippableItems ? shippingMethod : undefined,
           shippingAddress: hasShippableItems && shippingMethod === 'shipping' ? shippingAddress : undefined,
-          shippingFee: shippingFee > 0 ? shippingFee : undefined,
         }),
       });
 
@@ -209,7 +258,6 @@ export default function CartPage() {
       }
 
       if (data.checkoutUrl) {
-        clearCart();
         window.location.href = data.checkoutUrl;
       }
     } catch (error: any) {
@@ -245,31 +293,25 @@ export default function CartPage() {
       return;
     }
 
-    const shippingNote = hasShippableItems
-      ? shippingMethod === 'pickup'
-        ? 'PICKUP: Local pickup in Ironwood, MI'
-        : `SHIP TO: ${shippingAddress} (+$${SHIPPING_FEE} shipping)`
-      : '';
-
     setIsBtcSubmitting(true);
     try {
-      const res = await fetch("/api/btc/create-payment", {
+      const res = await fetch("/api/commerce/crypto-checkout", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerName: `${form.firstName} ${form.lastName}`,
-          customerEmail: form.email,
-          customerPhone: form.phone,
-          usdAmount: finalTotal,
-          referenceType: "cart",
-          items: items.map((i) => ({ id: i.id, name: i.name, price: i.price, type: i.type })),
-          notes: `${shippingNote} ${form.fromAddress ? `From: ${form.fromAddress}` : ""} ${form.toAddress ? `To: ${form.toAddress}` : ""} ${form.moveDate ? `Date: ${form.moveDate}` : ""} ${promoApplied && promoResult ? `Promo: ${promoResult.code}` : ""} ${form.details || ""}`.trim(),
+          ...form,
+          guestCartId,
+          items,
+          promoCode: promoApplied && promoResult ? promoResult.code : undefined,
+          shippingMethod: hasShippableItems ? shippingMethod : undefined,
+          shippingAddress: hasShippableItems && shippingMethod === "shipping" ? shippingAddress : undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create payment");
-      clearCart();
-      navigate(`/bitcoin-payment?id=${data.payment.id}`);
+      if (!data.checkoutUrl) throw new Error("Crypto provider did not return a checkout link");
+      window.location.href = data.checkoutUrl;
     } catch (error: any) {
       toast({ title: error.message || "Something went wrong", variant: "destructive" });
     } finally {
@@ -292,7 +334,7 @@ export default function CartPage() {
                   Home
                 </Button>
               </Link>
-              <Link href="/nature-made-jewls" className="flex-1">
+              <Link href="/handmade-jewels-by-ashley" className="flex-1">
                 <Button className="w-full bg-purple-600 hover:bg-purple-700">
                   <Gem className="h-4 w-4 mr-2" />
                   Shop Jewls
@@ -325,6 +367,12 @@ export default function CartPage() {
           )}
         </h1>
 
+        {pricingError && (
+          <div className="mb-4 rounded-xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+            {pricingError}
+          </div>
+        )}
+
         {/* Cart Items */}
         <Card className="bg-slate-800/80 border-slate-600 mb-4">
           <CardContent className="pt-4 space-y-3">
@@ -340,7 +388,11 @@ export default function CartPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-medium text-sm truncate">{item.name}</p>
                   <p className="text-slate-400 text-xs capitalize">{item.type === "tip" ? "Crew Tip" : item.type === "promo" ? "Moving Service" : item.type === "sponsor" ? "Monthly Sponsorship" : item.type === "shop" ? "Community Shop" : item.type}</p>
-                  <p className="text-yellow-400 font-bold">${item.price.toFixed(2)}</p>
+                  {item.settlementMode === "linked_booking" ? (
+                    <p className="text-emerald-400 font-bold">Saved booking · $0 due in this cart</p>
+                  ) : (
+                    <p className="text-yellow-400 font-bold">${item.price.toFixed(2)}</p>
+                  )}
                 </div>
                 <button onClick={() => removeItem(item.id)} className="text-red-400 hover:text-red-300 p-2">
                   <Trash2 className="h-4 w-4" />
@@ -593,9 +645,9 @@ export default function CartPage() {
               </p>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { id: "sponsor-bronze", name: "Bronze", price: 100, icon: Heart, color: "text-amber-300" },
-                  { id: "sponsor-silver", name: "Silver", price: 250, icon: Building2, color: "text-slate-200" },
-                  { id: "sponsor-gold", name: "Gold", price: 500, icon: Trophy, color: "text-yellow-300" },
+                  { id: "sponsor-bronze", name: "Bronze", price: 50, icon: Heart, color: "text-amber-300" },
+                  { id: "sponsor-silver", name: "Silver", price: 100, icon: Building2, color: "text-slate-200" },
+                  { id: "sponsor-gold", name: "Gold", price: 200, icon: Trophy, color: "text-yellow-300" },
                 ].map((tier) => {
                   const Icon = tier.icon;
                   return (
@@ -629,11 +681,11 @@ export default function CartPage() {
                 : breakdown.jewelsCount === 1
                 ? "💎 Add a 2nd Jewls item → save 5% more on your service!"
                 : breakdown.multiService
-                ? `🎉 ${breakdown.totalPct}% savings applied — pay with Bitcoin for 10% more!`
-                : "Book Now (5%) · Add Jewls items (5–10%) · Book 2 services (10%) · Bitcoin (10%)"}
+                ? `🎉 ${breakdown.totalPct}% savings applied — crypto is 5% off site-wide!`
+                : "Book services and add jewelry in one cart · Crypto payments save 5%"}
             </p>
             <div className="flex gap-2 justify-center flex-wrap">
-              <Link href="/nature-made-jewls">
+              <Link href="/handmade-jewels-by-ashley">
                 <Button size="sm" variant="outline" className="border-emerald-500/50 text-emerald-200 hover:bg-emerald-900/30">
                   <Gem className="h-4 w-4 mr-1" />
                   Jewelry
@@ -750,23 +802,28 @@ export default function CartPage() {
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-bold text-emerald-300">Join JCMOVES Rewards — free</span>
+                        <span className="text-sm font-bold text-emerald-300">Apply rewards to my JCMOVES account</span>
                         <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full px-2 py-0.5 font-bold uppercase tracking-wider">Earn on every order</span>
                       </div>
-                      <p className="text-xs text-slate-400 mt-0.5">15 JCMOVES per $1 spent · redeem for discounts, prizes &amp; lottery tickets</p>
-                      {finalTotal > 0 && (
+                      <p className="text-xs text-slate-400 mt-0.5">Use the email on your existing or signed-in account · 15 JCMOVES per eligible jewelry dollar</p>
+                      {pricing?.totalRewardMoves > 0 && (
                         <div className="mt-2 flex items-center gap-1.5">
                           <Zap className="h-3.5 w-3.5 text-yellow-400 shrink-0" />
-                          <span className="text-sm font-black text-yellow-400">{Math.round(finalTotal * 15).toLocaleString()} JCMOVES</span>
-                          <span className="text-xs text-slate-400">earned on this order</span>
+                          <span className="text-sm font-black text-yellow-400">{Number(pricing.totalRewardMoves).toLocaleString()} JCMOVES</span>
+                          <span className="text-xs text-slate-400">after verified payment to your account</span>
                         </div>
+                      )}
+                      {pricing?.regularPaymentBonusMoves > 0 && (
+                        <p className="mt-1 text-xs font-semibold text-emerald-300">
+                          Includes +{Number(pricing.regularPaymentBonusMoves).toLocaleString()} bonus JC Moves (5%) for regular payment
+                        </p>
                       )}
                     </div>
                   </div>
                   {form.enrollRewards && (
                     <div className="mt-2 pt-2 border-t border-emerald-500/20 flex items-center gap-1.5">
                       <Check className="h-3 w-3 text-emerald-400 shrink-0" />
-                      <p className="text-xs text-emerald-400">Your rewards account will be created with this order. Tokens credited after service completion.</p>
+                      <p className="text-xs text-emerald-400">After verified regular payment, rewards are credited to the existing account matching this email.</p>
                     </div>
                   )}
                 </div>
@@ -786,7 +843,7 @@ export default function CartPage() {
 
               <Button
                 onClick={handleCheckout}
-                disabled={isSubmitting || !agreedToTerms}
+                disabled={isSubmitting || !agreedToTerms || !pricing || Boolean(pricingError)}
                 className="w-full py-6 text-lg font-bold bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-400 hover:to-amber-500 text-black shadow-lg"
               >
                 {isSubmitting ? (
@@ -797,7 +854,7 @@ export default function CartPage() {
                 ) : (
                   <>
                     <CreditCard className="h-5 w-5 mr-2" />
-                    Pay ${finalTotal.toFixed(2)}
+                    Pay ${finalTotal.toFixed(2)} · +5% JC Moves bonus
                     {(hasMultipleItems || promoApplied) && (
                       <span className="ml-2 text-xs bg-black/20 px-2 py-0.5 rounded-full">
                         Save ${(discount + promoDiscountAmount).toFixed(2)}
@@ -815,7 +872,7 @@ export default function CartPage() {
 
               <Button
                 onClick={handleBtcCheckout}
-                disabled={isBtcSubmitting || !agreedToTerms}
+                disabled={isBtcSubmitting || !agreedToTerms || !pricing || Boolean(pricingError)}
                 className="w-full py-6 text-lg font-bold bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 text-white shadow-lg"
               >
                 {isBtcSubmitting ? (
@@ -826,16 +883,16 @@ export default function CartPage() {
                 ) : (
                   <>
                     <Bitcoin className="h-5 w-5 mr-2" />
-                    Pay with Bitcoin
+                    Pay ${(Math.round(finalTotal * 0.95 * 100) / 100).toFixed(2)} with crypto
                     <span className="ml-2 text-xs bg-white/20 px-2 py-0.5 rounded-full">
-                      Save 10%
+                      Save 5%
                     </span>
                   </>
                 )}
               </Button>
 
               <p className="text-center text-xs text-slate-400">
-                Secure payment processed by Square or Bitcoin
+                Regular payment stays full price and adds 5% to the normal JC Moves earned. Crypto receives 5% off the verified total.
               </p>
               <p className="text-center text-xs text-orange-400/70 mt-1">
                 Bitcoin payments are non-refundable but can be used as credit toward future moves for up to 1 year.

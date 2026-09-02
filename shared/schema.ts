@@ -266,6 +266,32 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Audited records for owner-confirmed payments received outside an automated
+// processor flow. The lead row remains the fast payment-status projection;
+// this append-only record preserves who confirmed the money, how it was paid,
+// and the job total used for downstream accounting and JCMOVES issuance.
+export const jobPaymentRecords = pgTable("job_payment_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leadId: varchar("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  source: text("source").notNull().default("manual"),
+  paymentScope: text("payment_scope").notNull().default("paid_in_full"),
+  status: text("status").notNull().default("confirmed"),
+  method: text("method").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
+  reference: text("reference"),
+  note: text("note"),
+  recordedByUserId: varchar("recorded_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, (table) => [
+  index("idx_job_payment_records_lead").on(table.leadId),
+  uniqueIndex("uq_job_payment_records_manual_full")
+    .on(table.leadId)
+    .where(sql`${table.source} = 'manual' AND ${table.paymentScope} = 'paid_in_full' AND ${table.status} = 'confirmed'`),
+]);
+
+export type JobPaymentRecord = typeof jobPaymentRecords.$inferSelect;
+
 // Notifications table for real-time updates
 export const notifications = pgTable("notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1057,6 +1083,16 @@ export const jewelryItems = pgTable("jewelry_items", {
   pendingCreditCents: decimal("pending_credit_cents", { precision: 10, scale: 2 }),
   pendingExpiresAt: timestamp("pending_expires_at"),
   pendingSquareOrderId: text("pending_square_order_id"),
+  sku: text("sku"),
+  quantity: integer("quantity").notNull().default(1),
+  tags: jsonb("tags").notNull().default("[]"),
+  sourceBatchId: varchar("source_batch_id"),
+  approvalStatus: text("approval_status").notNull().default("approved"),
+  approvedByUserId: varchar("approved_by_user_id"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  lastFeaturedAt: timestamp("last_featured_at", { withTimezone: true }),
+  aiMetadata: jsonb("ai_metadata").notNull().default("{}"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
 
@@ -2390,7 +2426,7 @@ export const bitcoinPayments = pgTable("bitcoin_payments", {
   usdAmount: decimal("usd_amount", { precision: 10, scale: 2 }).notNull(),
   btcAmount: decimal("btc_amount", { precision: 18, scale: 8 }).notNull(),
   btcPrice: decimal("btc_price", { precision: 12, scale: 2 }).notNull(),
-  discountPercent: decimal("discount_percent", { precision: 5, scale: 2 }).default("10.00"),
+  discountPercent: decimal("discount_percent", { precision: 5, scale: 2 }).default("5.00"),
   originalUsdAmount: decimal("original_usd_amount", { precision: 10, scale: 2 }).notNull(),
   jcmovesAmount: decimal("jcmoves_amount", { precision: 18, scale: 8 }),
   jcmovesCredited: integer("jcmoves_credited").default(0),
@@ -3493,7 +3529,7 @@ export const serviceCatalog = pgTable("service_catalog", {
   metadata: jsonb("metadata").default("{}"),
   // Task #218 — labor-hours backbone: every catalog row carries minCrew and
   // per-job-size default labor hours. quoteByLaborHours reads these to
-  // produce crew × hours × $85 amounts; the route layer clamps to
+  // produce crew × hours × the canonical active rate; the route layer clamps to
   // suggestedMin/suggestedMax for safety. Both columns are nullable so
   // older rows continue to fall back to the SERVICE_LABOR_DEFAULTS table
   // in shared/pricingTables.ts (single source of truth for the seed).

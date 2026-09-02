@@ -579,15 +579,24 @@ export async function emitStandaloneQuoteOpportunity(input: {
   adminPath: string;
 }) {
   try {
-    const recipients = uniqueRecipients([...(await ownerRecipients()), ...(await allCrewRecipients())]);
     const title = "Possible Job Opportunity";
     const service = input.serviceType.replace(/_/g, " ");
     const date = input.requestedDate || "date TBD";
     const message = `A ${service} request is ready for crew-size and quote sampling for ${date}. Open the quote board to make a selection and build booking progress.`;
-    const personalAlertsAlreadyAttempted = await hasJobAlertDelivery(input.eventId);
-    const personalRecipients = personalAlertsAlreadyAttempted
-      ? []
-      : recipients.filter((recipient) => recipient.jobAlertChannelPreference !== "discord");
+    let recipients: UserRecipient[] = [];
+    let personalRecipients: UserRecipient[] = [];
+
+    // Discord is an independent delivery channel. A user-query or in-app
+    // audit problem must not prevent the configured webhook from firing.
+    try {
+      recipients = uniqueRecipients([...(await ownerRecipients()), ...(await allCrewRecipients())]);
+      const personalAlertsAlreadyAttempted = await hasJobAlertDelivery(input.eventId);
+      personalRecipients = personalAlertsAlreadyAttempted
+        ? []
+        : recipients.filter((recipient) => recipient.jobAlertChannelPreference !== "discord");
+    } catch (error) {
+      console.warn("[jobEventBus] standalone personal recipient lookup failed; continuing with webhooks:", error instanceof Error ? error.message : error);
+    }
 
     await Promise.allSettled(personalRecipients.map(async (recipient) => {
       const isOwnerRecipient = ["admin", "business_owner"].includes(String(recipient.role || ""));
@@ -663,10 +672,6 @@ export async function emitJobEvent(
     if (!lead) return;
 
     const eventId = options.eventId || crypto.randomUUID();
-    // A stable event may already have delivered its personal notifications.
-    // Webhooks are handled separately so a failed Discord attempt can retry
-    // without duplicating in-app notifications.
-    const personalAlertsAlreadyAttempted = Boolean(options.eventId && await hasJobAlertDelivery(eventId));
     let effectiveType = type;
     let effectiveOptions = options;
     if (type === "job_completed") {
@@ -689,10 +694,20 @@ export async function emitJobEvent(
       }
     }
     const message = messageFor(effectiveType, lead, effectiveOptions);
-    let recipients = uniqueRecipients(await recipientsFor(message.scope, lead));
-    if (options.recipientUserIds?.length) {
-      const allowed = new Set(options.recipientUserIds);
-      recipients = recipients.filter((recipient) => allowed.has(recipient.id));
+    let recipients: UserRecipient[] = [];
+    let personalAlertsAlreadyAttempted = false;
+    try {
+      recipients = uniqueRecipients(await recipientsFor(message.scope, lead));
+      if (options.recipientUserIds?.length) {
+        const allowed = new Set(options.recipientUserIds);
+        recipients = recipients.filter((recipient) => allowed.has(recipient.id));
+      }
+      // A stable event may already have delivered its personal notifications.
+      // Webhooks are handled separately so a failed Discord attempt can retry
+      // without duplicating in-app notifications.
+      personalAlertsAlreadyAttempted = Boolean(options.eventId && await hasJobAlertDelivery(eventId));
+    } catch (error) {
+      console.warn("[jobEventBus] personal recipient lookup failed; continuing with webhooks:", error instanceof Error ? error.message : error);
     }
     const baseData = {
       type: effectiveType,

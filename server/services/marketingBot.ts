@@ -18,8 +18,11 @@ import { getAppUrl } from "../appUrl";
 import { sendEmail } from "./email";
 import { createMarketingCreative } from "./marketingCreativeGenerator";
 import { escapeMarketingCampaignHtml } from "./marketingCampaignPolicy";
+import { appendNorthwoodsCampaignFacts, validateNorthwoodsCampaignSafety } from "./northwoodsCampaignPolicy";
 import { getMarketingChannelReadiness, publishMarketingChannel } from "./marketingChannels";
 import { ensureRegionalAutomationSchema } from "./regionalAutomationMigration";
+import { getActiveCommercePublication } from "./commerceCatalog";
+import { evaluateCompanyPublisherForCampaign } from "./marketingMetaPilotPolicy";
 import {
   appendTrustedCampaignFacts,
   buildCampaignCode,
@@ -367,6 +370,45 @@ async function resolveApprovedPromotion(candidate: MarketingCandidate, signals: 
   return result.rows[0] || null;
 }
 
+async function resolveCatalogMarketingOffer(service: MarketingBotService) {
+  try {
+    const publication = await getActiveCommercePublication();
+    if (!publication || !Array.isArray(publication.snapshot?.items)) return null;
+    const serviceTargets: Record<MarketingBotService, string[]> = {
+      moving: ["moving", "moving_labor"],
+      packing: ["packing", "packing_labor"],
+      junk_removal: ["junk_removal", "service_junk_removal"],
+      helping_hands: ["labor", "load_unload_labor", "service_labor"],
+      heavy_item: ["specialty_handling", "moving"],
+      lawn_seasonal: ["lawn_care", "service_lawn_care", "snow_removal", "service_snow_removal"],
+      last_minute: ["moving_labor", "moving", "labor"],
+      reputation: [],
+    };
+    const targets = serviceTargets[service];
+    const items = (publication.snapshot.items as any[]).filter((item) => item.active && item.publicVisible && item.advertisingEnabled);
+    const item = targets.map((target) => items.find((candidate) => (
+      candidate.code === target || candidate.sourceServiceCode === target || candidate.category === target
+    ))).find(Boolean) || null;
+    if (!item) return null;
+    const prices = [item.price, ...(item.variations || []).map((variation: any) => variation.price)]
+      .map(Number).filter((price) => Number.isFinite(price) && price >= 0);
+    return {
+      offerCode: item.code,
+      catalogRevision: Number(publication.revision),
+      name: item.name,
+      description: item.description || null,
+      purchaseMode: item.purchaseMode,
+      price: item.price == null ? null : Number(item.price),
+      startingPrice: prices.length ? Math.min(...prices) : null,
+      termsVersion: "2026.08.22",
+      href: `/offers/${encodeURIComponent(item.code)}`,
+    };
+  } catch (error) {
+    console.warn("[marketing-bot] catalog offer lookup skipped:", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
 async function generateAiDraft(candidates: MarketingCandidate[], signals: MarketingSignals) {
   const fallback = buildFallbackDraft(candidates[0]);
   const model = process.env.MARKETING_AI_MODEL?.trim() || MARKETING_BOT_MODEL;
@@ -460,11 +502,15 @@ export async function generateMarketingBotCampaign(input: {
     const ai = await generateAiDraft(candidates, signals);
     const selected = candidates.find((candidate) => candidate.id === ai.draft.selectedCandidateId) || candidates[0];
     const approvedPromotion = await resolveApprovedPromotion(selected, signals);
+    const catalogOffer = await resolveCatalogMarketingOffer(selected.service);
     const code = buildCampaignCode({ localDate: signals.localDate, service: selected.service, territory: selected.territory, suffix: source === "manual" ? shortStableId(id) : undefined });
     const canonicalVariantCode = buildVariantCode(code, "company");
     const canonicalUrl = publicCampaignUrl(canonicalVariantCode);
     const promoCode = approvedPromotion?.code || null;
-    const trustedDraft = appendTrustedCampaignFacts({ draft: ai.draft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode });
+    const trustedDraft = {
+      ...appendTrustedCampaignFacts({ draft: ai.draft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode }),
+      cta: catalogOffer?.purchaseMode === "direct" ? "BOOK" as const : "GET_QUOTE" as const,
+    };
     const safety = validateCampaignSafety({
       draft: trustedDraft,
       phone: companyPhone(),
@@ -482,7 +528,7 @@ export async function generateMarketingBotCampaign(input: {
         (id, campaign_name, title, message, area, focus, audience, cta_url, cta_label, promo_code, source, actor_id, payload)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'marketing_bot',$11,$12::jsonb)
       ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, message = EXCLUDED.message, cta_url = EXCLUDED.cta_url, payload = EXCLUDED.payload
-    `, [id, code, trustedDraft.headline, trustedDraft.facebookCaption, area, focus, area, canonicalUrl, ctaLabel(trustedDraft.cta), promoCode, input.actorId || null, cleanJson({ botCampaign: true, visualDirection: trustedDraft.visualDirection })]);
+    `, [id, code, trustedDraft.headline, trustedDraft.facebookCaption, area, focus, area, canonicalUrl, ctaLabel(trustedDraft.cta), promoCode, input.actorId || null, cleanJson({ botCampaign: true, visualDirection: trustedDraft.visualDirection, offer: catalogOffer })]);
 
     const creative = await createMarketingCreative({
       campaignId: id,
@@ -507,7 +553,7 @@ export async function generateMarketingBotCampaign(input: {
     `, [id, code, selected.service, selected.territory, selected.score, trustedDraft.rationale, trustedDraft.headline,
       trustedDraft.facebookCaption, trustedDraft.instagramCaption, trustedDraft.googleBusinessSummary, trustedDraft.shortCaption,
       trustedDraft.cta, canonicalUrl, creative.feedImageUrl, creative.ogImageUrl, promoCode,
-      cleanJson({ phone: companyPhone(), website: getAppUrl(), promotion: approvedPromotion, visualDirection: trustedDraft.visualDirection }),
+      cleanJson({ phone: companyPhone(), website: getAppUrl(), promotion: approvedPromotion, visualDirection: trustedDraft.visualDirection, offer: catalogOffer }),
       cleanJson({ ...signals, prior14DayKeys: [...signals.prior14DayKeys], candidates: candidates.slice(0, 12) }), cleanJson(safety), ai.model, ai.fallback]);
 
     for (const channel of MARKETING_BOT_CHANNELS) {
@@ -652,11 +698,25 @@ export async function updateMarketingBotCampaign(id: string, draft: Pick<Marketi
     throw new Error("A campaign with a published channel cannot be edited; retry its failed channels instead");
   }
   const canonicalUrl = current.campaign_url;
-  const trustedDraft = appendTrustedCampaignFacts({
-    draft: { ...draft, selectedCandidateId: buildCampaignKey(current.service, current.territory), visualDirection: current.facts?.visualDirection || "Use the approved branded JC creative.", rationale: current.rationale },
-    phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code,
-  });
-  const safety = validateCampaignSafety({ draft: trustedDraft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code, promotionActive: !current.promo_code || Boolean(current.facts?.promotion), duplicate: false });
+  const isNorthwoods = current.brand === "northwoods_moving";
+  const trustedDraft = isNorthwoods
+    ? {
+        ...draft,
+        facebookCaption: appendNorthwoodsCampaignFacts({ text: draft.facebookCaption, destinationUrl: canonicalUrl, marketLabel: current.facts?.northwoodsMarketSlug || "Northwoods" }).slice(0, 2000),
+        instagramCaption: appendNorthwoodsCampaignFacts({ text: draft.instagramCaption, destinationUrl: canonicalUrl, marketLabel: current.facts?.northwoodsMarketSlug || "Northwoods" }).slice(0, 2000),
+        googleBusinessSummary: appendNorthwoodsCampaignFacts({ text: draft.googleBusinessSummary, destinationUrl: canonicalUrl, marketLabel: current.facts?.northwoodsMarketSlug || "Northwoods" }).replaceAll("\n\n", " ").slice(0, 1500),
+        shortCaption: appendNorthwoodsCampaignFacts({ text: draft.shortCaption, destinationUrl: canonicalUrl, marketLabel: current.facts?.northwoodsMarketSlug || "Northwoods" }).replaceAll("\n\n", " ").slice(0, 500),
+        selectedCandidateId: `northwoods:${current.northwoods_market_id || "market"}:${current.northwoods_focus || "moving"}`,
+        visualDirection: current.facts?.visualDirection || "Use the approved Northwoods Moving creative.",
+        rationale: current.rationale,
+      }
+    : appendTrustedCampaignFacts({
+        draft: { ...draft, selectedCandidateId: buildCampaignKey(current.service, current.territory), visualDirection: current.facts?.visualDirection || "Use the approved branded JC creative.", rationale: current.rationale },
+        phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code,
+      });
+  const safety = isNorthwoods
+    ? validateNorthwoodsCampaignSafety({ ...trustedDraft, destinationUrl: canonicalUrl })
+    : validateCampaignSafety({ draft: trustedDraft, phone: companyPhone(), campaignUrl: canonicalUrl, promoCode: current.promo_code, promotionActive: !current.promo_code || Boolean(current.facts?.promotion), duplicate: false });
   if (!safety.passed) throw new Error(`Safety check failed: ${safety.checks.filter((check) => !check.ok).map((check) => check.label).join(", ")}`);
   const revision = Number(current.revision || 1) + 1;
   await pool.query(`
@@ -672,7 +732,7 @@ export async function updateMarketingBotCampaign(id: string, draft: Pick<Marketi
       canonicalUrl,
       variant.destination_url,
     );
-    if (!variant.is_company && variant.promo_code && !caption.includes(variant.promo_code)) {
+    if (!isNorthwoods && !variant.is_company && variant.promo_code && !caption.includes(variant.promo_code)) {
       caption = `${caption}\n\nAsk for ${variant.rep_slug || "your JC representative"} and use code ${variant.promo_code}.`.slice(0, 2000);
     }
     await pool.query("UPDATE marketing_bot_variants SET caption=$2 WHERE id=$1", [variant.id, caption]);
@@ -719,6 +779,8 @@ export async function publishMarketingBotCampaign(
   if (!campaign) return null;
   if (!campaign.approved_at) throw new Error("Approve the campaign before publishing");
   if (!campaign.safety?.passed) throw new Error("Campaign safety checks are not passing");
+  const companyPublishTarget = evaluateCompanyPublisherForCampaign(campaign.brand);
+  if (!companyPublishTarget.allowed) throw new Error(companyPublishTarget.reason || "This campaign cannot use the company publisher");
   const publishCopy = [campaign.headline, campaign.facebook_caption, campaign.instagram_caption, campaign.google_business_summary, campaign.short_caption].join("\n");
   if (!/dispatched from (?:its |our )?Ironwood operation/i.test(publishCopy)) {
     throw new Error("Regional campaigns must disclose that service is dispatched from the Ironwood operation. Edit and re-save this campaign before publishing.");
@@ -770,7 +832,7 @@ export async function publishMarketingBotCampaign(
 export async function getPublicMarketingVariant(variantCode: string) {
   await ensureMarketingBotSchema();
   const result = await pool.query(`
-    SELECT v.*, c.headline, c.short_caption, c.cta, c.service, c.territory, c.campaign_code,
+    SELECT v.*, c.headline, c.short_caption, c.cta, c.service, c.territory, c.campaign_code, c.facts,
            c.og_image_url, c.feed_image_url, c.status AS campaign_status
     FROM marketing_bot_variants v
     JOIN marketing_bot_campaigns c ON c.id=v.campaign_id

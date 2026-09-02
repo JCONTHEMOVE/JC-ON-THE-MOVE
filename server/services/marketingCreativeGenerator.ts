@@ -26,6 +26,8 @@ export type MarketingCreativeOverlay = {
   promoCode: string;
   offerLine?: string;
   secondaryLine?: string;
+  brandName?: string;
+  siteLabel?: string;
 };
 
 type CreateMarketingCreativeInput = MarketingCreativeOverlay & {
@@ -94,6 +96,9 @@ export function buildMarketingOverlaySvg(
   const promoCode = cleanText(overlay.promoCode, "BOOK NOW", 32).toUpperCase();
   const offerLine = cleanText(overlay.offerLine, "SAVE 5% ON YOUR AREA'S ROUTE DAY", 52).toUpperCase();
   const secondaryLine = cleanText(overlay.secondaryLine, "IRONWOOD SAVES 5% EVERY DAY", 52).toUpperCase();
+  const brandName = cleanText(overlay.brandName, "JC ON THE MOVE", 34).toUpperCase();
+  const siteLabel = cleanText(overlay.siteLabel, "JCONTHEMOVE.COM", 38).toUpperCase();
+  const footerLabel = overlay.siteLabel ? `${siteLabel} • ${promoCode}` : `${siteLabel} • CODE ${promoCode}`;
 
   if (variant === "og") {
     const title = titleLines.length === 1
@@ -109,14 +114,14 @@ export function buildMarketingOverlaySvg(
           </linearGradient>
         </defs>
         <rect width="${width}" height="${height}" fill="url(#shade)"/>
-        <rect x="58" y="48" width="310" height="54" rx="27" fill="#2563eb"/>
-        ${svgTextLine("JC ON THE MOVE", 213, 85, 25, { anchor: "middle", letterSpacing: 1.4 })}
+        <rect x="58" y="48" width="470" height="54" rx="27" fill="#2563eb"/>
+        ${svgTextLine(brandName, 293, 85, 25, { anchor: "middle", letterSpacing: 1.4 })}
         <rect x="58" y="130" width="112" height="9" rx="4.5" fill="#f97316"/>
         ${title}
         <rect x="58" y="333" width="575" height="68" rx="14" fill="#f97316" fill-opacity="0.96"/>
         ${svgTextLine(offerLine, 82, 379, 27)}
         ${svgTextLine(secondaryLine, 60, 448, 24, { fill: "#dbeafe" })}
-        ${svgTextLine(`JCONTHEMOVE.COM • CODE ${promoCode}`, 60, 545, 25, { letterSpacing: 0.45 })}
+        ${svgTextLine(footerLabel, 60, 545, 25, { letterSpacing: 0.45 })}
       </svg>
     `);
   }
@@ -139,15 +144,15 @@ export function buildMarketingOverlaySvg(
       </defs>
       <rect width="${width}" height="310" fill="url(#top)"/>
       <rect y="450" width="${width}" height="900" fill="url(#bottom)"/>
-      <rect x="54" y="50" width="390" height="72" rx="36" fill="#2563eb"/>
-      ${svgTextLine("JC ON THE MOVE", 249, 98, 32, { anchor: "middle", letterSpacing: 1.8 })}
+      <rect x="54" y="50" width="560" height="72" rx="36" fill="#2563eb"/>
+      ${svgTextLine(brandName, 334, 98, 32, { anchor: "middle", letterSpacing: 1.8 })}
       <rect x="62" y="642" width="132" height="10" rx="5" fill="#f97316"/>
       ${title}
       <rect x="54" y="850" width="972" height="112" rx="22" fill="#f97316" fill-opacity="0.96"/>
       ${svgTextLine(offerLine, 91, 922, 43)}
       <rect x="54" y="986" width="972" height="86" rx="18" fill="#1d4ed8" fill-opacity="0.92"/>
       ${svgTextLine(secondaryLine, 91, 1043, 35)}
-      ${svgTextLine(`JCONTHEMOVE.COM • CODE ${promoCode}`, 62, 1260, 35, { letterSpacing: 0.6 })}
+      ${svgTextLine(footerLabel, 62, 1260, 35, { letterSpacing: 0.6 })}
     </svg>
   `);
 }
@@ -358,6 +363,8 @@ export async function createMarketingCreative(input: CreateMarketingCreativeInpu
     promoCode: input.promoCode,
     offerLine: input.offerLine,
     secondaryLine: input.secondaryLine,
+    brandName: input.brandName,
+    siteLabel: input.siteLabel,
   };
   const feedBuffer = await renderMarketingCreativeBuffer({ sourceBuffer: source.buffer, variant: "feed", overlay });
   const ogBuffer = await renderMarketingCreativeBuffer({ sourceBuffer: source.buffer, variant: "og", overlay });
@@ -387,7 +394,7 @@ export async function createMarketingCreative(input: CreateMarketingCreativeInpu
     feedImageUrl: marketingCreativeImageUrl(input.campaignId, "feed", input.revision),
     ogImageUrl: marketingCreativeImageUrl(input.campaignId, "og", input.revision),
     shareUrl: marketingCampaignShareUrl(input.campaignId, input.revision),
-    altText: `${cleanText(input.area, "Northwoods")} ${cleanText(input.focus, "moving help")} advertisement from JC ON THE MOVE`,
+    altText: `${cleanText(input.area, "Northwoods")} ${cleanText(input.focus, "moving help")} advertisement from ${cleanText(input.brandName, "JC ON THE MOVE")}`,
     revision: input.revision,
     source: finalSource.sourceKind,
     sourceKind: finalSource.sourceKind,
@@ -403,6 +410,8 @@ export async function createMarketingCreative(input: CreateMarketingCreativeInpu
     overlay: {
       offerLine: input.offerLine,
       secondaryLine: input.secondaryLine,
+      brandName: input.brandName,
+      siteLabel: input.siteLabel,
     },
   };
 }

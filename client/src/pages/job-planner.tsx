@@ -21,6 +21,8 @@ type PlannerResponse = {
   viewer: { isAdmin: boolean; canAddJob: boolean };
 };
 
+type SafetyResponse = { leads: Array<{ lead_id: string; age_hours: string | number; red_flag: number; reminder: number }> };
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const shortDay = new Intl.DateTimeFormat(undefined, { weekday: "short" });
 const monthTitle = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
@@ -74,7 +76,18 @@ export default function JobPlannerPage({ audience }: { audience: "admin" | "crew
   const { data, isLoading, isError, refetch, isFetching } = useQuery<PlannerResponse>({
     queryKey: ["/api/jobs/planner"],
   });
-  const jobs = data?.items || [];
+  const { data: safetyData } = useQuery<SafetyResponse>({
+    queryKey: ["/api/admin/lead-safety/status"],
+    enabled: audience === "admin",
+    refetchInterval: 30_000,
+  });
+  const jobs = useMemo(() => {
+    const safety = new Map((safetyData?.leads || []).map((item) => [String(item.lead_id), item]));
+    return (data?.items || []).map((job) => {
+      const alert = safety.get(String(job.id));
+      return alert ? { ...job, leadSafety: { ageHours: Number(alert.age_hours || 0), redFlag: Boolean(alert.red_flag), reminder: Boolean(alert.reminder) } } : job;
+    });
+  }, [data?.items, safetyData?.leads]);
   const unscheduled = useMemo(() => jobs.filter((job) => !jobDate(job)), [jobs]);
   const scheduled = useMemo(() => jobs.filter((job) => Boolean(jobDate(job))), [jobs]);
   const scheduledByDate = useMemo(() => {

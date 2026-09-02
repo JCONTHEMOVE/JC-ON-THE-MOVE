@@ -20,15 +20,15 @@ function test(name: string, fn: () => void) {
 
 console.log("btcLightningOffer()");
 
-test("applies 5% discount then awards 5% of the discounted payment", () => {
+test("applies the site-wide 5% crypto discount without the regular-payment bonus", () => {
   assert.deepEqual(calculateBtcLightningOffer(100), {
     originalAmountUsd: 100,
     discountPercent: 5,
     discountAmountUsd: 5,
     amountDueUsd: 95,
-    rewardPercent: 5,
-    rewardValueUsd: 4.75,
-    rewardTokens: 2375,
+    rewardPercent: 0,
+    rewardValueUsd: 0,
+    rewardTokens: 0,
     treasuryRetentionPercent: 100,
     receivedAsset: "BTC",
     valuationCurrency: "USD",
@@ -41,8 +41,8 @@ test("rounds every customer-facing USD amount to cents", () => {
   const offer = calculateBtcLightningOffer(99.99);
   assert.equal(offer.discountAmountUsd, 5);
   assert.equal(offer.amountDueUsd, 94.99);
-  assert.equal(offer.rewardValueUsd, 4.75);
-  assert.equal(offer.rewardTokens, 2375);
+  assert.equal(offer.rewardValueUsd, 0);
+  assert.equal(offer.rewardTokens, 0);
 });
 
 test("retains the policy at 100%", () => {

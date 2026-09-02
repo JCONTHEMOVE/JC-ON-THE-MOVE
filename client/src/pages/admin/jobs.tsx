@@ -31,6 +31,7 @@ import type { JobFlow } from "@shared/job-flow";
 import { PaymentStatusPill } from "@/components/PaymentStatusPill";
 import JobLifecycleRail from "@/components/JobLifecycleRail";
 import { extractCustomerMediaLink } from "@/lib/lead-details";
+import { ScheduleRequestQueue } from "@/components/schedule-request-queue";
 
 const SERVICE_ICONS: Record<string, string> = {
   residential: "🚛", commercial: "🏢", junk: "🗑️", snow: "❄️",
@@ -1561,6 +1562,8 @@ export default function AdminJobsPage() {
           </Button>
         </div>
       </div>
+
+      <ScheduleRequestQueue className="mb-5" />
 
       <div className="mb-5 flex flex-col gap-3 rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 sm:flex-row sm:items-center sm:justify-between">
         <div>

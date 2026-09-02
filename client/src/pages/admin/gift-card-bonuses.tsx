@@ -19,7 +19,14 @@ type BonusRow = {
 };
 
 type BonusResponse = {
-  readiness: { enabled: boolean; requested: boolean; startAt: string | null; blockers: string[] };
+  readiness: {
+    enabled: boolean;
+    requested: boolean;
+    publicRequested: boolean;
+    publicEnabled: boolean;
+    startAt: string | null;
+    blockers: string[];
+  };
   bonuses: BonusRow[];
 };
 
@@ -72,6 +79,7 @@ export default function AdminGiftCardBonusesPage() {
       {data && (
         <div className={`mt-5 rounded-xl border p-4 text-sm ${data.readiness.enabled ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-amber-400/25 bg-amber-400/10 text-amber-100"}`}>
           <p className="font-black">Automation {data.readiness.enabled ? "enabled" : "not enabled"}</p>
+          <p className="mt-1">Public bonus marketing: {data.readiness.publicEnabled ? "live" : "hidden"}</p>
           <p className="mt-1">Start: {data.readiness.startAt ? dateText(data.readiness.startAt) : "not configured"}</p>
           {data.readiness.blockers.length > 0 && <p className="mt-1 text-xs">{data.readiness.blockers.join(" · ")}</p>}
         </div>

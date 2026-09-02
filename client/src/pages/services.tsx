@@ -876,7 +876,7 @@ export default function ServicesPage() {
             <div className="ml-auto text-right">
               <div className="inline-flex flex-col gap-1 text-[11px]">
                 <span className="bg-green-500/20 text-green-300 border border-green-500/30 rounded-full px-2 py-0.5">Book Now -5%</span>
-                <span className="bg-orange-500/20 text-orange-300 border border-orange-500/30 rounded-full px-2 py-0.5">Bitcoin -10%</span>
+                <span className="bg-orange-500/20 text-orange-300 border border-orange-500/30 rounded-full px-2 py-0.5">Crypto -5%</span>
               </div>
             </div>
           </div>

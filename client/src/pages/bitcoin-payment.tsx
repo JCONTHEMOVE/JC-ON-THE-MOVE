@@ -222,7 +222,7 @@ export default function BitcoinPaymentPage() {
           <CardContent className="py-3 text-center">
             <div className="flex items-center justify-center gap-2 text-emerald-300 font-medium">
               <Percent className="h-4 w-4" />
-              <span>10% Bitcoin Discount Applied!</span>
+              <span>5% Crypto Discount Applied!</span>
             </div>
             <p className="text-emerald-400/70 text-xs mt-1">
               ${parseFloat(payment.originalUsdAmount).toFixed(2)} → ${parseFloat(payment.usdAmount).toFixed(2)} (Save ${(parseFloat(payment.originalUsdAmount) - parseFloat(payment.usdAmount)).toFixed(2)})

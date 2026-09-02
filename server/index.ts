@@ -6,6 +6,7 @@ import fs from "fs";
 import cors from "cors";
 import type { InsertRewardItem } from "@shared/schema";
 import { assertRequiredEnvOrExit } from "./services/envValidation";
+import { squareConfigSummary } from "./services/squareConfig";
 
 const boot = {
   status: "starting" as "starting" | "ready" | "failed",
@@ -75,7 +76,6 @@ function getDeployVersion() {
 const REQUIRED_HEALTH_ENV = [
   "DATABASE_URL",
   "SESSION_SECRET",
-  "SQUARE_ACCESS_TOKEN",
   "SQUARE_ENVIRONMENT",
 ] as const;
 
@@ -117,6 +117,8 @@ async function checkDatabaseReady() {
 async function sendEarlyReadiness(_req: Request, res: Response) {
   const startedAt = Date.now();
   const missingRequiredEnv = REQUIRED_HEALTH_ENV.filter((name) => !process.env[name]?.trim());
+  const squareConfig = squareConfigSummary();
+  if (!squareConfig.configured) missingRequiredEnv.push("SQUARE_ACCESS_TOKEN (or environment-specific Square token)" as any);
   const envReady = missingRequiredEnv.length === 0;
 
   let dbCheck:
@@ -178,6 +180,7 @@ async function sendEarlyReadiness(_req: Request, res: Response) {
         required: envPresence(REQUIRED_HEALTH_ENV),
         optional: envPresence(OPTIONAL_HEALTH_ENV),
       },
+      square: squareConfig,
     },
   });
 }
@@ -566,7 +569,32 @@ server.listen(port, '0.0.0.0', () => {
     }
     const { registerRoutes } = await import('./routes');
     await registerRoutes(app, server);
+    const { createJcOperationsRouter } = await import('./routes/jcOperations');
+    const { ensureJcOperationsInfrastructure } = await import('./services/jcOperations');
+    await ensureJcOperationsInfrastructure();
+    app.use('/api', createJcOperationsRouter());
     console.log('Application routes registered successfully');
+
+    // Lead-response safety net. The sweep is idempotent and guarded by a
+    // Postgres advisory lock, so multiple Railway instances cannot deliver
+    // the same 24-hour reminder or 48-hour red flag twice.
+    if (process.env.JC_LEAD_SAFETY_SWEEP_ENABLED !== "false") {
+      const LEAD_SAFETY_INTERVAL_MS = 15 * 60 * 1000;
+      const tick = async () => {
+        try {
+          const { runLeadSafetySweep } = await import('./services/jcOperations');
+          const result = await runLeadSafetySweep();
+          if (!result.skipped && (result.reminders || result.redFlags)) {
+            console.log(`[lead-safety] reminders=${result.reminders} redFlags=${result.redFlags}`);
+          }
+        } catch (error) {
+          console.error('[lead-safety] sweep failed:', error);
+        }
+      };
+      setTimeout(tick, 30_000);
+      setInterval(tick, LEAD_SAFETY_INTERVAL_MS);
+      console.log(' Lead safety sweep scheduled (every 15 min)');
+    }
 
     // Square eGift purchase bonuses remain pending for 14 days, then become
     // spendable. The database advisory lock inside the sweep keeps multiple
@@ -587,6 +615,59 @@ server.listen(port, '0.0.0.0', () => {
       setTimeout(tick, 90_000);
       setInterval(tick, GIFT_BONUS_SWEEP_INTERVAL_MS);
       console.log("✅ Gift-card bonus sweep scheduled (every 15 min)");
+    }
+
+    // Handmade Jewels by Ashley automation. All AI-created catalog content
+    // remains a draft until Ashley sets a final price and approves it.
+    if (process.env.ASHLEY_SHOP_AUTOMATION_ENABLED !== "false") {
+      const featureTick = async () => {
+        if (process.env.ASHLEY_SHOP_FEATURED_ENABLED === "false") return;
+        try {
+          const { ensureDailyFeaturedItem } = await import("./services/ashleyShopFeatured");
+          await ensureDailyFeaturedItem();
+        } catch (error) {
+          console.error("[Ashley shop] featured rotation failed:", error);
+        }
+      };
+      const pipelineTick = async () => {
+        try {
+          if (process.env.ASHLEY_SHOP_EMAIL_INGEST_ENABLED === "true") {
+            const { runAshleyEmailIngest } = await import("./services/ashleyShopEmail");
+            await runAshleyEmailIngest();
+          }
+          const { processNextAshleyBatch } = await import("./services/ashleyShopAi");
+          await processNextAshleyBatch();
+        } catch (error) {
+          console.error("[Ashley shop] intake pipeline failed:", error);
+        }
+      };
+      const commerceTick = async () => {
+        try {
+          const { sweepExpiredCommerceReservations } = await import("./services/ashleyShopCommerce");
+          await sweepExpiredCommerceReservations();
+        } catch (error) {
+          console.error("[Ashley shop] commerce reservation sweep failed:", error);
+        }
+      };
+      const executiveTick = async () => {
+        if (process.env.ASHLEY_SHOP_EXECUTIVE_ENABLED === "false") return;
+        try {
+          const { runAshleyExecutiveDigest } = await import("./services/ashleyShopExecutive");
+          await runAshleyExecutiveDigest("daily");
+          await runAshleyExecutiveDigest("weekly");
+        } catch (error) {
+          console.error("[Ashley shop] executive digest failed:", error);
+        }
+      };
+      setTimeout(featureTick, 15_000);
+      setInterval(featureTick, 5 * 60_000);
+      setTimeout(pipelineTick, 30_000);
+      setInterval(pipelineTick, 2 * 60_000);
+      setTimeout(commerceTick, 60_000);
+      setInterval(commerceTick, 5 * 60_000);
+      setTimeout(executiveTick, 90_000);
+      setInterval(executiveTick, 60 * 60_000);
+      console.log("Handmade Jewels by Ashley automation scheduled");
     }
 
     // Task #175 — mount the consolidated payment + launch-checklist routes.

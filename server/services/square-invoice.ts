@@ -2,6 +2,7 @@ import type { SquareClient } from "square";
 import { storage } from "../storage";
 import type { InsertSquareInvoice, Lead } from "@shared/schema";
 import type { InvoicePurpose } from "@shared/regionalAutomation";
+import { getSquareAccessToken, getSquareEnvironment, getSquareLocationId } from "./squareConfig";
 
 export type InvoiceDeliveryMethod = "email" | "sms" | "both" | "none";
 
@@ -27,6 +28,21 @@ export interface LeadInvoiceOptions {
   closeoutId?: string | null;
 }
 
+export interface ItemizedInvoiceDiscount {
+  code: string;
+  name: string;
+  amount: number;
+}
+
+export interface ItemizedInvoiceOptions extends LeadInvoiceOptions {
+  discounts?: ItemizedInvoiceDiscount[];
+  expectedTotal?: number;
+  catalogRevision?: number | null;
+  pricingRevision?: string | null;
+  idempotencyKey?: string;
+  description?: string;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function safeLeadId(id: string | undefined | null): string | null {
   if (!id || typeof id !== "string") return null;
@@ -36,8 +52,8 @@ function safeLeadId(id: string | undefined | null): string | null {
 async function getSquareClient(): Promise<SquareClient> {
   const { SquareClient, SquareEnvironment } = await import("square");
   return new SquareClient({
-    token: process.env.SQUARE_ACCESS_TOKEN || "",
-    environment: process.env.SQUARE_ENVIRONMENT === "production"
+    token: getSquareAccessToken(),
+    environment: getSquareEnvironment() === "production"
       ? SquareEnvironment.Production
       : SquareEnvironment.Sandbox,
   });
@@ -85,6 +101,11 @@ export class SquareInvoiceService {
 
   async getLocationId(): Promise<string> {
     if (this.locationId) return this.locationId;
+    const configuredLocation = getSquareLocationId();
+    if (configuredLocation) {
+      this.locationId = configuredLocation;
+      return configuredLocation;
+    }
 
     try {
       const client = await getSquareClient();
@@ -265,7 +286,8 @@ export class SquareInvoiceService {
     amount: number,
     description: string,
     dueDate?: string,
-    deliveryMethod: InvoiceDeliveryMethod = "email"
+    deliveryMethod: InvoiceDeliveryMethod = "email",
+    options: { idempotencyKey?: string; purpose?: InvoicePurpose } = {},
   ): Promise<{ invoiceId: string; invoiceUrl: string; squareInvoiceId: string }> {
     const client = await getSquareClient();
     const locationId = await this.getLocationId();
@@ -274,7 +296,7 @@ export class SquareInvoiceService {
     const amountInCents = BigInt(Math.round(amount * 100));
 
     const orderResponse = await client.orders.create({
-      idempotencyKey: `order-standalone-${Date.now()}`,
+      idempotencyKey: options.idempotencyKey ? `order-${options.idempotencyKey}` : `order-standalone-${Date.now()}`,
       order: {
         locationId,
         customerId,
@@ -295,7 +317,7 @@ export class SquareInvoiceService {
     const squareDelivery = primarySquareDeliveryMethod(deliveryMethod);
 
     const invoiceResponse = await client.invoices.create({
-      idempotencyKey: `invoice-standalone-${Date.now()}`,
+      idempotencyKey: options.idempotencyKey ? `invoice-${options.idempotencyKey}` : `invoice-standalone-${Date.now()}`,
       invoice: {
         orderId,
         locationId,
@@ -326,7 +348,7 @@ export class SquareInvoiceService {
     const publishResponse = await client.invoices.publish({
       invoiceId: squareInvoice.id!,
       version: squareInvoice.version!,
-      idempotencyKey: `publish-${squareInvoice.id}-${Date.now()}`,
+      idempotencyKey: options.idempotencyKey ? `publish-${options.idempotencyKey}` : `publish-${squareInvoice.id}-${Date.now()}`,
     });
 
     const publishedInvoice = publishResponse.invoice!;
@@ -344,6 +366,7 @@ export class SquareInvoiceService {
       status: "sent",
       invoiceUrl: publishedInvoice.publicUrl,
       dueDate: dueDate || this.getDefaultDueDate(),
+      purpose: options.purpose || "legacy_unknown",
     };
 
     const savedInvoice = await storage.createSquareInvoice(invoiceData);
@@ -358,8 +381,17 @@ export class SquareInvoiceService {
   async getCatalogMappings(): Promise<Record<string, string>> {
     try {
       const { pool } = await import("../db");
-      const { rows } = await pool.query(`SELECT setting_value FROM spin_config WHERE setting_key='square_catalog_mappings' LIMIT 1`);
-      return rows.length > 0 ? JSON.parse(rows[0].setting_value) : {};
+      const [legacy, managed] = await Promise.all([
+        pool.query(`SELECT setting_value FROM spin_config WHERE setting_key='square_catalog_mappings' LIMIT 1`),
+        pool.query(`
+          SELECT local_code, square_object_id
+          FROM commerce_square_mappings
+          WHERE local_type='variation' AND sync_status IN ('synced','drifted')
+        `).catch(() => ({ rows: [] as any[] })),
+      ]);
+      const mappings = legacy.rows.length > 0 ? JSON.parse(legacy.rows[0].setting_value) : {};
+      for (const row of managed.rows as any[]) mappings[row.local_code] = row.square_object_id;
+      return mappings;
     } catch (_) { return {}; }
   }
 
@@ -367,7 +399,8 @@ export class SquareInvoiceService {
     lead: InvoiceRecipient,
     lineItems: Array<{ id?: string; name: string; qty: number; unitPrice: number; total: number; excludeFromBundleDiscount?: boolean }>,
     dueDate?: string,
-    deliveryMethod: InvoiceDeliveryMethod = "email"
+    deliveryMethod: InvoiceDeliveryMethod = "email",
+    options: ItemizedInvoiceOptions = {},
   ): Promise<{ invoiceId: string; invoiceUrl: string; squareInvoiceId: string }> {
     const client = await getSquareClient();
     const locationId = await this.getLocationId();
@@ -375,42 +408,6 @@ export class SquareInvoiceService {
     const customerId = await this.createOrGetCustomer(lead.email, customerName, lead.phone || undefined);
 
     const catalogMappings = await this.getCatalogMappings();
-
-    // Bundle discount (Task #114). Upstream callers pass lineItems whose
-    // totals sum to the *already-discounted* lead.totalPrice. To make the
-    // discount visible on the customer's invoice (a real Square discount
-    // line) without changing the amount they owe, we:
-    //   1) Detect the auto-applied case (line-item sum ≈ lead.totalPrice).
-    //   2) Scale each line item up to its gross value.
-    //   3) Add an order-level FIXED_AMOUNT discount equal to the saved
-    //      lead.bundleDiscountAmount.
-    // Net total stays the same; the customer sees subtotal + discount line.
-    // If line items don't match the discounted total (admin manually edited
-    // them), we skip injection to avoid double-discounting.
-    const bundleDiscountAmt = parseFloat(String(lead.bundleDiscountAmount || "0")) || 0;
-    // Task #199 — split lines into "discountable" (the base service) and
-    // "passthrough" (shop-card add-ons). The bundle-discount math only
-    // looks at discountable lines so it never tries to take 10% off the
-    // shop card itself.
-    const discountableLines = lineItems.filter(li => !li.excludeFromBundleDiscount);
-    const passthroughLines = lineItems.filter(li => li.excludeFromBundleDiscount);
-    const netDiscountableSum = discountableLines.reduce((s, li) => s + li.total, 0);
-    const passthroughSum = passthroughLines.reduce((s, li) => s + li.total, 0);
-    const expectedNet = parseFloat(String(lead.totalPrice || "0")) || 0;
-    // We can only safely scale ad-hoc (non-catalog) line items. If ANY
-    // discountable line resolves to a catalog variation, we can't
-    // change its price client-side, so injecting an order-level
-    // discount on top would undercharge the customer. Skip injection
-    // in that case.
-    const hasCatalogItem = discountableLines.some(li => li.id && catalogMappings[li.id]);
-    const isAutoDiscountCase =
-      bundleDiscountAmt > 0 &&
-      expectedNet > 0 &&
-      !hasCatalogItem &&
-      Math.abs(netDiscountableSum - expectedNet) < 0.01;
-    const grossMultiplier = isAutoDiscountCase
-      ? (netDiscountableSum + bundleDiscountAmt) / netDiscountableSum
-      : 1;
 
     const squareLineItems = lineItems.map(li => {
       const catalogVariationId = li.id ? catalogMappings[li.id] : undefined;
@@ -420,53 +417,76 @@ export class SquareInvoiceService {
           quantity: String(li.qty),
         };
       }
-      // Passthrough lines (shop card) keep their full price; only
-      // discountable lines get scaled up so the order-level discount
-      // can show the savings.
-      const scaledUnitPrice = li.excludeFromBundleDiscount
-        ? li.unitPrice
-        : li.unitPrice * grossMultiplier;
       return {
         name: li.name,
         quantity: String(li.qty),
         basePriceMoney: {
-          amount: BigInt(Math.round(scaledUnitPrice * 100)),
+          amount: BigInt(Math.round(li.unitPrice * 100)),
           currency: "USD" as const,
         },
       };
     });
 
-    const orderDiscounts = isAutoDiscountCase
-      ? [{
-          name: "Bundle Discount (10%, capped at $50)",
+    const explicitDiscounts = (options.discounts || [])
+      .filter((discount) => Number.isFinite(discount.amount) && discount.amount > 0)
+      .map((discount) => ({
+          name: discount.name,
           type: "FIXED_AMOUNT" as const,
           amountMoney: {
-            amount: BigInt(Math.round(bundleDiscountAmt * 100)),
+            amount: BigInt(Math.round(discount.amount * 100)),
             currency: "USD" as const,
           },
           scope: "ORDER" as const,
-        }]
-      : undefined;
-
-    // Final amount we expect to charge the customer.
-    // Final amount on the invoice = (discounted base service) + (full-price passthrough lines).
-    const totalAmount = (isAutoDiscountCase ? expectedNet : netDiscountableSum) + passthroughSum;
+          metadata: { jcDiscountCode: discount.code },
+        }));
+    const grossTotal = lineItems.reduce((sum, line) => sum + Number(line.unitPrice) * Number(line.qty), 0);
+    const savedLeadTotal = Math.max(0, parseFloat(String(lead.totalPrice || "0")) || 0);
+    const possibleLegacyBundleAmount = Math.max(0, parseFloat(String(lead.bundleDiscountAmount || "0")) || 0);
+    // Older callers sometimes stored already-discounted line prices. Only add
+    // a visible legacy discount when the submitted lines are demonstrably the
+    // gross amount; never infer it by inflating catalog prices.
+    const legacyBundleAmount = options.discounts
+      ? 0
+      : possibleLegacyBundleAmount > 0 && Math.abs(grossTotal - (savedLeadTotal + possibleLegacyBundleAmount)) <= 0.02
+        ? possibleLegacyBundleAmount
+        : 0;
+    if (legacyBundleAmount > 0) {
+      explicitDiscounts.push({
+        name: "Bundle Discount (10%, capped at $50)",
+        type: "FIXED_AMOUNT" as const,
+        amountMoney: { amount: BigInt(Math.round(legacyBundleAmount * 100)), currency: "USD" as const },
+        scope: "ORDER" as const,
+        metadata: { jcDiscountCode: "BUNDLE_10" },
+      });
+    }
+    const discountTotal = explicitDiscounts.reduce((sum, discount) => sum + Number(discount.amountMoney.amount) / 100, 0);
+    const expectedTotal = options.expectedTotal ?? Math.max(0, grossTotal - discountTotal);
+    const requestKey = options.idempotencyKey || `${lead.id}-${Date.now()}`;
 
     const orderResponse = await client.orders.create({
-      idempotencyKey: `order-itemized-${lead.id}-${Date.now()}`,
+      idempotencyKey: `order-itemized-${requestKey}`,
       order: {
         locationId,
         customerId,
         lineItems: squareLineItems,
-        ...(orderDiscounts ? { discounts: orderDiscounts } : {}),
+        ...(explicitDiscounts.length ? { discounts: explicitDiscounts } : {}),
+        metadata: {
+          jcCatalogRevision: String(options.catalogRevision || "legacy"),
+          jcPricingRevision: String(options.pricingRevision || "legacy"),
+        },
       },
     });
 
     const orderId = orderResponse.order!.id!;
+    const squareTotal = Number(orderResponse.order?.totalMoney?.amount || 0n) / 100;
+    if (Math.abs(squareTotal - expectedTotal) > 0.01) {
+      try { await client.orders.update({ orderId, order: { locationId, version: orderResponse.order?.version, state: "CANCELED" } as any }); } catch (_) { /* best effort */ }
+      throw new Error(`Square order total $${squareTotal.toFixed(2)} does not match the approved JC total $${expectedTotal.toFixed(2)}. The invoice was not published.`);
+    }
     const squareDelivery = primarySquareDeliveryMethod(deliveryMethod);
 
     const invoiceResponse = await client.invoices.create({
-      idempotencyKey: `invoice-itemized-${lead.id}-${Date.now()}`,
+      idempotencyKey: `invoice-itemized-${requestKey}`,
       invoice: {
         orderId,
         locationId,
@@ -475,7 +495,7 @@ export class SquareInvoiceService {
         deliveryMethod: squareDelivery,
         acceptedPaymentMethods: { card: true, bankAccount: true, squareGiftCard: true, buyNowPayLater: false, cashAppPay: true },
         title: `Invoice - JC ON THE MOVE`,
-        description: `Moving service for ${customerName}`,
+        description: options.description || `JC ON THE MOVE service for ${customerName}`,
       },
     });
 
@@ -483,7 +503,7 @@ export class SquareInvoiceService {
     const publishResponse = await client.invoices.publish({
       invoiceId: squareInvoice.id!,
       version: squareInvoice.version!,
-      idempotencyKey: `publish-itemized-${squareInvoice.id}-${Date.now()}`,
+      idempotencyKey: `publish-itemized-${requestKey}`,
     });
     const publishedInvoice = publishResponse.invoice!;
 
@@ -495,12 +515,15 @@ export class SquareInvoiceService {
       customerId,
       customerEmail: lead.email,
       customerName,
-      amount: totalAmount.toFixed(2),
+      amount: expectedTotal.toFixed(2),
       currency: "USD",
-      description: `Itemized order — ${lineItems.length} line item(s)`,
+      description: `${options.description || "Itemized order"} — ${lineItems.length} line item(s); catalog ${options.catalogRevision || "legacy"}; pricing ${options.pricingRevision || "legacy"}`,
       status: "sent",
       invoiceUrl: publishedInvoice.publicUrl,
       dueDate: dueDate || this.getDefaultDueDate(),
+      purpose: options.purpose || "legacy_unknown",
+      quoteRevisionId: options.quoteRevisionId || undefined,
+      closeoutId: options.closeoutId || undefined,
     };
 
     const savedInvoice = await storage.createSquareInvoice(invoiceData);
@@ -590,7 +613,7 @@ export class SquareInvoiceService {
   }
 
   isConfigured(): boolean {
-    return !!process.env.SQUARE_ACCESS_TOKEN;
+    return Boolean(getSquareAccessToken());
   }
 }
 

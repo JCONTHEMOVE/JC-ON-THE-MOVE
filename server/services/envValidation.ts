@@ -65,12 +65,34 @@ function validateEnv(checks: EnvCheck[]): EnvValidationResult {
   };
 }
 
+function currentSquareTokenConfigured(): boolean {
+  const isolated = process.env.SQUARE_ENVIRONMENT === "production"
+    ? process.env.SQUARE_PRODUCTION_ACCESS_TOKEN
+    : process.env.SQUARE_SANDBOX_ACCESS_TOKEN;
+  return Boolean(String(isolated || process.env.SQUARE_ACCESS_TOKEN || "").trim());
+}
+
 export function validatePaymentEnv(): EnvValidationResult {
-  return validateEnv(PAYMENT_ENV);
+  const result = validateEnv(PAYMENT_ENV);
+  if (!currentSquareTokenConfigured()) return result;
+  const details = result.details.map((detail) => detail.name === "SQUARE_ACCESS_TOKEN" ? { ...detail, present: true } : detail);
+  return {
+    ...result,
+    ok: details.filter((detail) => detail.required).every((detail) => detail.present),
+    missingRequired: result.missingRequired.filter((name) => name !== "SQUARE_ACCESS_TOKEN"),
+    details,
+  };
 }
 
 export function validateRequiredEnv(): EnvValidationResult {
-  return validateEnv([...STARTUP_ENV, ...SECURITY_ENV, ...PAYMENT_ENV]);
+  const base = validateEnv([...STARTUP_ENV, ...SECURITY_ENV]);
+  const payments = validatePaymentEnv();
+  return {
+    ok: base.ok && payments.ok,
+    missingRequired: [...base.missingRequired, ...payments.missingRequired],
+    missingOptional: [...base.missingOptional, ...payments.missingOptional],
+    details: [...base.details, ...payments.details],
+  };
 }
 
 export function validateStartupEnv(): EnvValidationResult {
