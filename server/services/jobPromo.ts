@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeLaborWorkScope, type LaborWorkScope } from "@shared/laborBooking";
 import type { JobQuotePreview } from "./jobRateCard";
 
 /**
@@ -15,6 +16,9 @@ export const fixedMovingPackageOfferSchema = z.object({
   localMilesMax: z.number().finite().positive().max(500).optional(),
   requiresCompanyTruck: z.boolean().default(false),
   requiresTrailer: z.boolean().default(false),
+  allowedWorkScopes: z.array(z.enum(["load_only", "unload_only", "load_unload"])).min(1).max(3).optional(),
+  equipmentPolicy: z.enum(["labor_only", "company_truck", "company_truck_and_trailer", "any"]).optional(),
+  localZoneCodes: z.array(z.string().trim().min(1).max(64)).min(1).max(20).optional(),
 });
 
 export type FixedMovingPackageOffer = z.infer<typeof fixedMovingPackageOfferSchema>;
@@ -24,6 +28,10 @@ export type JobPromoRecord = {
   description: string;
   discountPercent?: string | number | null;
   jobOffer?: unknown;
+  isActive?: boolean | null;
+  expiresAt?: string | Date | null;
+  maxUses?: number | null;
+  usesCount?: number | null;
 };
 
 export type JobPromoEvaluation = {
@@ -34,6 +42,15 @@ export type JobPromoEvaluation = {
 
 function roundCurrency(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+export function jobPromoAvailabilityReason(promo: JobPromoRecord, now = new Date()) {
+  if (promo.isActive === false) return "This promo code is no longer active.";
+  if (promo.expiresAt && new Date(promo.expiresAt).getTime() < now.getTime()) return "This promo code has expired.";
+  if (promo.maxUses !== null && promo.maxUses !== undefined && Number(promo.usesCount || 0) >= promo.maxUses) {
+    return "This promo code has reached its usage limit.";
+  }
+  return null;
 }
 
 /**
@@ -85,6 +102,11 @@ export function applyFixedMovingPackageOffer(args: {
   automaticQuote: JobQuotePreview;
   crewSize: number;
   confirmedHours: number;
+  workScope?: LaborWorkScope | string | null;
+  truckConfig?: string | null;
+  trailerRequested?: boolean | null;
+  verifiedLocalZoneCode?: string | null;
+  locationReason?: string | null;
   verifiedLocalMiles?: number | null;
   configuredLocalMilesMax?: number;
 }): JobPromoEvaluation {
@@ -102,20 +124,58 @@ export function applyFixedMovingPackageOffer(args: {
     };
   }
 
-  const localMilesMax = offer.localMilesMax ?? args.configuredLocalMilesMax ?? 10;
-  if (!Number.isFinite(args.verifiedLocalMiles) || Number(args.verifiedLocalMiles) <= 0) {
+  const workScope = normalizeLaborWorkScope(args.workScope);
+  if (offer.allowedWorkScopes && !offer.allowedWorkScopes.includes(workScope)) {
     return {
       quote: args.automaticQuote,
       applied: false,
-      reason: "Enter both pickup and destination addresses so local eligibility can be verified.",
+      reason: `${args.promo.code} is limited to ${offer.allowedWorkScopes.map((scope) => scope.replace(/_/g, " ")).join(" or ")}.`,
     };
   }
-  if (Number(args.verifiedLocalMiles) > localMilesMax) {
+
+  const truckConfig = String(args.truckConfig || "no_truck");
+  const trailerRequested = Boolean(args.trailerRequested || truckConfig === "trailer_only");
+  if (offer.equipmentPolicy === "labor_only" && (truckConfig === "company_truck" || truckConfig === "trailer_only" || trailerRequested)) {
     return {
       quote: args.automaticQuote,
       applied: false,
-      reason: `${args.promo.code} is available for local moves within ${localMilesMax} miles of Ironwood.`,
+      reason: `${args.promo.code} is labor-only and requires a customer truck or no JC equipment.`,
     };
+  }
+  if (offer.equipmentPolicy === "company_truck" && truckConfig !== "company_truck") {
+    return { quote: args.automaticQuote, applied: false, reason: `${args.promo.code} requires the JC truck.` };
+  }
+  if (offer.equipmentPolicy === "company_truck_and_trailer" && (truckConfig !== "company_truck" || !trailerRequested)) {
+    return { quote: args.automaticQuote, applied: false, reason: `${args.promo.code} requires the JC truck and trailer.` };
+  }
+
+  if (offer.localZoneCodes?.length) {
+    const verifiedZone = String(args.verifiedLocalZoneCode || "").trim().toUpperCase();
+    if (!verifiedZone || !offer.localZoneCodes.includes(verifiedZone)) {
+      return {
+        quote: args.automaticQuote,
+        applied: false,
+        reason: args.locationReason || `${args.promo.code} is available only in the approved local service zone.`,
+      };
+    }
+  }
+
+  const localMilesMax = offer.localMilesMax ?? args.configuredLocalMilesMax ?? 10;
+  if (!offer.localZoneCodes?.length) {
+    if (!Number.isFinite(args.verifiedLocalMiles) || Number(args.verifiedLocalMiles) <= 0) {
+      return {
+        quote: args.automaticQuote,
+        applied: false,
+        reason: "Enter both pickup and destination addresses so local eligibility can be verified.",
+      };
+    }
+    if (Number(args.verifiedLocalMiles) > localMilesMax) {
+      return {
+        quote: args.automaticQuote,
+        applied: false,
+        reason: `${args.promo.code} is available for local moves within ${localMilesMax} miles of Ironwood.`,
+      };
+    }
   }
 
   const total = roundCurrency(offer.fixedBasePrice + args.automaticQuote.stairs + args.automaticQuote.elevator);
@@ -143,10 +203,10 @@ export function applyFixedMovingPackageOffer(args: {
         fixedBasePrice: offer.fixedBasePrice,
         requiredCrewSize: offer.requiredCrewSize,
         requiredHours: offer.requiredHours,
-        verifiedLocalMiles: Number(args.verifiedLocalMiles),
-        localMilesMax,
-        includesCompanyTruck: offer.requiresCompanyTruck,
-        includesTrailer: offer.requiresTrailer,
+        verifiedLocalMiles: Number.isFinite(args.verifiedLocalMiles) ? Number(args.verifiedLocalMiles) : undefined,
+        localMilesMax: offer.localZoneCodes?.length ? undefined : localMilesMax,
+        includesCompanyTruck: offer.requiresCompanyTruck || offer.equipmentPolicy === "company_truck" || offer.equipmentPolicy === "company_truck_and_trailer",
+        includesTrailer: offer.requiresTrailer || offer.equipmentPolicy === "company_truck_and_trailer",
       },
     },
   };

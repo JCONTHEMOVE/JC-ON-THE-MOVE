@@ -72,6 +72,14 @@ import { notificationService } from "./services/notification";
 import { buildJobFlowRecords, jobBelongsToCrew, toCrewBoardFlow } from "./services/jobFlow";
 import { projectWorkerOrder, type WorkerOrderContext } from "./services/workerOrderVisibility";
 import { calculateLaborBooking, normalizeLaborWorkScope } from "@shared/laborBooking";
+import { isHourlyJobArrivalWindow } from "@shared/jcOperations";
+import {
+  allAddressesRecognizedIronwoodLocal,
+  IRONWOOD_LOCAL_ZONE_CODE,
+  IRONWOOD_LOCAL_ZONE_LABEL,
+  isIronwoodLocalCoordinate,
+} from "@shared/localServiceArea";
+import { resolveQuoteRouteEvidence } from "./services/quoteGeography";
 import { calculateProfitSharingPayout, defaultBonusWeightForRole, defaultBonusWeightsForCrew, defaultHourlyRateForRole, normalizeProfitShareSettings } from "./services/profitSharingPayoutEngine";
 import { type ProfitShareRole, type ProfitShareWorkerInput } from "@shared/jobPayout";
 import { calculateCashSplitAdjustment, parsePayrollPeriodKey, payrollSourceAuditKey, roundPayrollMoney, summarizePayrollCandidates, type PayrollCandidate } from "@shared/payroll";
@@ -541,6 +549,7 @@ type JobPromoQuoteInput = {
   serviceType?: string | null;
   crewSize: number;
   confirmedHours: number;
+  workScope?: string | null;
   truckConfig?: string | null;
   trailerRequested?: boolean | null;
   stairsFlights?: number | null;
@@ -551,8 +560,46 @@ type JobPromoQuoteInput = {
 
 type JobPromoQuoteResult = JobQuotePreview & {
   promo?: { requestedCode: string; applied: boolean; reason?: string };
-  reservedEquipment?: { truckConfig: "company_truck"; trailerRequested: true };
+  reservedEquipment?: { truckConfig: string; trailerRequested: boolean };
+  location: {
+    pricingScope: "local" | "global";
+    zoneCode: string | null;
+    label: string;
+    reason: string;
+  };
 };
+
+async function classifyJobPricingLocation(addresses: string[]) {
+  const usable = addresses.map((address) => String(address || "").trim()).filter((address) => address.length >= 4);
+  if (allAddressesRecognizedIronwoodLocal(usable)) {
+    return {
+      pricingScope: "local" as const,
+      zoneCode: IRONWOOD_LOCAL_ZONE_CODE,
+      label: IRONWOOD_LOCAL_ZONE_LABEL,
+      reason: "Recognized Ironwood/Bessemer city, state, or ZIP.",
+    };
+  }
+  if (usable.length === 0) {
+    return { pricingScope: "global" as const, zoneCode: null, label: "Global moving rate", reason: "Enter a complete service address to verify local pricing." };
+  }
+  const activePricing = await getActivePricingSnapshot();
+  const evidence = await resolveQuoteRouteEvidence({ addresses: usable, snapshot: activePricing.snapshot });
+  if (evidence.stopCoordinates.length === usable.length
+    && evidence.stopCoordinates.every((stop) => isIronwoodLocalCoordinate(stop.lng, stop.lat))) {
+    return {
+      pricingScope: "local" as const,
+      zoneCode: IRONWOOD_LOCAL_ZONE_CODE,
+      label: IRONWOOD_LOCAL_ZONE_LABEL,
+      reason: "All service stops verified inside the Ironwood/Bessemer local zone.",
+    };
+  }
+  return {
+    pricingScope: "global" as const,
+    zoneCode: null,
+    label: "Global moving rate",
+    reason: evidence.reason || "One or more service stops are outside the local zone.",
+  };
+}
 
 /**
  * The promo evaluator intentionally lives beside the HTTP routes because the
@@ -561,28 +608,23 @@ type JobPromoQuoteResult = JobQuotePreview & {
  */
 async function calculateJobQuoteWithPromo(input: JobPromoQuoteInput): Promise<JobPromoQuoteResult> {
   const { calculateJobQuotePreview } = await import("./services/jobRateCard");
-  const { applyFixedMovingPackageOffer, applyPercentageMovingPromo } = await import("./services/jobPromo");
+  const { applyFixedMovingPackageOffer, applyPercentageMovingPromo, jobPromoAvailabilityReason } = await import("./services/jobPromo");
   const automaticQuote = await calculateJobQuotePreview(input);
+  const workScope = normalizeLaborWorkScope(input.workScope);
+  const location = await classifyJobPricingLocation([input.fromAddress || "", input.toAddress || ""]);
   const requestedCode = String(input.promoCode || "").trim().toUpperCase();
-  if (!requestedCode) return automaticQuote;
+  if (!requestedCode) return { ...automaticQuote, location };
 
   const [promo] = await db.select().from(promoCodes)
     .where(eq(promoCodes.code, requestedCode))
     .limit(1);
   if (!promo) {
-    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "Promo code not found." } };
+    return { ...automaticQuote, location, promo: { requestedCode, applied: false, reason: "Promo code not found." } };
   }
-  if (!promo.isActive) {
-    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "This promo code is no longer active." } };
-  }
-  if (promo.expiresAt && new Date(promo.expiresAt) < new Date()) {
-    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "This promo code has expired." } };
-  }
-  if (promo.maxUses !== null && promo.usesCount >= promo.maxUses) {
-    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "This promo code has reached its usage limit." } };
-  }
+  const unavailableReason = jobPromoAvailabilityReason(promo);
+  if (unavailableReason) return { ...automaticQuote, location, promo: { requestedCode, applied: false, reason: unavailableReason } };
   if (!/moving|residential|labor/i.test(String(input.serviceType || "moving"))) {
-    return { ...automaticQuote, promo: { requestedCode, applied: false, reason: "This offer is only available for moving services." } };
+    return { ...automaticQuote, location, promo: { requestedCode, applied: false, reason: "This offer is only available for moving services." } };
   }
 
   // Percentage promos are valid moving offers too. They apply once to the
@@ -592,6 +634,7 @@ async function calculateJobQuoteWithPromo(input: JobPromoQuoteInput): Promise<Jo
     const evaluation = applyPercentageMovingPromo({ promo, automaticQuote });
     return {
       ...evaluation.quote,
+      location,
       promo: {
         requestedCode,
         applied: evaluation.applied,
@@ -615,18 +658,26 @@ async function calculateJobQuoteWithPromo(input: JobPromoQuoteInput): Promise<Jo
     automaticQuote,
     crewSize: input.crewSize,
     confirmedHours: input.confirmedHours,
+    workScope,
+    truckConfig: input.truckConfig,
+    trailerRequested: input.trailerRequested,
+    verifiedLocalZoneCode: location.zoneCode,
+    locationReason: location.reason,
     verifiedLocalMiles: localMiles,
     configuredLocalMilesMax: Number.isFinite(configuredLocalMilesMax) && configuredLocalMilesMax > 0 ? configuredLocalMilesMax : 10,
   });
   return {
     ...evaluation.quote,
+    location,
     promo: {
       requestedCode,
       applied: evaluation.applied,
       reason: evaluation.reason,
     },
-    reservedEquipment: evaluation.applied && evaluation.quote.promotion?.kind === "fixed_moving_package"
-      ? { truckConfig: "company_truck", trailerRequested: true }
+    reservedEquipment: evaluation.applied
+      && evaluation.quote.promotion?.kind === "fixed_moving_package"
+      && evaluation.quote.promotion.includesCompanyTruck
+      ? { truckConfig: "company_truck", trailerRequested: Boolean(evaluation.quote.promotion.includesTrailer) }
       : undefined,
   };
 }
@@ -834,6 +885,37 @@ async function seedDefaultPromoCodes() {
         },
       });
       console.log("Seeded promo code: LOCAL4X4");
+    }
+    // September 2026 local labor special. It is deliberately code-gated and
+    // never reserves JC equipment; customer and crew rewards retain the full
+    // pre-promo rate-card basis.
+    const [localThreeByTwo] = await db.select({ id: promoCodes.id }).from(promoCodes)
+      .where(eq(promoCodes.code, "LOCAL3X2"))
+      .limit(1);
+    if (!localThreeByTwo) {
+      await db.insert(promoCodes).values({
+        code: "LOCAL3X2",
+        description: "September local labor special: 3 movers for 2 hours — $450 base.",
+        discountPercent: "0.00",
+        discountPercentJewelry: "0.00",
+        rewardTokens: "0.00",
+        referralRewardTokens: "0.00",
+        isActive: true,
+        maxUses: null,
+        expiresAt: new Date("2026-10-01T04:59:59.999Z"),
+        jobOffer: {
+          kind: "fixed_moving_package",
+          fixedBasePrice: 450,
+          requiredCrewSize: 3,
+          requiredHours: 2,
+          allowedWorkScopes: ["load_only", "unload_only"],
+          equipmentPolicy: "labor_only",
+          localZoneCodes: [IRONWOOD_LOCAL_ZONE_CODE],
+          requiresCompanyTruck: false,
+          requiresTrailer: false,
+        },
+      });
+      console.log("Seeded promo code: LOCAL3X2");
     }
   } catch (err) {
     console.error('Failed to seed default promo codes:', err);
@@ -11991,6 +12073,7 @@ Thank you for your business!
     entryInstructions: z.string().trim().max(4000).optional().default(""),
     stairsFlights: z.number().int().min(0).max(50).optional().default(0),
     hasElevator: z.boolean().optional().default(false),
+    workScope: z.enum(["load_only", "unload_only", "load_unload"]).optional().default("load_only"),
     specialItemsNotes: z.string().trim().max(4000).optional().default(""),
     additionalStops: z.array(z.object({
       address: z.string().trim().min(1).max(500),
@@ -12005,7 +12088,7 @@ Thank you for your business!
     phone: z.string().trim().max(60),
     fromAddress: z.string().trim().min(1, "Pickup or service address is required").max(500),
     toAddress: z.string().trim().max(500),
-    moveDate: z.string().trim().max(50),
+    moveDate: z.string().trim().max(50).optional(),
     details: z.string().trim().max(12000),
     confirmedDate: z.string().trim().max(50).optional(),
     arrivalWindow: z.string().trim().max(100).optional(),
@@ -12016,7 +12099,6 @@ Thank you for your business!
     confirmedHours: z.number().int().min(1).max(24).optional(),
     crewMembers: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
     crewLeadUserId: z.string().trim().min(1).max(120).optional().nullable(),
-    driverUserId: z.string().trim().min(1).max(120).optional().nullable(),
     crewAssignments: z.array(z.object({
       workerId: z.string().trim().min(1).max(120),
       roleOnJob: z.enum(["lead_mover", "mover", "helper"]),
@@ -12025,7 +12107,7 @@ Thank you for your business!
     })).max(20).optional(),
     jobPlanDetails: jobPlanDetailsSchema.optional(),
     quote: jobSetupQuoteSchema.optional().nullable(),
-  });
+  }).strict("Driver premiums and unknown setup fields must be managed through their authoritative workflow.");
 
   app.patch("/api/leads/:id/setup", isAuthenticated, async (req: any, res) => {
     try {
@@ -12039,6 +12121,12 @@ Thank you for your business!
 
       const currentLead = await storage.getLead(req.params.id);
       if (!currentLead) return res.status(404).json({ error: "Lead not found" });
+      if (input.arrivalWindow !== undefined
+        && input.arrivalWindow !== (currentLead.arrivalWindow || "")
+        && input.arrivalWindow !== ""
+        && !isHourlyJobArrivalWindow(input.arrivalWindow)) {
+        return res.status(400).json({ error: "Choose a one-hour arrival window from 7:00 AM through 5:00 PM Central, or Flexible / TBD." });
+      }
 
       const effectiveCrew = input.crewMembers ?? (Array.isArray(currentLead.crewMembers) ? currentLead.crewMembers : []);
       if (input.crewLeadUserId && !effectiveCrew.includes(input.crewLeadUserId)) {
@@ -12053,10 +12141,7 @@ Thank you for your business!
       const savedDriver = typeof currentLead.driverUserId === "string" && effectiveCrew.includes(currentLead.driverUserId)
         ? currentLead.driverUserId
         : null;
-      const effectiveDriver = input.driverUserId === undefined ? savedDriver : (input.driverUserId || null);
-      if (effectiveDriver && !effectiveCrew.includes(effectiveDriver)) {
-        return res.status(400).json({ error: "Driver must be one of the selected crew members" });
-      }
+      const effectiveDriver = savedDriver;
       if (effectiveDriver) {
         const [driver] = await db.select({ isDriver: users.isDriver, capabilities: users.capabilities })
           .from(users)
@@ -12083,7 +12168,6 @@ Thank you for your business!
         || input.confirmedHours !== undefined
         || input.crewMembers !== undefined
         || input.crewLeadUserId !== undefined
-        || input.driverUserId !== undefined
         || input.crewAssignments !== undefined
         || input.jobPlanDetails !== undefined
         || input.quote !== undefined;
@@ -12098,9 +12182,9 @@ Thank you for your business!
         phone: input.phone,
         fromAddress: input.fromAddress,
         toAddress: input.toAddress || null,
-        moveDate: input.moveDate || null,
         details: input.details || null,
       };
+      if (input.moveDate !== undefined) patch.moveDate = input.moveDate || null;
 
       if (canManageSetup) {
         if (input.confirmedDate !== undefined) patch.confirmedDate = input.confirmedDate || null;
@@ -12112,7 +12196,9 @@ Thank you for your business!
         if (input.confirmedHours !== undefined) patch.confirmedHours = input.confirmedHours;
         if (input.crewMembers !== undefined) patch.crewMembers = input.crewMembers;
         if (input.crewMembers !== undefined || input.crewLeadUserId !== undefined) patch.crewLeadUserId = effectiveCrewLead;
-        if (input.crewMembers !== undefined || input.driverUserId !== undefined) patch.driverUserId = effectiveDriver;
+        // Driver premiums are Finance-owned. Job Setup may only clear a stale
+        // designation when that worker is removed from the assigned crew.
+        if (input.crewMembers !== undefined && currentLead.driverUserId && !effectiveDriver) patch.driverUserId = null;
         if (input.jobPlanDetails !== undefined) {
           const { accessCode, entryInstructions, ...operationalDetails } = input.jobPlanDetails;
           patch.jobPlanDetails = operationalDetails;
@@ -12127,6 +12213,7 @@ Thank you for your business!
             serviceType: currentLead.serviceType,
             crewSize: quote.crewSize,
             confirmedHours: quote.confirmedHours,
+            workScope: normalizeLaborWorkScope(moveDetails.workScope),
             truckConfig: input.truckConfig ?? currentLead.truckConfig,
             trailerRequested: input.trailerRequested ?? currentLead.trailerRequested,
             stairsFlights: Number(moveDetails.stairsFlights || 0),
@@ -12145,10 +12232,10 @@ Thank you for your business!
           const basePrice = quote.pricingSource === "rate_card_auto" ? autoQuote.total : submittedBasePrice;
 
           if (autoQuote.promotion?.kind === "fixed_moving_package" && quote.pricingSource === "rate_card_auto") {
-            // A successful package price reserves its included equipment. This
-            // keeps the saved job plan, Square amount, and crew view aligned.
-            patch.truckConfig = "company_truck";
-            patch.trailerRequested = true;
+            if (autoQuote.reservedEquipment) {
+              patch.truckConfig = autoQuote.reservedEquipment.truckConfig;
+              patch.trailerRequested = autoQuote.reservedEquipment.trailerRequested;
+            }
             patch.promoCode = autoQuote.promotion.code;
           }
 
@@ -12175,6 +12262,7 @@ Thank you for your business!
             ...((currentLead.quoteSnapshot && typeof currentLead.quoteSnapshot === "object" && !Array.isArray(currentLead.quoteSnapshot)) ? currentLead.quoteSnapshot : {}),
             rateCardAutoQuote: autoQuote,
             appliedJobPromotion: autoQuote.promotion || null,
+            pricingLocation: autoQuote.location,
             jcmovesRewardBase: autoQuote.rewardEligibleTotal,
             manualQuoteOverride: quote.pricingSource === "manual_override" ? {
               submittedBasePrice,
@@ -12188,7 +12276,6 @@ Thank you for your business!
 
       const assignmentFieldsChanged = input.crewMembers !== undefined
         || input.crewLeadUserId !== undefined
-        || input.driverUserId !== undefined
         || input.crewAssignments !== undefined
         || input.confirmedHours !== undefined
         || input.quote?.confirmedHours !== undefined;
@@ -12300,16 +12387,52 @@ Thank you for your business!
 
       const previousCrew = Array.isArray(currentLead.crewMembers) ? currentLead.crewMembers.filter(Boolean) : [];
       const newlySelectedCrew = plannedCrew.filter((workerId) => !previousCrew.includes(workerId));
-      await emitJobEvent(newlySelectedCrew.length > 0 ? "crew_selected" : hasCompleteTentativePlan ? "crew_plan_saved" : "job_updated", updatedLead, {
-        actorId: actor.id || null,
-        source: "lead_setup_save",
-        eventId: hasCompleteTentativePlan ? `${newlySelectedCrew.length > 0 ? "crew-selected" : "crew-plan"}:${planFingerprint}` : undefined,
-        recipientUserIds: newlySelectedCrew.length > 0 ? newlySelectedCrew : undefined,
-        previousStatus: currentLead.status,
-        status: updatedLead.status,
-        note: newlySelectedCrew.length > 0 ? "Crew members selected for the job" : hasCompleteTentativePlan ? "Tentative crew plan saved" : "Saved unified job setup",
-        extra: { changedKeys: Object.keys(patch) },
+      const currentPlan = {
+        date: currentLead.confirmedDate || currentLead.moveDate || null,
+        arrivalWindow: currentLead.arrivalWindow || null,
+        crewMembers: [...previousCrew].sort(),
+        crewLeadUserId: currentLead.crewLeadUserId || null,
+        crewSize: currentLead.crewSize || null,
+        confirmedHours: currentLead.confirmedHours || null,
+        truckConfig: currentLead.truckConfig || null,
+        trailerRequested: Boolean(currentLead.trailerRequested),
+        workScope: normalizeLaborWorkScope((currentLead.jobPlanDetails as Record<string, unknown> | null)?.workScope),
+      };
+      const updatedPlan = {
+        date: updatedLead.confirmedDate || updatedLead.moveDate || null,
+        arrivalWindow: updatedLead.arrivalWindow || null,
+        crewMembers: [...plannedCrew].sort(),
+        crewLeadUserId: updatedLead.crewLeadUserId || null,
+        crewSize: updatedLead.crewSize || null,
+        confirmedHours: updatedLead.confirmedHours || null,
+        truckConfig: updatedLead.truckConfig || null,
+        trailerRequested: Boolean(updatedLead.trailerRequested),
+        workScope: normalizeLaborWorkScope((updatedLead.jobPlanDetails as Record<string, unknown> | null)?.workScope),
+      };
+      const operationalPlanChanged = JSON.stringify(currentPlan) !== JSON.stringify(updatedPlan);
+      const shouldNotifyCrew = hasCompleteTentativePlan && operationalPlanChanged;
+      await writeLeadHistory(
+        updatedLead.id,
+        currentLead.status,
+        updatedLead.status || currentLead.status || "updated",
+        actor.id || null,
+        shouldNotifyCrew
+          ? `Job Setup saved; assigned crew notified of tentative plan for ${updatedPlan.date}, ${updatedPlan.arrivalWindow}.`
+          : "Job Setup saved for audit; no customer or crew notification was sent.",
+      ).catch((historyError) => {
+        console.error("[lead_history] Job Setup audit write failed:", historyError);
       });
+      if (shouldNotifyCrew) {
+        await emitJobEvent(newlySelectedCrew.length > 0 ? "crew_selected" : "crew_plan_saved", updatedLead, {
+          actorId: actor.id || null,
+          source: "lead_setup_save",
+          eventId: `${newlySelectedCrew.length > 0 ? "crew-selected" : "crew-plan"}:${planFingerprint}`,
+          previousStatus: currentLead.status,
+          status: updatedLead.status,
+          note: newlySelectedCrew.length > 0 ? "Crew members selected for the job" : "Tentative crew plan saved",
+          extra: { changedKeys: Object.keys(patch) },
+        });
+      }
 
       return res.json(updatedLead);
     } catch (error) {
@@ -12319,61 +12442,12 @@ Thank you for your business!
     }
   });
 
-  // Date and arrival window are edited together so the job card can never
-  // persist a half-rescheduled visit. This is intentionally separate from
-  // quote editing and remains the server-side source of truth.
-  const jobScheduleSchema = z.object({
-    confirmedDate: z.string().trim().min(1, "Confirmed date is required").max(50),
-    arrivalWindow: z.string().trim().min(1, "Arrival window is required").max(100),
-  });
-
-  app.patch("/api/leads/:id/schedule", isAuthenticated, async (req: any, res) => {
-    try {
-      const input = jobScheduleSchema.parse(req.body);
-      const actor = req.currentUser || req.user || await storage.getUser((req.session as any)?.userId);
-      if (!actor || !["admin", "business_owner"].includes(actor.role || "")) {
-        return res.status(403).json({ error: "Administrator access required" });
-      }
-      const currentLead = await storage.getLead(req.params.id);
-      if (!currentLead) return res.status(404).json({ error: "Lead not found" });
-      const updatedLead = await storage.updateLeadQuote(req.params.id, {
-        confirmedDate: input.confirmedDate,
-        arrivalWindow: input.arrivalWindow,
-      });
-      if (!updatedLead) return res.status(404).json({ error: "Lead not found" });
-
-      const crewMembers = Array.isArray(updatedLead.crewMembers) ? updatedLead.crewMembers.filter(Boolean) : [];
-      const eventId = `crew-plan:${crypto.createHash("sha256").update(JSON.stringify({
-        leadId: updatedLead.id,
-        date: updatedLead.confirmedDate || updatedLead.moveDate || null,
-        arrivalWindow: updatedLead.arrivalWindow || null,
-        crewMembers: [...crewMembers].sort(),
-        crewSize: updatedLead.crewSize || null,
-        confirmedHours: updatedLead.confirmedHours || null,
-        truckConfig: updatedLead.truckConfig || null,
-      })).digest("hex")}`;
-      await emitJobEvent(crewMembers.length ? "crew_plan_saved" : "job_updated", updatedLead, {
-        actorId: actor.id || null,
-        source: "inline_schedule_save",
-        eventId: crewMembers.length ? eventId : undefined,
-        previousStatus: currentLead.status,
-        status: updatedLead.status,
-        note: crewMembers.length ? "Tentative crew schedule updated" : "Schedule updated",
-        extra: { changedKeys: ["confirmedDate", "arrivalWindow"] },
-      });
-      res.json(updatedLead);
-    } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || "Invalid schedule" });
-      console.error("Error saving job schedule:", error);
-      res.status(500).json({ error: "Failed to save job schedule" });
-    }
-  });
-
   // A saved rate card is the pricing authority. The client only renders this
   // preview and can request a clearly labelled manual override later.
   const quotePreviewSchema = z.object({
     crewSize: z.number().int().min(1).max(12),
     confirmedHours: z.number().int().min(1).max(24),
+    workScope: z.enum(["load_only", "unload_only", "load_unload"]),
     truckConfig: z.string().trim().max(80).optional(),
     trailerRequested: z.boolean().optional(),
     stairsFlights: z.number().int().min(0).max(50).optional(),
@@ -29275,7 +29349,7 @@ Thank you for your business!
     { id: "piano",     label: "Piano / Specialty Item",           price: 85,  unit: "flat"    },
   ];
 
-  // ── Canonical catalog definitions (server-side source of truth for JobOrderBuilder) ──
+  // ── Canonical catalog definitions (server-side source of truth for Job Setup) ──
   // Moving packages, junk packages, moving add-ons, junk add-ons, and special items.
   // Admin can override via PUT /api/admin/pricing/catalog-definitions.
   const DEFAULT_CATALOG_DEFINITIONS = {

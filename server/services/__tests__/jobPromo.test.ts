@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyFixedMovingPackageOffer, applyPercentageMovingPromo } from "../jobPromo";
+import { applyFixedMovingPackageOffer, applyPercentageMovingPromo, jobPromoAvailabilityReason } from "../jobPromo";
 import { calculateJobQuoteFromRateCard } from "../jobRateCard";
 
 const rateCard = {
@@ -82,6 +82,71 @@ const wrongHours = applyFixedMovingPackageOffer({
 });
 assert.equal(wrongHours.applied, false);
 assert.match(wrongHours.reason || "", /exactly 4 movers for 4 hours/);
+
+const localThreeByTwoPromo = {
+  code: "LOCAL3X2",
+  description: "September local labor special",
+  isActive: true,
+  expiresAt: new Date("2026-10-01T04:59:59.999Z"),
+  maxUses: null,
+  usesCount: 0,
+  jobOffer: {
+    kind: "fixed_moving_package" as const,
+    fixedBasePrice: 450,
+    requiredCrewSize: 3,
+    requiredHours: 2,
+    allowedWorkScopes: ["load_only", "unload_only"] as const,
+    equipmentPolicy: "labor_only" as const,
+    localZoneCodes: ["IRONWOOD_LOCAL"],
+  },
+};
+const localThreeByTwoRateCard = calculateJobQuoteFromRateCard(rateCard, {
+  crewSize: 3,
+  confirmedHours: 2,
+  truckConfig: "customer_truck",
+});
+const localThreeByTwo = applyFixedMovingPackageOffer({
+  promo: localThreeByTwoPromo,
+  automaticQuote: localThreeByTwoRateCard,
+  crewSize: 3,
+  confirmedHours: 2,
+  workScope: "load_only",
+  truckConfig: "customer_truck",
+  trailerRequested: false,
+  verifiedLocalZoneCode: "IRONWOOD_LOCAL",
+});
+assert.equal(localThreeByTwo.applied, true);
+assert.equal(localThreeByTwo.quote.total, 450);
+assert.equal(localThreeByTwo.quote.rewardEligibleTotal, 525);
+assert.equal(localThreeByTwo.quote.projectedCustomerJcMoves, 7_875);
+assert.equal(localThreeByTwo.quote.promotion?.includesCompanyTruck, false);
+assert.equal(localThreeByTwo.quote.promotion?.includesTrailer, false);
+
+for (const [label, override, reason] of [
+  ["crew", { crewSize: 2 }, /exactly 3 movers for 2 hours/],
+  ["hours", { confirmedHours: 3 }, /exactly 3 movers for 2 hours/],
+  ["scope", { workScope: "load_unload" }, /limited to load only or unload only/],
+  ["truck", { truckConfig: "company_truck" }, /labor-only/],
+  ["trailer", { trailerRequested: true }, /labor-only/],
+  ["location", { verifiedLocalZoneCode: null }, /approved local service zone/],
+] as const) {
+  const rejected = applyFixedMovingPackageOffer({
+    promo: localThreeByTwoPromo,
+    automaticQuote: localThreeByTwoRateCard,
+    crewSize: 3,
+    confirmedHours: 2,
+    workScope: "load_only",
+    truckConfig: "customer_truck",
+    trailerRequested: false,
+    verifiedLocalZoneCode: "IRONWOOD_LOCAL",
+    ...override,
+  });
+  assert.equal(rejected.applied, false, `${label} mismatch must be rejected`);
+  assert.match(rejected.reason || "", reason);
+}
+
+assert.equal(jobPromoAvailabilityReason(localThreeByTwoPromo, new Date("2026-10-01T04:59:59.999Z")), null);
+assert.match(jobPromoAvailabilityReason(localThreeByTwoPromo, new Date("2026-10-01T05:00:00.000Z")) || "", /expired/);
 
 const jcmoves = applyPercentageMovingPromo({
   promo: { code: "JCMOVES", description: "10% off", discountPercent: "10" },

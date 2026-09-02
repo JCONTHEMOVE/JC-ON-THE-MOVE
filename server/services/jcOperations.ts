@@ -142,7 +142,7 @@ function centralDateTimeToUtc(date: string, time: string): Date {
 
 export function validateSchedulingPreference(date: string, time: string, options: { requireLeadTime?: boolean } = {}) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Choose a valid service date.");
-  if (!exactHourlyStarts().includes(time)) throw new Error("Choose an hourly start between 8:00 AM and 5:00 PM Central.");
+  if (!exactHourlyStarts().includes(time)) throw new Error("Choose an hourly start between 7:00 AM and 4:00 PM Central.");
   const startsAt = centralDateTimeToUtc(date, time);
   if (Number.isNaN(startsAt.getTime())) throw new Error("Choose a valid date and time.");
   if (options.requireLeadTime !== false && startsAt.getTime() < Date.now() + 2 * 60 * 60_000) {

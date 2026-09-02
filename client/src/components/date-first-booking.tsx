@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { CalendarClock, CheckCircle2, Clock3, Home, MapPin, ShieldCheck, Truck, Users } from "lucide-react";
-import { estimateJobDuration, exactHourlyStarts, type SizingBasis, type TruckSize } from "@shared/jcOperations";
+import { estimateJobDuration, JOB_SCHEDULE_OPTIONS, type SizingBasis, type TruckSize } from "@shared/jcOperations";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -152,7 +152,7 @@ export function DateFirstBooking({ onChooseCallback, onDetailedBooking }: { onCh
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Service"><select className="field-select" value={service} onChange={(event) => setService(event.target.value as Service)}><option value="moving">Moving</option><option value="labor">Loading / unloading labor</option><option value="junk_removal">Junk removal</option></select></Field>
             <Field label="Preferred date"><Input type="date" min={new Date().toISOString().slice(0, 10)} value={date} onChange={(event) => { setDate(event.target.value); setCapacity(null); }} required /></Field>
-            <Field label="Preferred start"><select className="field-select" value={time} onChange={(event) => { setTime(event.target.value); setCapacity(null); }}>{exactHourlyStarts().map((start) => <option key={start} value={start}>{new Date(`2000-01-01T${start}:00`).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} Central</option>)}</select></Field>
+            <Field label="Preferred start"><select className="field-select" value={time} onChange={(event) => { setTime(event.target.value); setCapacity(null); }}>{JOB_SCHEDULE_OPTIONS.filter((option) => option.start).map((option) => <option key={option.start!} value={option.start!}>{option.label} Central</option>)}</select></Field>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Your name"><Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required /></Field>

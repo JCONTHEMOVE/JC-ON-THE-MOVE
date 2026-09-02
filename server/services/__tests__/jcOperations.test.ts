@@ -74,8 +74,8 @@ test("applies the service floor before a standard discount", () => {
   assert.deepEqual(quote, { floor: 400, beforeDiscount: 400, discountAmount: 50, passThroughAmount: 25, total: 375 });
 });
 
-test("offers exact hourly starts from 8 AM through 5 PM", () => {
-  assert.deepEqual(exactHourlyStarts(), ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]);
+test("offers one-hour scheduling starts from 7 AM through 4 PM", () => {
+  assert.deepEqual(exactHourlyStarts(), ["07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"]);
 });
 
 test("chooses one duplicate-safe safety alert per lead state", () => {

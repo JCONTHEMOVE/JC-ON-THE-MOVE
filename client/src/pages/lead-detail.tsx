@@ -9,9 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Users, DollarSign, Award, TrendingUp, CheckCircle, Clock, Star, ExternalLink, Sparkles, Send, FileText, Loader2, Bitcoin, Copy, Check, Zap, ShoppingBag, AlertTriangle, UserCheck, Camera, Image, ChevronRight, PlayCircle, ChevronDown, ChevronUp, MessageSquare, Minus, Plus, RefreshCw, Hash, Archive, Trash2, X, Truck, CircleHelp, LockKeyhole } from "lucide-react";
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Users, DollarSign, Award, TrendingUp, CheckCircle, Clock, Star, ExternalLink, Sparkles, Send, FileText, Loader2, Bitcoin, Copy, Check, Zap, ShoppingBag, AlertTriangle, UserCheck, Camera, Image, ChevronRight, PlayCircle, ChevronDown, ChevronUp, MessageSquare, Hash, Archive, Trash2, X, Truck, CircleHelp, LockKeyhole } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useForm } from "react-hook-form";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { extractCustomerMediaLink } from "@/lib/lead-details";
@@ -19,11 +18,9 @@ import { formatOrderNumber } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { CrewSuggestionsDialog } from "@/components/crew-suggestions-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import { JobOrderTicket } from "@/components/job-order-ticket";
 import { JobSetupWorkspace } from "@/components/job-setup-workspace";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import MarketplaceSourceFlowStrip from "@/components/MarketplaceSourceFlowStrip";
 import MarketplaceProcessGuide from "@/components/MarketplaceProcessGuide";
@@ -492,8 +489,6 @@ export default function LeadDetailPage() {
   const [, params] = useRoute("/lead/:id");
   const [location, setLocation] = useLocation();
   const { toast } = useToast();
-  // Editing now happens in the inline Job Setup workspace instead of a hidden mode.
-  const isEditing = false;
   const [tokenAllocation, setTokenAllocation] = useState("");
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [showCrewSuggestions, setShowCrewSuggestions] = useState(false);
@@ -532,9 +527,6 @@ export default function LeadDetailPage() {
   const [offlinePaymentDate, setOfflinePaymentDate] = useState("");
   const [offlinePaymentReference, setOfflinePaymentReference] = useState("");
   const [offlinePaymentNote, setOfflinePaymentNote] = useState("");
-  const [showInlineScheduler, setShowInlineScheduler] = useState(false);
-  const [scheduleDate, setScheduleDate] = useState("");
-  const [scheduleArrivalWindow, setScheduleArrivalWindow] = useState("");
   const [quoteNote, setQuoteNote] = useState("");
   const [quoteDeliveryMethod, setQuoteDeliveryMethod] = useState<"email" | "sms" | "both">("email");
   const [recordSmsConsent, setRecordSmsConsent] = useState(false);
@@ -543,19 +535,16 @@ export default function LeadDetailPage() {
   const [copiedPaymentLink, setCopiedPaymentLink] = useState(false);
   const [showJobSetup, setShowJobSetup] = useState(true);
   const jobSetupRef = useRef<HTMLDivElement>(null);
-  // Crew & Service Plan inline state
-  const [planCrewSize, setPlanCrewSize] = useState(2);
-  const [planHours, setPlanHours] = useState(2);
-  const [planArrivalWindow, setPlanArrivalWindow] = useState("");
-  const [planConfirmedDate, setPlanConfirmedDate] = useState("");
-  const [planApplied, setPlanApplied] = useState(false);
-  const [planHasTruck, setPlanHasTruck] = useState(false);
-  const [planHasTrailer, setPlanHasTrailer] = useState(false);
 
-  const openJobSetup = () => {
+  const openJobSetup = (targetId = "job-setup") => {
     setShowJobSetup(true);
-    window.setTimeout(() => jobSetupRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    window.setTimeout(() => {
+      const target = document.getElementById(targetId) || jobSetupRef.current;
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.querySelector<HTMLElement>("button, input, [tabindex='0']")?.focus({ preventScroll: true });
+    }, 0);
   };
+  const openJobSetupSchedule = () => openJobSetup("job-setup-schedule");
 
   const { data: lead, isLoading, isError, error } = useQuery<Lead>({
     queryKey: ["/api/leads", params?.id],
@@ -630,68 +619,21 @@ export default function LeadDetailPage() {
     refetchInterval: 60_000,
   });
 
-  const form = useForm({
-    defaultValues: {
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      moveDate: "",
-      details: "",
-      fromAddress: "",
-      toAddress: "",
-      basePrice: "",
-      crewSize: 2,
-      confirmedDate: "",
-      confirmedFromAddress: "",
-      confirmedToAddress: "",
-      quoteNotes: "",
-    },
-  });
-
   const packageDraft = useMemo(() => lead ? selectedPackageDraftForLead(lead) : null, [lead]);
   const leadHasQuote = lead ? hasSavedQuote(lead) : false;
 
-  // Update form when lead data loads
+  // Keep local delivery and crew state aligned with the saved job.
   useEffect(() => {
     if (lead) {
-      form.reset({
-        firstName: lead.firstName || "",
-        lastName: lead.lastName || "",
-        email: lead.email || "",
-        phone: lead.phone || "",
-        moveDate: lead.moveDate || "",
-        details: lead.details || "",
-        fromAddress: lead.fromAddress || "",
-        toAddress: lead.toAddress || "",
-        basePrice: lead.basePrice || "",
-        crewSize: lead.crewSize || 2,
-        confirmedDate: lead.confirmedDate || lead.moveDate || "",
-        confirmedFromAddress: lead.confirmedFromAddress || lead.fromAddress || "",
-        confirmedToAddress: lead.confirmedToAddress || lead.toAddress || "",
-        quoteNotes: lead.quoteNotes || "",
-      });
       const members = lead.crewMembers || [];
       setSelectedCrewMembers(members);
-      // Sync plan state from lead
-      setPlanCrewSize(lead.crewSize || packageDraft?.crew || 2);
-      setPlanHours(Math.max(2, lead.confirmedHours || packageDraft?.hours || 2));
-      setPlanArrivalWindow(lead.arrivalWindow || "");
-      setPlanConfirmedDate(lead.confirmedDate || lead.moveDate || "");
-      setScheduleDate(lead.confirmedDate || lead.moveDate || "");
-      setScheduleArrivalWindow(lead.arrivalWindow || "");
       setQuoteSentAt(lead.quoteSentAt || null);
       setSquarePaymentUrl(lead.squarePaymentUrl || null);
       setQuoteDeliveryMethod(isSyntheticOrInvalidEmail(lead.email) && !!lead.phone ? "sms" : "email");
       setInvoiceDeliveryMethod(isSyntheticOrInvalidEmail(lead.email) && !!lead.phone ? "sms" : "email");
       setRecordSmsConsent(false);
-      // Truck/trailer from truckConfig
-      if (lead.truckConfig) {
-        setPlanHasTruck(lead.truckConfig === "company_truck" || lead.truckConfig === "customer_truck");
-        setPlanHasTrailer(false); // no direct field; default off on load
-      }
     }
-  }, [lead, form, packageDraft]);
+  }, [lead]);
 
   const updateLead = useMutation({
     mutationFn: async (data: Partial<Lead>) => {
@@ -765,10 +707,10 @@ export default function LeadDetailPage() {
       };
       return await apiRequest("PATCH", `/api/leads/${params?.id}/quote`, {
         basePrice: price.toFixed(2),
-        crewSize: packageDraft.crew || lead?.crewSize || planCrewSize || 2,
-        confirmedHours: Math.max(2, packageDraft.hours || lead?.confirmedHours || planHours || 2),
-        ...(planConfirmedDate ? { confirmedDate: planConfirmedDate } : {}),
-        ...(planArrivalWindow ? { arrivalWindow: planArrivalWindow } : {}),
+        crewSize: packageDraft.crew || lead?.crewSize || 2,
+        confirmedHours: Math.max(2, packageDraft.hours || lead?.confirmedHours || 2),
+        ...(lead?.confirmedDate ? { confirmedDate: lead.confirmedDate } : {}),
+        ...(lead?.arrivalWindow ? { arrivalWindow: lead.arrivalWindow } : {}),
         selectedPackageId: packageDraft.id,
         orderLineItems: [lineItem],
         quoteNotes: [
@@ -787,60 +729,6 @@ export default function LeadDetailPage() {
       toast({ title: "Package draft failed", description: error.message || "Could not build the package quote.", variant: "destructive" });
     },
   });
-
-  const applyPlanMutation = useMutation({
-    mutationFn: async () => {
-      // Derive truckConfig from toggles (trailer uses a trailer truck config)
-      const truckConfig = planHasTruck
-        ? "company_truck"
-        : planHasTrailer
-          ? "trailer_only"
-          : "no_truck";
-      return await apiRequest("PATCH", `/api/leads/${params?.id}/quote`, {
-        crewSize: planCrewSize,
-        confirmedHours: planHours,
-        ...(planConfirmedDate ? { confirmedDate: planConfirmedDate } : {}),
-        ...(planArrivalWindow ? { arrivalWindow: planArrivalWindow } : {}),
-        crewMembers: selectedCrewMembers,
-        truckConfig,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
-      setPlanApplied(true);
-      setTimeout(() => setPlanApplied(false), 3000);
-      toast({ title: "Plan saved!", description: "Crew & service plan updated." });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to save plan.", variant: "destructive" });
-    },
-  });
-
-  const saveInlineScheduleMutation = useMutation({
-    mutationFn: async () => apiRequest("PATCH", `/api/leads/${params?.id}/schedule`, {
-      confirmedDate: scheduleDate,
-      arrivalWindow: scheduleArrivalWindow,
-    }),
-    onSuccess: () => {
-      setShowInlineScheduler(false);
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/jobs/planner"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads", params?.id, "alert-deliveries"] });
-      toast({ title: "Schedule saved", description: "Date and arrival window were updated together." });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Could not save schedule", description: error.message || "Enter both a date and arrival window.", variant: "destructive" });
-    },
-  });
-
-  const openInlineScheduler = () => {
-    setScheduleDate(lead?.confirmedDate || lead?.moveDate || "");
-    setScheduleArrivalWindow(lead?.arrivalWindow || "");
-    setShowInlineScheduler(true);
-  };
 
   const sendQuoteMutation = useMutation({
     mutationFn: async (deliveryMethod: "email" | "sms" | "both") => {
@@ -1635,7 +1523,7 @@ export default function LeadDetailPage() {
                   <span className="sr-only">Remove job request</span>
                 </Button>
               )}
-              <Button size="sm" onClick={openJobSetup} data-testid="button-edit">
+              <Button size="sm" onClick={() => openJobSetup()} data-testid="button-edit">
                 Set up job
               </Button>
             </div>
@@ -1697,7 +1585,7 @@ export default function LeadDetailPage() {
           order={lead}
           viewer={hasAdminAccess ? "admin" : "crew"}
           action={canClaimJob ? ticketAction : undefined}
-          onScheduleEdit={hasAdminAccess ? openInlineScheduler : undefined}
+          onScheduleEdit={hasAdminAccess ? openJobSetupSchedule : undefined}
           className="mb-4"
         />
 
@@ -1734,7 +1622,7 @@ export default function LeadDetailPage() {
                 variant="outline"
                 size="sm"
                 className="mt-3 w-full sm:w-auto"
-                onClick={openJobSetup}
+                onClick={() => openJobSetup()}
               >
                 <DollarSign className="h-4 w-4 mr-2" />
                 Adjust Manually Instead
@@ -1959,7 +1847,7 @@ export default function LeadDetailPage() {
               <div className="min-w-0">
                 <p className="text-xs text-muted-foreground">Crew</p>
                 <p className="text-sm font-medium truncate">
-                  {selectedCrewNames.length > 0 ? selectedCrewNames.join(", ") : `${lead.crewSize || planCrewSize || 2} mover${(lead.crewSize || planCrewSize || 2) !== 1 ? "s" : ""}`}
+                  {selectedCrewNames.length > 0 ? selectedCrewNames.join(", ") : `${lead.crewSize || 2} mover${(lead.crewSize || 2) !== 1 ? "s" : ""}`}
                 </p>
               </div>
             </div>
@@ -2123,564 +2011,10 @@ export default function LeadDetailPage() {
             <TabsTrigger value="history">Timeline & Rewards</TabsTrigger>
           </TabsList>
 
-          {/* ─────────── TAB: DETAILS (Job Request) ─────────── */}
-          <TabsContent value="details" className="hidden space-y-4">
-            {/* Quick Contact pills */}
-            {hasAdminAccess && (
-              <div className="flex gap-2 flex-wrap">
-                <a href={`tel:${lead.phone}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-600/15 border border-blue-500/30 text-blue-400 text-sm font-medium hover:bg-blue-600/25 transition-colors">
-                  <Phone className="h-3.5 w-3.5" /> Call
-                </a>
-                <a href={`sms:${lead.phone}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-600/15 border border-green-500/30 text-green-400 text-sm font-medium hover:bg-green-600/25 transition-colors">
-                  <MessageSquare className="h-3.5 w-3.5" /> Text
-                </a>
-                <a href={`mailto:${lead.email}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-700/40 border border-slate-600/40 text-slate-300 text-sm font-medium hover:bg-slate-700/60 transition-colors">
-                  <Mail className="h-3.5 w-3.5" /> Email
-                </a>
-              </div>
-            )}
-
-            {/* Pipeline Stepper — admins and employees only */}
-            {(hasAdminAccess || isEmployee) && (() => {
-              const PIPELINE_STAGES = [
-                { key: "new",         label: "New",         next: "quoted",      action: "Send Quote"   },
-                { key: "quoted",      label: "Quoted",      next: "available",   action: "Confirm Job"  },
-                { key: "available",   label: "Available",   next: "in_progress", action: "Start Job"    },
-                { key: "in_progress", label: "In Progress", next: "completed",   action: "Mark Complete" },
-                { key: "completed",   label: "Completed",   next: null,          action: null           },
-              ];
-              // Normalize legacy 'confirmed' status to 'available' for stepper display
-              const normalizedStatus = lead.status === "confirmed" ? "available" : lead.status;
-              const currentIdx = PIPELINE_STAGES.findIndex(s => s.key === normalizedStatus);
-              const currentStage = PIPELINE_STAGES[currentIdx] ?? PIPELINE_STAGES[0];
-              const nextStage = currentStage.next ? PIPELINE_STAGES.find(s => s.key === currentStage.next) : null;
-              // Build a map of stage key → timestamp from history
-              const stageReachedAt: Record<string, string> = {};
-              for (const entry of leadHistory) {
-                if (entry.to_status && entry.created_at) {
-                  stageReachedAt[entry.to_status] = entry.created_at;
-                }
-              }
-              return (
-                <Card className="border-blue-500/20 bg-blue-950/10">
-                  <CardContent className="pt-4 pb-4">
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Pipeline</p>
-                    <div className="flex items-center gap-1 mb-4 overflow-x-auto">
-                      {PIPELINE_STAGES.map((stage, idx) => {
-                        const isCompleted = currentIdx > idx;
-                        const isCurrent = currentIdx === idx;
-                        const reachedAt = stageReachedAt[stage.key];
-                        return (
-                          <div key={stage.key} className="flex items-center shrink-0">
-                            <div className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
-                              isCompleted ? "bg-green-600/20 border-green-500/40 text-green-400" :
-                              isCurrent ? "bg-blue-600/30 border-blue-500/50 text-blue-300" :
-                              "bg-slate-800/50 border-slate-700/50 text-slate-500"
-                            }`}>
-                              <div className="flex items-center gap-1">
-                                {isCompleted && <CheckCircle className="h-3 w-3 shrink-0" />}
-                                {isCurrent && <PlayCircle className="h-3 w-3 shrink-0" />}
-                                <span>{stage.label}</span>
-                              </div>
-                              {stage.key === "quoted" && (quoteSentAt || lead.quoteSentAt) && (
-                                <span className="text-[9px] font-semibold text-green-400">Quote Sent ✓</span>
-                              )}
-                              {isCompleted && reachedAt && (
-                                <span className="text-[9px] font-normal opacity-70">
-                                  {new Date(reachedAt).toLocaleDateString()}
-                                </span>
-                              )}
-                            </div>
-                            {idx < PIPELINE_STAGES.length - 1 && (
-                              <ChevronRight className="h-3 w-3 text-slate-600 mx-0.5 shrink-0" />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {nextStage && lead.status !== "completed" && (
-                      <Button
-                        size="sm"
-                        onClick={() => updateStatus.mutate(currentStage.next!)}
-                        disabled={updateStatus.isPending}
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                      >
-                        {updateStatus.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <PlayCircle className="h-3.5 w-3.5 mr-1.5" />}
-                        {currentStage.action}
-                      </Button>
-                    )}
-                    {lead.status === "completed" && (
-                      <div className="flex items-center gap-1.5 text-green-400 text-sm font-semibold">
-                        <CheckCircle className="h-4 w-4" /> Job Complete
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })()}
-
-            {/* Selected Package card — admin only, shown for chatbot leads */}
-            {hasAdminAccess && lead.details && (() => {
-              try {
-                const parsed = JSON.parse(lead.details);
-                if (parsed._source === "chatbot" && parsed.selectedPackage) {
-                  const pkg = parsed.selectedPackage;
-                  return (
-                    <Card className="border-blue-500/20 bg-blue-950/10">
-                      <CardContent className="pt-4 pb-4">
-                        <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-blue-600/20 flex items-center justify-center shrink-0">
-                            <ShoppingBag className="h-4 w-4 text-blue-400" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-blue-300 uppercase tracking-wider mb-1">Customer-Selected Package</p>
-                            <p className="text-sm font-bold text-white">{pkg.label || pkg.id}</p>
-                            {pkg.desc && <p className="text-xs text-slate-400 mt-0.5">{pkg.desc}</p>}
-                            <div className="flex items-center gap-3 mt-2 text-xs text-slate-300">
-                              {(pkg.minPrice || pkg.maxPrice) && (
-                                <span className="font-semibold text-emerald-400">
-                                  ${pkg.minPrice}–${pkg.maxPrice}
-                                </span>
-                              )}
-                              {pkg.crew && <span>{pkg.crew} movers</span>}
-                              {parsed.isQuoteOnly && (
-                                <Badge className="bg-amber-600/20 text-amber-300 border-amber-500/30 text-[10px]">In-Person Estimate</Badge>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                }
-              } catch (_) {}
-              return null;
-            })()}
-
-            {/* Deposit gate card — admin only */}
-            {hasAdminAccess && lead.depositRequired && (
-              <Card className="border-orange-500/30 bg-orange-950/10">
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="h-4 w-4 text-orange-400" />
-                      <p className="text-sm font-semibold text-orange-300">Deposit Required</p>
-                      <Badge className={lead.depositPaid ? "bg-green-600/20 text-green-300 border-green-500/30" : "bg-orange-600/20 text-orange-300 border-orange-500/30"}>
-                        {lead.depositPaid ? "Paid" : `$${lead.depositAmount || "?"} Pending`}
-                      </Badge>
-                    </div>
-                  </div>
-                  <p className="text-xs text-slate-400 mb-3">
-                    {lead.isQuoteOnly
-                      ? "Customer needs to pay this deposit before an in-person estimate can be scheduled."
-                      : "Customer needs to pay this deposit to secure their booking."}
-                  </p>
-                  {!lead.depositPaid && (
-                    <Button
-                      size="sm"
-                      onClick={() => markDepositReceivedMutation.mutate()}
-                      disabled={markDepositReceivedMutation.isPending}
-                      className="bg-orange-600 hover:bg-orange-700 text-white"
-                    >
-                      {markDepositReceivedMutation.isPending
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                        : <CheckCircle className="h-3.5 w-3.5 mr-1.5" />}
-                      Mark Deposit Received
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Mark as Paid + Dispatch button — admin only */}
-            {hasAdminAccess && !["dispatched", "completed", "cancelled"].includes(lead.status) && (
-              <Card className="border-teal-500/20 bg-teal-950/10">
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-teal-300 mb-0.5">Mark as Paid & Dispatch</p>
-                      <p className="text-xs text-slate-400">Transitions to "Dispatched" and sends SMS to assigned crew members.</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => markAsPaidMutation.mutate()}
-                      disabled={markAsPaidMutation.isPending}
-                      className="bg-teal-600 hover:bg-teal-700 text-white ml-4 shrink-0"
-                    >
-                      {markAsPaidMutation.isPending
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                        : <Zap className="h-3.5 w-3.5 mr-1.5" />}
-                      Dispatch
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Customer Information */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Customer Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {isEditing ? (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label>First Name</Label>
-                        <Input {...form.register("firstName")} data-testid="input-first-name" />
-                      </div>
-                      <div>
-                        <Label>Last Name</Label>
-                        <Input {...form.register("lastName")} data-testid="input-last-name" />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label>Email</Label>
-                        <Input type="email" {...form.register("email")} data-testid="input-email" />
-                      </div>
-                      <div>
-                        <Label>Phone</Label>
-                        <Input type="tel" {...form.register("phone")} data-testid="input-phone" />
-                      </div>
-                    </div>
-                    <div>
-                      <Label>From Address</Label>
-                      <Input {...form.register("fromAddress")} data-testid="input-from-address" />
-                    </div>
-                    <div>
-                      <Label>To Address</Label>
-                      <Input {...form.register("toAddress")} data-testid="input-to-address" />
-                    </div>
-                    <div>
-                      <Label>Requested Move Date</Label>
-                      <DatePicker
-                        value={form.watch("moveDate") ?? undefined}
-                        onChange={(v) => form.setValue("moveDate", v || "")}
-                        placeholder="Pick a move date"
-                      />
-                    </div>
-                    <div>
-                      <Label>Additional Details / Notes</Label>
-                      <Textarea rows={3} {...form.register("details")} data-testid="input-details" />
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {lead.workerVisibility?.customerContact === false ? (
-                      <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
-                        <LockKeyhole className="h-4 w-4" /> Customer phone and email unlock at Silver authority.
-                      </div>
-                    ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="flex items-center gap-3">
-                        <Mail className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <div>
-                          <p className="text-xs text-muted-foreground">Email</p>
-                          {lead.email ? <a href={`mailto:${lead.email}`} className="text-sm font-medium hover:underline" data-testid="link-email">{lead.email}</a> : <p className="text-sm font-medium text-muted-foreground">Not provided</p>}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <div>
-                          <p className="text-xs text-muted-foreground">Phone</p>
-                          <a href={`tel:${lead.phone}`} className="text-sm font-medium hover:underline" data-testid="link-phone">{lead.phone || "Not provided"}</a>
-                        </div>
-                      </div>
-                    </div>
-                    )}
-                    <Separator />
-                    <div className="space-y-3">
-                      <div className="flex items-start gap-3">
-                        <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                        <div>
-                          <p className="text-xs text-muted-foreground">From</p>
-                          <p className="text-sm font-medium">{lead.fromAddress}</p>
-                        </div>
-                      </div>
-                      {lead.toAddress && (
-                        <div className="flex items-start gap-3">
-                          <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="text-xs text-muted-foreground">To</p>
-                            <p className="text-sm font-medium">{lead.toAddress}</p>
-                          </div>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-3">
-                        <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <div>
-                          <p className="text-xs text-muted-foreground">Requested Move Date</p>
-                          <p className="text-sm font-medium">{lead.moveDate || "Not specified"}</p>
-                        </div>
-                      </div>
-                    </div>
-                    {lead.details && (
-                      <>
-                        <Separator />
-                        {customerMediaLink && (
-                          <div className="rounded-lg border border-blue-500/25 bg-blue-500/10 p-3">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                              <div className="min-w-0">
-                                <p className="text-xs font-black uppercase tracking-widest text-blue-600 dark:text-blue-300">Customer Media Link</p>
-                                <a
-                                  href={customerMediaLink}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="mt-1 block truncate text-sm font-medium text-blue-700 underline-offset-2 hover:underline dark:text-blue-200"
-                                >
-                                  {customerMediaLink}
-                                </a>
-                              </div>
-                              <Button asChild size="sm" variant="outline" className="shrink-0">
-                                <a href={customerMediaLink} target="_blank" rel="noreferrer">
-                                  <ExternalLink className="mr-2 h-4 w-4" />
-                                  Open Media
-                                </a>
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1.5">Additional Details</p>
-                          <p className="text-sm bg-muted p-3 rounded">{lead.details}</p>
-                        </div>
-                      </>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Crew Assignment */}
-            {hasAdminAccess && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center justify-between text-base">
-                    <span className="flex items-center gap-2"><Users className="h-4 w-4" />Crew Assignment</span>
-                    <span className="text-sm font-normal text-muted-foreground">
-                      {selectedCrewMembers.length} mover{selectedCrewMembers.length !== 1 ? "s" : ""}
-                    </span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {isEditing ? (
-                    <>
-                      <div className="max-h-48 overflow-y-auto space-y-1.5 border rounded-md p-2 bg-muted/20 mb-3" data-testid="crew-member-list">
-                        {employees.filter(e => e.isApproved || e.status === "approved").length === 0 ? (
-                          <p className="text-xs text-muted-foreground text-center py-2">No approved employees found</p>
-                        ) : (
-                          employees.filter(emp => emp.isApproved || emp.status === "approved").map((emp) => {
-                            const isSelected = selectedCrewMembers.includes(emp.id);
-                            const toggleMember = () => setSelectedCrewMembers(prev => prev.includes(emp.id) ? prev.filter(id => id !== emp.id) : [...prev, emp.id]);
-                            return (
-                              <div key={emp.id} role="option" aria-selected={isSelected} tabIndex={0}
-                                className="flex items-center gap-2 p-1.5 rounded hover:bg-muted/50 cursor-pointer"
-                                onClick={toggleMember}
-                                onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleMember(); } }}
-                                data-testid={`crew-checkbox-${emp.id}`}
-                              >
-                                <Checkbox checked={isSelected} tabIndex={-1} className="h-4 w-4 pointer-events-none" />
-                                <div className="flex-1 min-w-0">
-                                  <p className={`text-sm font-medium ${isSelected ? "text-primary" : ""}`}>{emp.firstName} {emp.lastName}</p>
-                                  <p className="text-xs text-muted-foreground truncate">{emp.email}</p>
-                                </div>
-                                {isSelected && <UserCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground">Set payout classifications, the designated driver, and profit-bonus weights in Job Setup or Finance.</p>
-                    </>
-                  ) : selectedCrewMembers.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5" data-testid="crew-member-badges">
-                      {selectedCrewMembers.map((memberId) => {
-                        const emp = employees.find(e => e.id === memberId);
-                        return (
-                          <Badge key={memberId} variant="secondary" className="text-xs" data-testid={`crew-badge-${memberId}`}>
-                            <UserCheck className="h-3 w-3 mr-1" />
-                            {emp ? `${emp.firstName} ${emp.lastName}` : memberId.slice(0, 8) + "…"}
-                          </Badge>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground italic">No crew assigned yet</p>
-                  )}
-
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Action: Send reminder */}
-            {lead.status === "confirmed" && (
-              <Button variant="outline" className="w-full" onClick={() => sendReminder.mutate()} disabled={sendReminder.isPending}>
-                {sendReminder.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                Send Move Reminder to Customer
-              </Button>
-            )}
-          </TabsContent>
-
           {/* ─────────── TAB: QUOTE & SEND ─────────── */}
           <TabsContent value="quote" className="hidden space-y-4">
 
-            {/* Section A — Crew & Service Plan */}
-            {hasAdminAccess && (
-              <Card className="border-blue-500/20 bg-blue-950/10">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Users className="h-4 w-4 text-blue-400" />
-                    Crew & Service Plan
-                  </CardTitle>
-                  <CardDescription>Configure the crew and schedule for this job</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Crew Size stepper */}
-                  <div>
-                    <Label className="text-sm font-semibold mb-2 block">Crew Size</Label>
-                    <div className="flex items-center gap-3">
-                      {[1, 2, 3, 4].map((n) => (
-                        <button
-                          key={n}
-                          onClick={() => setPlanCrewSize(n)}
-                          className={`w-12 h-12 rounded-xl border-2 text-lg font-bold transition-colors ${
-                            planCrewSize === n
-                              ? "bg-blue-600 border-blue-500 text-white"
-                              : "bg-slate-800/60 border-slate-600/40 text-slate-400 hover:border-blue-500/50"
-                          }`}
-                        >
-                          {n}
-                        </button>
-                      ))}
-                      <span className="text-sm text-slate-400 ml-1">mover{planCrewSize !== 1 ? "s" : ""}</span>
-                    </div>
-                  </div>
-
-                  {/* Named crew multi-select */}
-                  <div>
-                    <Label className="text-sm font-semibold mb-2 block">Named Crew</Label>
-                    <div className="max-h-36 overflow-y-auto space-y-1 border rounded-md p-2 bg-muted/20">
-                      {employees.filter(e => e.isApproved || e.status === "approved").length === 0 ? (
-                        <p className="text-xs text-muted-foreground text-center py-2">No approved employees found</p>
-                      ) : (
-                        employees.filter(emp => emp.isApproved || emp.status === "approved").map((emp) => {
-                          const isSel = selectedCrewMembers.includes(emp.id);
-                          const toggle = () => setSelectedCrewMembers(prev => isSel ? prev.filter(id => id !== emp.id) : [...prev, emp.id]);
-                          return (
-                            <div key={emp.id} onClick={toggle} className="flex items-center gap-2 p-1.5 rounded hover:bg-muted/50 cursor-pointer">
-                              <Checkbox checked={isSel} tabIndex={-1} className="h-4 w-4 pointer-events-none" />
-                              <span className={`text-sm ${isSel ? "text-primary font-medium" : ""}`}>{emp.firstName} {emp.lastName}</span>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Hours stepper (0.5 increments, 1–10) */}
-                  <div>
-                    <Label className="text-sm font-semibold mb-2 block">Hours Estimate</Label>
-                    <div className="flex items-center gap-3">
-                      <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setPlanHours(h => Math.max(2, h - 1))} disabled={planHours <= 2}>
-                        <Minus className="h-4 w-4" />
-                      </Button>
-                      <span className="w-14 text-center font-bold text-lg">{planHours}</span>
-                      <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setPlanHours(h => Math.min(10, h + 1))}>
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                      <span className="text-sm text-slate-400">hr{planHours !== 1 ? "s" : ""}</span>
-                    </div>
-                  </div>
-
-                  {/* Truck / Trailer toggles */}
-                  <div className="flex gap-6">
-                    <div className="flex items-center gap-3">
-                      <Switch
-                        id="plan-truck"
-                        checked={planHasTruck}
-                        onCheckedChange={setPlanHasTruck}
-                      />
-                      <Label htmlFor="plan-truck" className="cursor-pointer text-sm">Truck</Label>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Switch
-                        id="plan-trailer"
-                        checked={planHasTrailer}
-                        onCheckedChange={setPlanHasTrailer}
-                      />
-                      <Label htmlFor="plan-trailer" className="cursor-pointer text-sm">Trailer</Label>
-                    </div>
-                  </div>
-
-                  {/* Arrival window — time dropdown */}
-                  <div className="rounded-xl border border-sky-500/25 bg-sky-500/10 p-3">
-                    <div className="flex items-start gap-2">
-                      <RefreshCw className="h-4 w-4 text-sky-400 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="text-sm font-black text-sky-200">Schedule & Reschedule</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Update the date or start window any time, then save the plan.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label className="text-sm font-semibold mb-1 flex items-center gap-1.5">
-                      <Clock className="h-3.5 w-3.5 text-sky-400" />
-                      Start Time / Arrival Window
-                    </Label>
-                    <Select value={planArrivalWindow} onValueChange={setPlanArrivalWindow}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select arrival window" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="7:00 AM – 9:00 AM">7:00 AM – 9:00 AM</SelectItem>
-                        <SelectItem value="8:00 AM – 10:00 AM">8:00 AM – 10:00 AM</SelectItem>
-                        <SelectItem value="9:00 AM – 11:00 AM">9:00 AM – 11:00 AM</SelectItem>
-                        <SelectItem value="10:00 AM – 12:00 PM">10:00 AM – 12:00 PM</SelectItem>
-                        <SelectItem value="11:00 AM – 1:00 PM">11:00 AM – 1:00 PM</SelectItem>
-                        <SelectItem value="12:00 PM – 2:00 PM">12:00 PM – 2:00 PM</SelectItem>
-                        <SelectItem value="1:00 PM – 3:00 PM">1:00 PM – 3:00 PM</SelectItem>
-                        <SelectItem value="2:00 PM – 4:00 PM">2:00 PM – 4:00 PM</SelectItem>
-                        <SelectItem value="3:00 PM – 5:00 PM">3:00 PM – 5:00 PM</SelectItem>
-                        <SelectItem value="Flexible">Flexible / TBD</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Confirmed date — date picker */}
-                  <div>
-                    <Label className="text-sm font-semibold mb-1 flex items-center gap-1.5">
-                      <Calendar className="h-3.5 w-3.5 text-sky-400" />
-                      Confirmed / Reschedule Date
-                    </Label>
-                    <DatePicker
-                      value={planConfirmedDate}
-                      onChange={setPlanConfirmedDate}
-                      placeholder="Pick a date"
-                    />
-                  </div>
-
-                  <Button
-                    onClick={() => applyPlanMutation.mutate()}
-                    disabled={applyPlanMutation.isPending}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    {applyPlanMutation.isPending ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
-                    ) : planApplied ? (
-                      <><CheckCircle className="h-4 w-4 mr-2" /> Plan Saved!</>
-                    ) : (
-                      <><CheckCircle className="h-4 w-4 mr-2" /> Save Schedule & Plan</>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
+            {/* Crew, schedule, equipment, and pricing edit only in Job Setup. */}
             {/* Section B — Quote Summary */}
             <Card className="border-emerald-500/30 bg-slate-900/60">
               <CardHeader className="pb-2">
@@ -2751,7 +2085,7 @@ export default function LeadDetailPage() {
                 {/* Quote changes use the unified inline Job Setup workspace. */}
                 {hasAdminAccess && (
                   <div className="pt-1">
-                    <Button variant="outline" className="w-full" onClick={openJobSetup}>
+                    <Button variant="outline" className="w-full" onClick={() => openJobSetup()}>
                       <DollarSign className="h-4 w-4 mr-2" /> Open Job Setup
                     </Button>
                   </div>
@@ -2793,22 +2127,22 @@ export default function LeadDetailPage() {
                       <span className="shrink-0 text-slate-400">Location</span>
                       <span className="truncate text-right font-medium">{lead.confirmedFromAddress || lead.fromAddress || "Not set"}</span>
                     </div>
-                    {(planCrewSize || lead.crewSize) && (
+                    {lead.crewSize && (
                       <div className="flex justify-between">
                         <span className="text-slate-400">Crew</span>
-                        <span className="font-medium">{planCrewSize || lead.crewSize} mover{(planCrewSize || lead.crewSize) !== 1 ? "s" : ""}</span>
+                        <span className="font-medium">{lead.crewSize} mover{lead.crewSize !== 1 ? "s" : ""}</span>
                       </div>
                     )}
-                    {(planConfirmedDate || lead.confirmedDate) && (
+                    {lead.confirmedDate && (
                       <div className="flex justify-between">
                         <span className="text-slate-400">Date</span>
-                        <span className="font-medium">{planConfirmedDate || lead.confirmedDate}</span>
+                        <span className="font-medium">{lead.confirmedDate}</span>
                       </div>
                     )}
-                    {(planArrivalWindow || lead.arrivalWindow) && (
+                    {lead.arrivalWindow && (
                       <div className="flex justify-between">
                         <span className="text-slate-400">Arrival window</span>
-                        <span className="font-medium">{planArrivalWindow || lead.arrivalWindow}</span>
+                        <span className="font-medium">{lead.arrivalWindow}</span>
                       </div>
                     )}
                     <div className="flex justify-between border-t border-slate-700/50 pt-1.5 mt-1.5">
@@ -3341,36 +2675,6 @@ export default function LeadDetailPage() {
               </Button>
             </DialogFooter>
           )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showInlineScheduler} onOpenChange={setShowInlineScheduler}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Calendar className="h-5 w-5 text-cyan-400" />Edit schedule</DialogTitle>
-            <DialogDescription>Date and arrival window save together and update the job card immediately.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label>Confirmed date</Label>
-              <div className="mt-1"><DatePicker value={scheduleDate || undefined} onChange={(value) => setScheduleDate(value || "")} placeholder="Pick a date" /></div>
-            </div>
-            <div>
-              <Label>Arrival window</Label>
-              <Select value={scheduleArrivalWindow || undefined} onValueChange={setScheduleArrivalWindow}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select arrival window" /></SelectTrigger>
-                <SelectContent>
-                  {["7:00 AM - 9:00 AM", "8:00 AM - 10:00 AM", "9:00 AM - 11:00 AM", "10:00 AM - 12:00 PM", "11:00 AM - 1:00 PM", "12:00 PM - 2:00 PM", "1:00 PM - 3:00 PM", "2:00 PM - 4:00 PM", "3:00 PM - 5:00 PM", "Flexible / TBD"].map((window) => <SelectItem key={window} value={window}>{window}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowInlineScheduler(false)}>Cancel</Button>
-            <Button onClick={() => saveInlineScheduleMutation.mutate()} disabled={saveInlineScheduleMutation.isPending || !scheduleDate || !scheduleArrivalWindow} className="bg-cyan-600 text-white hover:bg-cyan-700">
-              {saveInlineScheduleMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}Save schedule
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

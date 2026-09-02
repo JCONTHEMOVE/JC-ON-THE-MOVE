@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { CalendarDays, CheckCircle2, CircleHelp, ClipboardPenLine, DollarSign, Loader2, PencilLine, Users } from "lucide-react";
-import type { JobQuoteDraft, JobQuoteLineItem } from "@/components/JobOrderBuilder";
+import type { LaborWorkScope } from "@shared/laborBooking";
+import { confirmedJobDate, isHourlyJobArrivalWindow, JOB_SCHEDULE_OPTIONS } from "@shared/jcOperations";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +15,35 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+
+interface JobQuoteLineItem {
+  id: string;
+  name: string;
+  qty: number;
+  unitPrice: number;
+  total: number;
+  category: string;
+}
+
+interface JobQuoteDraft {
+  basePrice: string;
+  totalPrice: string;
+  crewSize: number;
+  confirmedHours: number;
+  quoteNotes: string;
+  hasHotTub: boolean;
+  hotTubFee: string;
+  hasHeavySafe: boolean;
+  heavySafeFee: string;
+  hasPoolTable: boolean;
+  poolTableFee: string;
+  hasPiano: boolean;
+  pianoFee: string;
+  totalSpecialItemsFee: string;
+  lineItems: JobQuoteLineItem[];
+  zoneSnapshot?: Record<string, unknown>;
+  pricingSource?: "rate_card_auto" | "manual_override";
+}
 
 export interface JobSetupLead {
   id: string;
@@ -35,7 +65,6 @@ export interface JobSetupLead {
   confirmedHours?: number;
   crewMembers?: string[];
   crewLeadUserId?: string | null;
-  driverUserId?: string | null;
   basePrice?: string;
   totalPrice?: string;
   quoteNotes?: string;
@@ -48,6 +77,7 @@ export interface JobSetupLead {
   hasPiano?: boolean;
   pianoFee?: string;
   jobPlanDetails?: {
+    workScope?: LaborWorkScope;
     stairsFlights?: number;
     hasElevator?: boolean;
     specialItemsNotes?: string;
@@ -66,8 +96,6 @@ export interface JobSetupEmployee {
   lastName: string;
   isApproved: boolean;
   status: string;
-  isDriver?: boolean | null;
-  capabilities?: string[] | null;
   payoutProfile?: { payoutClassification?: "lead_mover" | "mover" | "helper" | null } | null;
 }
 
@@ -78,7 +106,6 @@ type SetupDraft = {
   phone: string;
   fromAddress: string;
   toAddress: string;
-  moveDate: string;
   details: string;
   confirmedDate: string;
   arrivalWindow: string;
@@ -89,7 +116,7 @@ type SetupDraft = {
   confirmedHours: number;
   crewMembers: string[];
   crewLeadUserId: string;
-  driverUserId: string;
+  workScope: LaborWorkScope;
   crewRoles: Record<string, "lead_mover" | "mover" | "helper">;
   accessCode: string;
   entryInstructions: string;
@@ -98,12 +125,6 @@ type SetupDraft = {
   specialItemsNotes: string;
   additionalStops: Array<{ address: string; note: string }>;
 };
-
-const ARRIVAL_WINDOWS = [
-  "7:00 AM – 9:00 AM", "8:00 AM – 10:00 AM", "9:00 AM – 11:00 AM",
-  "10:00 AM – 12:00 PM", "11:00 AM – 1:00 PM", "12:00 PM – 2:00 PM",
-  "1:00 PM – 3:00 PM", "2:00 PM – 4:00 PM", "3:00 PM – 5:00 PM", "Flexible / TBD",
-];
 
 const PRICED_DRAFT_KEYS = new Set<keyof SetupDraft>([
   "fromAddress",
@@ -115,6 +136,7 @@ const PRICED_DRAFT_KEYS = new Set<keyof SetupDraft>([
   "confirmedHours",
   "stairsFlights",
   "hasElevator",
+  "workScope",
 ]);
 
 function setupDraftFromLead(lead: JobSetupLead): SetupDraft {
@@ -125,9 +147,8 @@ function setupDraftFromLead(lead: JobSetupLead): SetupDraft {
     phone: lead.phone || "",
     fromAddress: lead.fromAddress || "",
     toAddress: lead.toAddress || "",
-    moveDate: lead.moveDate || "",
     details: lead.details || "",
-    confirmedDate: lead.confirmedDate || "",
+    confirmedDate: confirmedJobDate(lead),
     arrivalWindow: lead.arrivalWindow || "",
     truckConfig: lead.truckConfig || "no_truck",
     trailerRequested: !!lead.trailerRequested,
@@ -136,7 +157,7 @@ function setupDraftFromLead(lead: JobSetupLead): SetupDraft {
     confirmedHours: lead.confirmedHours || 2,
     crewMembers: lead.crewMembers || [],
     crewLeadUserId: lead.crewLeadUserId || lead.crewMembers?.[0] || "",
-    driverUserId: lead.driverUserId || "",
+    workScope: lead.jobPlanDetails?.workScope || "load_only",
     crewRoles: Object.fromEntries((lead.crewMembers || []).map((id) => [id, id === (lead.crewLeadUserId || lead.crewMembers?.[0]) ? "lead_mover" : "mover"])),
     accessCode: lead.jobAccess?.accessCode || "",
     entryInstructions: lead.jobAccess?.entryInstructions || "",
@@ -222,7 +243,6 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
         phone: draft.phone.trim(),
         fromAddress: draft.fromAddress.trim(),
         toAddress: draft.toAddress.trim(),
-        moveDate: draft.moveDate,
         details: draft.details.trim(),
         ...(canManageSetup ? {
           confirmedDate: draft.confirmedDate,
@@ -234,12 +254,12 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
           confirmedHours: draft.confirmedHours,
           crewMembers: draft.crewMembers,
           crewLeadUserId: draft.crewLeadUserId || null,
-          driverUserId: draft.driverUserId || null,
           crewAssignments: draft.crewMembers.map((workerId) => ({
             workerId,
             roleOnJob: workerId === draft.crewLeadUserId ? "lead_mover" : (draft.crewRoles[workerId] || "mover"),
           })),
           jobPlanDetails: {
+            workScope: draft.workScope,
             accessCode: draft.accessCode,
             entryInstructions: draft.entryInstructions,
             stairsFlights: draft.stairsFlights,
@@ -252,7 +272,7 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
       });
     },
     onSuccess: () => {
-      toast({ title: "Job setup saved", description: "Customer and job details are up to date. Nothing was sent to the customer." });
+      toast({ title: "Job setup saved", description: "Nothing was sent to the customer. Assigned crew are notified only when a complete crew or schedule plan changed." });
       onSaved();
     },
     onError: (error: Error) => {
@@ -296,12 +316,14 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
     };
     promo?: { requestedCode: string; applied: boolean; reason?: string };
     reservedEquipment?: { truckConfig: string; trailerRequested: boolean };
+    location: { pricingScope: "local" | "global"; zoneCode: string | null; label: string; reason: string };
   }>({
-    queryKey: ["/api/leads", lead.id, "quote-preview", draft.crewSize, draft.confirmedHours, draft.truckConfig, draft.trailerRequested, draft.stairsFlights, draft.hasElevator, draft.promoCode, draft.fromAddress, draft.toAddress],
+    queryKey: ["/api/leads", lead.id, "quote-preview", draft.crewSize, draft.confirmedHours, draft.workScope, draft.truckConfig, draft.trailerRequested, draft.stairsFlights, draft.hasElevator, draft.promoCode, draft.fromAddress, draft.toAddress],
     queryFn: async () => {
       const response = await apiRequest("POST", `/api/leads/${lead.id}/quote-preview`, {
         crewSize: draft.crewSize,
         confirmedHours: draft.confirmedHours,
+        workScope: draft.workScope,
         truckConfig: draft.truckConfig,
         trailerRequested: draft.trailerRequested,
         stairsFlights: draft.stairsFlights,
@@ -385,7 +407,7 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-300"><ClipboardPenLine className="h-5 w-5" /></div>
             <div>
               <CardTitle className="text-lg">Job Setup</CardTitle>
-              <CardDescription>Customer, job plan, and quote in one place. Save when it is ready—nothing is sent automatically.</CardDescription>
+              <CardDescription>Customer, schedule, crew, and the server-calculated quote stay together. Saving a complete crew or schedule change notifies assigned crew; contact- and quote-only changes stay audit-only.</CardDescription>
             </div>
           </div>
           {canManageSetup ? <Badge className="bg-blue-600/20 text-blue-200">Full setup access</Badge> : <Badge variant="secondary">Customer & job details</Badge>}
@@ -407,7 +429,7 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2"><Label htmlFor="setup-from-address">Pickup / Service Address</Label><Input id="setup-from-address" value={draft.fromAddress} onChange={(event) => updateDraft("fromAddress", event.target.value)} /></div>
             <div className="sm:col-span-2"><Label htmlFor="setup-to-address">Drop-off Address <span className="text-muted-foreground">(if applicable)</span></Label><Input id="setup-to-address" value={draft.toAddress} onChange={(event) => updateDraft("toAddress", event.target.value)} /></div>
-            <div><Label>Requested Date</Label><DatePicker value={draft.moveDate || undefined} onChange={(value) => updateDraft("moveDate", value || "")} placeholder="Pick a requested date" /></div>
+            {autoQuotePreview?.location && <div className="sm:col-span-2"><Badge variant={autoQuotePreview.location.pricingScope === "local" ? "default" : "secondary"} data-testid="job-setup-location-classification">{autoQuotePreview.location.label}</Badge><p className="mt-1 text-xs text-muted-foreground">{autoQuotePreview.location.reason}</p></div>}
           </div>
           <div><Label htmlFor="setup-details">Job Notes & Details</Label><Textarea id="setup-details" rows={4} value={draft.details} onChange={(event) => updateDraft("details", event.target.value)} placeholder="Items, access instructions, customer requests, and anything the crew needs to know." /></div>
         </section>
@@ -428,19 +450,20 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
           </section>
           <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"><div><Label htmlFor="setup-promo-code">Promo / package code</Label><Input id="setup-promo-code" value={draft.promoCode} onChange={(event) => updateDraft("promoCode", event.target.value.toUpperCase())} placeholder="e.g. LOCAL4X4" autoCapitalize="characters" /></div>{draft.promoCode && <Button type="button" variant="ghost" size="sm" onClick={() => updateDraft("promoCode", "")}>Clear code</Button>}</div>
 
-          <section className="space-y-4 border-t pt-5">
+          <section id="job-setup-schedule" className="scroll-mt-24 space-y-4 border-t pt-5" data-testid="job-setup-schedule">
             <div className="flex items-center gap-2"><Users className="h-4 w-4 text-blue-400" /><h3 className="font-semibold">Crew & schedule</h3></div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><Label>Confirmed Date</Label><DatePicker value={draft.confirmedDate || undefined} onChange={(value) => updateDraft("confirmedDate", value || "")} placeholder="Pick a confirmed date" /></div>
-              <div><Label>Arrival Window</Label><Select value={draft.arrivalWindow || undefined} onValueChange={(value) => updateDraft("arrivalWindow", value)}><SelectTrigger><SelectValue placeholder="Select arrival window" /></SelectTrigger><SelectContent>{ARRIVAL_WINDOWS.map((window) => <SelectItem key={window} value={window}>{window}</SelectItem>)}</SelectContent></Select></div>
+              <div><Label>Confirmed Job Date</Label><DatePicker value={draft.confirmedDate || undefined} onChange={(value) => updateDraft("confirmedDate", value || "")} placeholder="Pick a confirmed job date" /></div>
+              <div><Label>Arrival Window</Label><Select value={draft.arrivalWindow || undefined} onValueChange={(value) => updateDraft("arrivalWindow", value)}><SelectTrigger><SelectValue placeholder="Select arrival window" /></SelectTrigger><SelectContent>{draft.arrivalWindow && !isHourlyJobArrivalWindow(draft.arrivalWindow) && <SelectItem value={draft.arrivalWindow}>Current legacy window: {draft.arrivalWindow}</SelectItem>}{JOB_SCHEDULE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div>
+              <div><Label>Work Scope</Label><Select value={draft.workScope} onValueChange={(value) => updateDraft("workScope", value as LaborWorkScope)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="load_only">Loading only</SelectItem><SelectItem value="unload_only">Unloading only</SelectItem><SelectItem value="load_unload">Load + unload</SelectItem></SelectContent></Select></div>
               <div><Label>Truck</Label><Select value={draft.truckConfig} onValueChange={(value) => updateDraft("truckConfig", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="no_truck">Labor only — no truck</SelectItem><SelectItem value="company_truck">JC truck (+rate-card truck fee)</SelectItem><SelectItem value="customer_truck">Customer truck</SelectItem></SelectContent></Select></div>
               <label className="flex items-center gap-3 rounded-lg border p-3 text-sm"><Checkbox checked={draft.trailerRequested} onCheckedChange={(value) => updateDraft("trailerRequested", value === true)} />Trailer (+rate-card trailer fee)</label>
               <div><Label htmlFor="setup-hours">Hours Estimate</Label><Select value={String(draft.confirmedHours)} onValueChange={(value) => updateDraft("confirmedHours", Number(value))}><SelectTrigger id="setup-hours"><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 24 }, (_, index) => index + 1).map((hour) => <SelectItem key={hour} value={String(hour)}>{hour} {hour === 1 ? "hour" : "hours"}</SelectItem>)}</SelectContent></Select></div>
             </div>
             <div><Label className="mb-2 block">Crew Size</Label><div className="flex flex-wrap gap-2">{[1, 2, 3, 4].map((size) => <Button key={size} type="button" variant={draft.crewSize === size ? "default" : "outline"} className="min-w-12" onClick={() => updateDraft("crewSize", size)}>{size} {size === 1 ? "mover" : "movers"}</Button>)}</div></div>
-            <div><Label className="mb-2 block">Named Crew</Label><div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">{approvedEmployees.length ? approvedEmployees.map((employee) => { const checked = draft.crewMembers.includes(employee.id); return <label key={employee.id} className="flex cursor-pointer items-center gap-2 text-sm"><Checkbox checked={checked} onCheckedChange={(value) => setDraft((current) => { const crewMembers = value ? [...current.crewMembers, employee.id] : current.crewMembers.filter((id) => id !== employee.id); const crewLeadUserId = crewMembers.includes(current.crewLeadUserId) ? current.crewLeadUserId : crewMembers[0] || ""; const driverUserId = crewMembers.includes(current.driverUserId) ? current.driverUserId : ""; const crewRoles = { ...current.crewRoles }; if (value) crewRoles[employee.id] = employee.payoutProfile?.payoutClassification || "mover"; else delete crewRoles[employee.id]; return { ...current, crewMembers, crewLeadUserId, driverUserId, crewRoles }; })} />{employee.firstName} {employee.lastName}</label>; }) : <p className="text-sm text-muted-foreground">No approved crew members found.</p>}</div></div>
+            <div><Label className="mb-2 block">Named Crew</Label><div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">{approvedEmployees.length ? approvedEmployees.map((employee) => { const checked = draft.crewMembers.includes(employee.id); return <label key={employee.id} className="flex cursor-pointer items-center gap-2 text-sm"><Checkbox checked={checked} onCheckedChange={(value) => setDraft((current) => { const crewMembers = value ? [...current.crewMembers, employee.id] : current.crewMembers.filter((id) => id !== employee.id); const crewLeadUserId = crewMembers.includes(current.crewLeadUserId) ? current.crewLeadUserId : crewMembers[0] || ""; const crewRoles = { ...current.crewRoles }; if (value) crewRoles[employee.id] = employee.payoutProfile?.payoutClassification || "mover"; else delete crewRoles[employee.id]; return { ...current, crewMembers, crewLeadUserId, crewRoles }; })} />{employee.firstName} {employee.lastName}</label>; }) : <p className="text-sm text-muted-foreground">No approved crew members found.</p>}</div></div>
             <div><Label>Crew lead</Label><Select value={draft.crewLeadUserId || undefined} onValueChange={(value) => updateDraft("crewLeadUserId", value)}><SelectTrigger><SelectValue placeholder="Select the crew lead" /></SelectTrigger><SelectContent>{draft.crewMembers.length ? draft.crewMembers.map((id) => { const employee = approvedEmployees.find((entry) => entry.id === id); return <SelectItem key={id} value={id}>{employee ? `${employee.firstName} ${employee.lastName}` : "Selected crew member"}</SelectItem>; }) : <SelectItem value="__none" disabled>Select a crew member first</SelectItem>}</SelectContent></Select></div>
-            <div><Label>Driver bonus</Label><Select value={draft.driverUserId || "__none"} onValueChange={(value) => updateDraft("driverUserId", value === "__none" ? "" : value)}><SelectTrigger><SelectValue placeholder="No designated driver" /></SelectTrigger><SelectContent><SelectItem value="__none">No driver bonus</SelectItem>{draft.crewMembers.map((id) => approvedEmployees.find((employee) => employee.id === id)).filter((employee): employee is JobSetupEmployee => Boolean(employee && (employee.isDriver || employee.capabilities?.includes("driver")))).map((employee) => <SelectItem key={employee.id} value={employee.id}>{employee.firstName} {employee.lastName} (+$5/hour)</SelectItem>)}</SelectContent></Select></div>
+            <p className="text-xs text-muted-foreground">Driver premiums are designated during owner payout review in Finance.</p>
             {draft.crewMembers.length > 0 && <div><Label className="mb-2 block">Job classifications</Label><div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">{draft.crewMembers.map((id) => { const employee = approvedEmployees.find((entry) => entry.id === id); const isLead = id === draft.crewLeadUserId; return <div key={id} className="flex items-center justify-between gap-2"><span className="text-sm">{employee ? `${employee.firstName} ${employee.lastName}` : "Crew member"}</span><Select disabled={isLead} value={isLead ? "lead_mover" : (draft.crewRoles[id] || "mover")} onValueChange={(value) => setDraft((current) => ({ ...current, crewRoles: { ...current.crewRoles, [id]: value as "lead_mover" | "mover" | "helper" } }))}><SelectTrigger className="w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="lead_mover">Lead Mover</SelectItem><SelectItem value="mover">Mover</SelectItem><SelectItem value="helper">Helper</SelectItem></SelectContent></Select></div>; })}</div><p className="mt-1 text-xs text-muted-foreground">Per-job classifications override the employee default and feed the payout ledger.</p></div>}
           </section>
 
@@ -470,7 +493,7 @@ export function JobSetupWorkspace({ lead, employees, canManageSetup, onSaved }: 
                 ) : autoQuotePreview ? (
                   <>
                     {autoQuotePreview.promo && !autoQuotePreview.promo.applied && <p className="mt-2 text-xs text-amber-300">{autoQuotePreview.promo.reason}</p>}
-                    {autoQuotePreview.promotion?.kind === "fixed_moving_package" && <p className="mt-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: {autoQuotePreview.promotion.requiredCrewSize} movers x {autoQuotePreview.promotion.requiredHours} hours local special. JC truck and trailer are reserved.</p>}
+                    {autoQuotePreview.promotion?.kind === "fixed_moving_package" && <p className="mt-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: {autoQuotePreview.promotion.requiredCrewSize} movers x {autoQuotePreview.promotion.requiredHours} hours local special.{autoQuotePreview.promotion.includesCompanyTruck ? ` JC truck${autoQuotePreview.promotion.includesTrailer ? " and trailer" : ""} reserved.` : " Customer truck or no JC equipment."}</p>}
                     {autoQuotePreview.promotion?.kind === "percentage_discount" && <p className="mt-2 text-xs font-medium text-emerald-200">{autoQuotePreview.promotion.code}: {autoQuotePreview.promotion.discountPercent}% off the automatic quote.</p>}
                     <p className="mt-2 text-xs text-muted-foreground">Labor ${autoQuotePreview.labor.toFixed(2)} · Truck ${autoQuotePreview.truck.toFixed(2)} · Trailer ${autoQuotePreview.trailer.toFixed(2)} · Access ${(autoQuotePreview.stairs + autoQuotePreview.elevator).toFixed(2)}</p>
                     <p className="mt-1 flex items-center gap-1 text-xs text-amber-300">Projected from ${autoQuotePreview.rewardEligibleTotal.toFixed(2)} reward-eligible rate: {autoQuotePreview.projectedCustomerJcMoves.toLocaleString()} customer JCMOVES and {autoQuotePreview.projectedCrewPoolJcMoves.toLocaleString()} crew-pool JCMOVES.<Popover><PopoverTrigger asChild><button type="button" aria-label="Explain JCMOVES projection"><CircleHelp className="h-3 w-3" /></button></PopoverTrigger><PopoverContent className="w-64 text-xs">The customer and total crew pool each use this amount after full payment and completion. The lead receives a 15% crew-pool bonus; the rest splits evenly.</PopoverContent></Popover></p>

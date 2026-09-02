@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRoute } from "wouter";
 import { AlertTriangle, CalendarClock, CheckCircle2, Clock3 } from "lucide-react";
-import { exactHourlyStarts } from "@shared/jcOperations";
+import { JOB_SCHEDULE_OPTIONS } from "@shared/jcOperations";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -96,10 +96,10 @@ export default function ScheduleRequestPage() {
         </Card>
 
         <Card className="border-slate-700 bg-slate-900/95 text-slate-100">
-          <CardHeader><CardTitle>{isConfirmed ? "Request a different time" : "Change your preference"}</CardTitle><CardDescription>Exact hourly starts are available from 8:00 AM through 5:00 PM Central.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>{isConfirmed ? "Request a different time" : "Change your preference"}</CardTitle><CardDescription>One-hour windows are available from 7:00 AM through 5:00 PM Central.</CardDescription></CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
             <label className="grid gap-1 text-sm font-semibold">Date<Input type="date" min={new Date().toISOString().slice(0, 10)} value={date || cleanDate(request.preferred_date)} onChange={(event) => setDate(event.target.value)} /></label>
-            <label className="grid gap-1 text-sm font-semibold">Time<select className="field-select" value={time || cleanTime(request.preferred_start_time)} onChange={(event) => setTime(event.target.value)}>{exactHourlyStarts().map((start) => <option value={start} key={start}>{start} Central</option>)}</select></label>
+            <label className="grid gap-1 text-sm font-semibold">Time<select className="field-select" value={time || cleanTime(request.preferred_start_time)} onChange={(event) => setTime(event.target.value)}>{JOB_SCHEDULE_OPTIONS.filter((option) => option.start).map((option) => <option value={option.start!} key={option.start!}>{option.label} Central</option>)}</select></label>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>{mutation.isPending ? "Saving…" : isConfirmed ? "Request change" : "Save preference"}</Button>
           </CardContent>
         </Card>

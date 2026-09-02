@@ -147,6 +147,7 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
   const name = customerName(lead);
   const service = displayService(lead);
   const date = lead.confirmedDate || lead.moveDate || "date TBD";
+  const arrival = lead.arrivalWindow ? `, ${lead.arrivalWindow} Central` : "";
 
   switch (type) {
     case "quote_requested":
@@ -185,14 +186,14 @@ function messageFor(type: JobEventType, lead: Lead, options: EmitJobEventOptions
         scope: "assigned_crew",
         notificationType: "crew_selected",
         title: "Selected for a Job",
-        message: `You've been selected for ${name}'s ${service} job on ${date}. Open it to review your schedule and estimated earnings.`,
+        message: `You've been selected for ${name}'s ${service} job on ${date}${arrival}. Open it to review your schedule and estimated earnings.`,
       };
     case "crew_plan_saved":
       return {
         scope: "assigned_crew",
         notificationType: "job_assigned",
         title: "Crew Plan Saved",
-        message: `You are tentatively planned for ${name}'s ${service} job on ${date}. This is not a dispatch confirmation yet.`,
+        message: `You are tentatively planned for ${name}'s ${service} job on ${date}${arrival}. This is not a dispatch confirmation yet.`,
       };
     case "crew_assigned":
       return {

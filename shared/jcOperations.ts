@@ -170,9 +170,59 @@ export function applyServiceFloor(input: {
   };
 }
 
+export type JobScheduleOption = {
+  start: string | null;
+  value: string;
+  label: string;
+};
+
+function displayHour(hour24: number) {
+  const period = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:00 ${period}`;
+}
+
+/**
+ * The single scheduling menu used by customer and staff flows. Every exact
+ * option is one hour and ends no later than 5:00 PM Central.
+ */
+export const JOB_SCHEDULE_OPTIONS: readonly JobScheduleOption[] = [
+  ...Array.from({ length: 10 }, (_, index) => {
+    const hour = index + 7;
+    const label = `${displayHour(hour)} – ${displayHour(hour + 1)}`;
+    return { start: `${String(hour).padStart(2, "0")}:00`, value: label, label };
+  }),
+  { start: null, value: "Flexible / TBD", label: "Flexible / TBD" },
+];
+
+/** Historical two-hour values stay valid only when already saved. */
+export const LEGACY_JOB_ARRIVAL_WINDOWS = [
+  "7:00 AM – 9:00 AM", "8:00 AM – 10:00 AM", "9:00 AM – 11:00 AM",
+  "10:00 AM – 12:00 PM", "11:00 AM – 1:00 PM", "12:00 PM – 2:00 PM",
+  "1:00 PM – 3:00 PM", "2:00 PM – 4:00 PM", "3:00 PM – 5:00 PM",
+  "7:00 AM - 9:00 AM", "8:00 AM - 10:00 AM", "9:00 AM - 11:00 AM",
+  "10:00 AM - 12:00 PM", "11:00 AM - 1:00 PM", "12:00 PM - 2:00 PM",
+  "1:00 PM - 3:00 PM", "2:00 PM - 4:00 PM", "3:00 PM - 5:00 PM",
+  "Flexible",
+] as const;
+
+export function isHourlyJobArrivalWindow(value: unknown) {
+  const text = String(value || "").trim();
+  return JOB_SCHEDULE_OPTIONS.some((option) => option.value === text);
+}
+
+export function isLegacyJobArrivalWindow(value: unknown) {
+  return LEGACY_JOB_ARRIVAL_WINDOWS.includes(String(value || "").trim() as typeof LEGACY_JOB_ARRIVAL_WINDOWS[number]);
+}
+
+export function confirmedJobDate(input: { confirmedDate?: string | null; moveDate?: string | null }) {
+  return String(input.confirmedDate || input.moveDate || "").trim();
+}
+
 export function exactHourlyStarts() {
-  return Array.from({ length: 10 }, (_, index) => {
-    const hour = index + 8;
-    return `${String(hour).padStart(2, "0")}:00`;
-  });
+  return JOB_SCHEDULE_OPTIONS.flatMap((option) => option.start ? [option.start] : []);
+}
+
+export function jobScheduleLabelForStart(start: string) {
+  return JOB_SCHEDULE_OPTIONS.find((option) => option.start === start)?.label || start;
 }
