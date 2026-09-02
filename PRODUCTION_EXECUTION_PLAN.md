@@ -1,12 +1,12 @@
 # JC ON THE MOVE Production Execution Plan
 
-_Authoritative snapshot: July 17, 2026 (America/Chicago)._  This is the single release and operations plan for the current worktree.  It replaces the old Render/Replit-oriented deployment notes for the active production path.
+_Authoritative snapshot: September 2, 2026 (America/Chicago)._ This is the single release and operations plan for the current release train. It replaces the old Render/Replit-oriented deployment notes for the active production path. Product strategy, payment-rail sequencing, and the GSG operating model live in [`MASTER_GAME_PLAN.md`](./MASTER_GAME_PLAN.md); this document remains the release checklist.
 
 ## Decisions already made
 
 | Area | Decision | Evidence |
 | --- | --- | --- |
-| Production platform | Railway is the active production host. | `www.jconthemove.com/api/health` reports Railway and commit `875ee972`. |
+| Production platform | Railway is the active production host. | `www.jconthemove.com/api/health` reported Railway and commit `a34b2fe5` on September 2, 2026. |
 | Canonical readiness endpoint | `https://www.jconthemove.com/api/health` | Returns `status: ready`, database ready, and a deploy commit. |
 | Deployment model | Railway Git integration deploys `main`; GitHub validates the public commit after each push. | Public commit matches current `main` head. |
 | Card payments | Square remains the sole card/invoice processor. | Existing payment and launch-checklist design. |
@@ -15,11 +15,12 @@ _Authoritative snapshot: July 17, 2026 (America/Chicago)._  This is the single r
 
 ## Current evidence
 
-- Production was healthy when checked: Railway, HTTP 200, readiness `ready`, DB `ready`, public commit `875ee972`.
-- `npm ci --dry-run --ignore-scripts` succeeds under a clean dependency plan. The local machine currently runs unsupported Node 24 and has a partial `node_modules`; this is a local repair issue, not proof of a production outage.
-- The server test suite and full TypeScript check pass in the current worktree.
-- In the last 30 days, the database recorded 29 new leads and 5 bookings. The newest lead is from July 16; the newest booking is from July 2. This is a conversion signal to investigate, not proof that booking is failing.
-- The worktree is intentionally a release train, not a clean deployable commit yet. It includes job lifecycle/payout, crew, marketing/zone-pricing, payment delivery, Job Brief, and production-observability changes.
+- Production was healthy when checked on September 2: Railway, HTTP 200, readiness `ready`, database `ready`, public commit `a34b2fe5`.
+- The combined release is preserved in Git and includes the current production Facebook Page pilot and private Square gift-card bonus controls. It is not approved for `main` until every gate below passes on the combined commit.
+- An official portable Node 20 runtime is available locally. The original worktree dependency folder became partial during clean-install recovery, so release validation must use an isolated checkout and a fresh `npm ci`.
+- Before the production merge, all 39 discovered server test files passed. Types, the post-merge server suite, build, and browser checks remain open gates and must not be inferred from that earlier result.
+- The release train groups roughly eight connected streams: staff Job Brief, job lifecycle/crew/payout, quote and Square delivery, marketing/zone pricing, notifications, Facebook Page pilot, private gift-card rewards, and production operations.
+- The August 31 Ironwood test-job time has passed. No stale job alert should be created or sent; a fresh date, time, recipient scope, and owner approval are required for any live notification test.
 
 ## Reconciled work inventory
 
@@ -31,6 +32,8 @@ Chat titles and historical task briefs are not completion proof. An item is only
 | Job handoff, crew, and payout | `admin/jobs`, `admin/ops-board`, `admin/job-payouts`, dispatch services, and `server/routes.ts` are in the active release train. | Server tests plus completed-job → payout approval → worker payout → JCMOVES production smoke test. |
 | Quote, invoice, and customer contact | `server/services/square-invoice.ts`, `server/routes.ts`, `JobOrderBuilder.tsx`, and Job Detail are in the active release train. | Square sandbox/production-safe test of quote, email/SMS consent, payment link, deposit, and dispatch authorization. |
 | Targeted-area marketing | Zone-pricing, launch-checklist, campaign analytics, and tracked-link code are in the active release train. | Launch Checklist probe and one public tracked-link/quote smoke test; verify attribution without creating a real customer charge. |
+| Notifications | Job-event routing, Discord/web-push delivery, readiness reporting, and route-wiring tests are in the active release train. | Owner-only or preview-mode test first; confirm recipients and payload before authorizing a crew-wide alert. |
+| Facebook and gift-card pilots | Company Page import controls and private, staged Square gift-card bonus settings are included from production. | Keep both pilots explicitly scoped; prove consent, attribution, and payment/reward audit records before widening access. |
 | Production operations | Railway workflows, public health verifier, and Launch Checklist wording were aligned in this release. | Push `main`, see the exact commit on public readiness, then observe at least one scheduled availability run. |
 
 ### Historical chat triage
@@ -50,13 +53,13 @@ Do not merge data cleanup, external messaging, or calendar mutations into the cu
 
 1. Use Node 20 in a clean checkout and run `npm ci`.
 2. Run `npm run check`, `npm run test:server`, and `npm run build`.
-3. Run focused role-based browser checks for:
+3. Run secret/policy checks and focused role-based browser checks for:
    - a quote-ready job,
    - a dispatched job,
    - a completed job awaiting payout review,
    - payout approval and worker payout screens,
    - the compact mobile Job Brief with missing optional fields.
-4. Review the existing dirty files as one release train; commit only the validated set and push `main`.
+4. Review the combined commit as one release train; push `main` only after the validation checkout is green.
 5. Let `Production Build and Deploy Verification` wait for Railway to report that exact commit on the public readiness endpoint.
 6. Run the in-app Launch Checklist from an owner account after deployment. Do not mark a release live if payment, readiness, route, or payout probes fail.
 
