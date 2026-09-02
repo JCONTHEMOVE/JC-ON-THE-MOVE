@@ -57,7 +57,7 @@ Booked-job economics outrank raw transaction volume. A verified $25 referral or 
 - Keep automatic public gift-card rewards, payout approval, treasury movement, and price exceptions owner-gated until their live tests pass.
 - Measure the funnel daily: lead, quote, scheduled job, payment link, paid/dispatch, completed job, payout approved, reward issued, rebooked job.
 
-**Current Stage 1 decision:** scheduling/local pricing is deployed (`8c9a06c4`) and the unified booking foundation is deployed (`5b2aadfc`). JC-87 has not been mutated or notified. Mass customer/crew updates remain paused until the owner explicitly authorizes the JC-87 save, all three assigned-crew deliveries are recorded without duplicates, and the test proves it did not send a customer quote or create a Square invoice. Square/JCMOVES closeout plus backup/alerting drills remain separate launch-readiness gates.
+**Current Stage 1 decision:** scheduling/local pricing is deployed (`8c9a06c4`) and the final unified phone-booking application release is deployed (`d9974bf5`). JC-87 has not been mutated or notified. Mass customer/crew updates remain paused until the owner explicitly authorizes the JC-87 save, all three assigned-crew deliveries are recorded without duplicates, and the test proves it did not send a customer quote or create a Square invoice. Square/JCMOVES closeout plus backup/alerting drills remain separate launch-readiness gates.
 
 **Exit gate:** an owner-controlled job travels from quote through completed payment, payout review, and one correct JCMOVES issuance with no duplicate side effects.
 

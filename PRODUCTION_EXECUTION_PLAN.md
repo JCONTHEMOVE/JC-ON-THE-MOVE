@@ -6,7 +6,7 @@ _Authoritative snapshot: September 2, 2026 (America/Chicago)._ This is the singl
 
 | Area | Decision | Evidence |
 | --- | --- | --- |
-| Production platform | Railway is the active production host. | `www.jconthemove.com/api/health` reported `ready`, database `ready`, and commit `5b2aadfc` on September 2, 2026. |
+| Production platform | Railway is the active production host. | `www.jconthemove.com/api/health` reported `ready`, database `ready`, and application release `d9974bf5` on September 2, 2026. |
 | Canonical readiness endpoint | `https://www.jconthemove.com/api/health` | Returns `status: ready`, database ready, and a deploy commit. |
 | Deployment model | Railway Git integration deploys `main`; GitHub validates the public commit after each push. | Public commit matches current `main` head. |
 | Card payments | Square remains the sole card/invoice processor. | Existing payment and launch-checklist design. |
@@ -15,7 +15,7 @@ _Authoritative snapshot: September 2, 2026 (America/Chicago)._ This is the singl
 
 ## Current evidence
 
-- Production scheduling and local-promo alignment shipped in `8c9a06c4`; the public health endpoint subsequently verified the unified booking foundation in `5b2aadfc` with application and database status `ready`.
+- Production scheduling and local-promo alignment shipped in `8c9a06c4`; the public health endpoint subsequently verified the final unified phone-booking release in `d9974bf5` with application and database status `ready`.
 - The exact booking release passed the clean Node 20 typecheck, all 43 discovered server test files, the production build, and GitHub's public-commit verifier. A phone-width live check confirmed the canonical `/book` landing screen and shared hourly schedule controls; a follow-up prevents the detailed builder from skipping service/address and removes staff strategy panels from the customer presentation.
 - Job Setup now owns one editable Confirmed Job Date, using `confirmedDate` with the historical `moveDate` fallback. Newly selected arrival windows use the shared one-hour Central list from 7:00–8:00 AM through 4:00–5:00 PM plus Flexible/TBD; saved legacy two-hour windows remain display-compatible.
 - Driver premiums are Finance-only. Job Setup no longer edits or submits them, while backend payout-ledger support and stale-driver cleanup remain intact.
