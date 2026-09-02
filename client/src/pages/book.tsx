@@ -2265,39 +2265,10 @@ export default function MultiServiceBookPage() {
 
   function startBuilder() {
     setBookingMode("builder");
-    if (items.length === 0) {
-      const targetCode = serviceCodeForMarketplaceShape(selectedMarketplaceShapeId);
-      const service = (targetCode ? services.find((svc) => svc.code === targetCode) : null)
-        || services.find((svc) => svc.code === "moving");
-      if (service) {
-        const item = makeItem(service);
-        const baseEstimate = selectedMarketplaceShapeId === "moving_help"
-          ? calculateLaborBooking({ crewSize: 2, hours: 3, snapshot: activePricing }).laborTotal
-          : 0;
-        setItems([{
-          ...item,
-          details: {
-            ...detailsWithMarketplaceShape(item.details, selectedMarketplaceShapeId),
-            ...(selectedMarketplaceShapeId === "moving_help"
-              ? {
-                  packageId: "shape_default_2x3",
-                  packageLabel: "Common moving help package",
-                  crew: 2,
-                  hours: 3,
-                  minPrice: baseEstimate,
-                  maxPrice: baseEstimate,
-                  inventoryCrewRecommendation: 2,
-                  inventoryLaborHours: 3,
-                  inventoryPriceMin: baseEstimate,
-                  inventoryPriceMax: baseEstimate,
-                  quoteConfidence: "medium" as const,
-                }
-              : {}),
-          },
-        }]);
-      }
-    }
-    setStep(items.length === 0 ? "configure" : step);
+    // A fresh customer must choose the actual service before the form asks
+    // for an address or schedule. Do not seed a marketplace default and skip
+    // required screens; URL-prefilled and worker flows populate themselves.
+    setStep(items.length === 0 ? "services" : step);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function removeService(code: string) {
@@ -2970,7 +2941,7 @@ export default function MultiServiceBookPage() {
 
       <div className="max-w-6xl mx-auto px-4 pt-6 flex gap-6">
         <div className="flex-1 min-w-0 space-y-6">
-          {step !== "review" && (
+          {isWorker && step !== "review" && (
             <section className="rounded-2xl border border-blue-500/25 bg-blue-500/10 p-4" data-testid="smart-start-card">
               <div className="flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-3">
@@ -3013,7 +2984,7 @@ export default function MultiServiceBookPage() {
           )}
 
           {/* Step 1 — Services */}
-          {step !== "review" && (
+          {isWorker && step !== "review" && (
             <section data-testid="booking-marketplace-flow">
               <SmartRequestShapePicker
                 selectedShapeId={selectedMarketplaceShapeId}

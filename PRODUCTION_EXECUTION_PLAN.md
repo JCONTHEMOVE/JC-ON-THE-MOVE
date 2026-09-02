@@ -6,7 +6,7 @@ _Authoritative snapshot: September 2, 2026 (America/Chicago)._ This is the singl
 
 | Area | Decision | Evidence |
 | --- | --- | --- |
-| Production platform | Railway is the active production host. | `www.jconthemove.com/api/health` reported Railway and commit `a34b2fe5` on September 2, 2026. |
+| Production platform | Railway is the active production host. | `www.jconthemove.com/api/health` reported `ready`, database `ready`, and commit `5b2aadfc` on September 2, 2026. |
 | Canonical readiness endpoint | `https://www.jconthemove.com/api/health` | Returns `status: ready`, database ready, and a deploy commit. |
 | Deployment model | Railway Git integration deploys `main`; GitHub validates the public commit after each push. | Public commit matches current `main` head. |
 | Card payments | Square remains the sole card/invoice processor. | Existing payment and launch-checklist design. |
@@ -15,13 +15,17 @@ _Authoritative snapshot: September 2, 2026 (America/Chicago)._ This is the singl
 
 ## Current evidence
 
-- Production was healthy when checked on September 2: Railway, HTTP 200, readiness `ready`, database `ready`, public commit `a34b2fe5`.
-- The combined release is preserved in Git and includes the current production Facebook Page pilot and private Square gift-card bonus controls. It is not approved for `main` until every gate below passes on the combined commit.
-- An official portable Node 20 runtime is available locally. The original worktree dependency folder became partial during clean-install recovery, so release validation must use an isolated checkout and a fresh `npm ci`.
-- Before the production merge, all 39 discovered server test files passed. Types, the post-merge server suite, build, and browser checks remain open gates and must not be inferred from that earlier result.
+- Production scheduling and local-promo alignment shipped in `8c9a06c4`; the public health endpoint subsequently verified the unified booking foundation in `5b2aadfc` with application and database status `ready`.
+- The exact booking release passed the clean Node 20 typecheck, all 43 discovered server test files, the production build, and GitHub's public-commit verifier. A phone-width live check confirmed the canonical `/book` landing screen and shared hourly schedule controls; a follow-up prevents the detailed builder from skipping service/address and removes staff strategy panels from the customer presentation.
+- Job Setup now owns one editable Confirmed Job Date, using `confirmedDate` with the historical `moveDate` fallback. Newly selected arrival windows use the shared one-hour Central list from 7:00–8:00 AM through 4:00–5:00 PM plus Flexible/TBD; saved legacy two-hour windows remain display-compatible.
+- Driver premiums are Finance-only. Job Setup no longer edits or submits them, while backend payout-ledger support and stale-driver cleanup remain intact.
+- Server-side address classification treats verified Ironwood and Bessemer city/state or ZIP evidence as local and leaves unmatched/outside-zone work on global pricing. Job Setup's server preview is the visible price authority.
+- Promo `LOCAL3X2` is server-authoritative through September 30, 2026, 11:59 PM Central: exact three movers/two hours, qualifying load-only or unload-only labor, customer/no JC equipment, and an Ironwood/Bessemer local address produce a $450 base before permitted extras. The pre-promo rate card remains the JCMOVES basis; `LOCAL4X4` is unchanged.
+- `/book` and `/book/chat` now share one phone-first customer/authorized-worker engine with address lookup, the shared hourly schedule, server quote/submission endpoints, a three-part progress cue, and a customer request-receipt email that clearly is not a final price, dispatch, or guaranteed appointment.
 - The September 2 production-only dependency audit has no critical findings after targeted Node 20-compatible overrides. Seventy lower-severity findings remain a tracked remediation backlog; broad `npm audit fix` output is not safe because it proposes Node 22 and breaking Solana/Drizzle changes.
 - The release train groups roughly eight connected streams: staff Job Brief, job lifecycle/crew/payout, quote and Square delivery, marketing/zone pricing, notifications, Facebook Page pilot, private gift-card rewards, and production operations.
-- The August 31 Ironwood test-job time has passed. No stale job alert should be created or sent; a fresh date, time, recipient scope, and owner approval are required for any live notification test.
+- JC-87 is the controlled notification test. Its data and assigned crew were not changed and no alert was sent during code deployment. Saving the September 4, 2026, 10:00–11:00 AM, three-mover, two-hour, customer-truck, `LOCAL3X2` plan is an external crew notification and still requires explicit owner confirmation at action time.
+- **Mass-update decision: not ready.** Broad customer/crew updates stay paused until JC-87 is owner-authorized, the three delivery records succeed without retry duplicates, and no customer quote or Square invoice is emitted by that test.
 
 ## Reconciled work inventory
 
@@ -32,8 +36,9 @@ Chat titles and historical task briefs are not completion proof. An item is only
 | Fast staff job view | `client/src/pages/lead-detail.tsx` contains the mobile Job Brief, contextual next action, compact finance/JCMOVES state, and collapsed advanced detail. | Mobile and desktop role-based browser check against representative missing-data and payout states. |
 | Job handoff, crew, and payout | `admin/jobs`, `admin/ops-board`, `admin/job-payouts`, dispatch services, and `server/routes.ts` are in the active release train. | Server tests plus completed-job → payout approval → worker payout → JCMOVES production smoke test. |
 | Quote, invoice, and customer contact | `server/services/square-invoice.ts`, `server/routes.ts`, `JobOrderBuilder.tsx`, and Job Detail are in the active release train. | Square sandbox/production-safe test of quote, email/SMS consent, payment link, deposit, and dispatch authorization. |
+| Phone booking engine | `/book` and `/book/chat` share the three-part multi-service flow; quote authority remains on `/api/bookings/quote`, creation on `/api/bookings`, and self-service requests receive a transactional receipt. | Live non-customer smoke test of service → address → date/hour → contact → review without creating a real job; confirm authenticated worker mode separately. |
 | Targeted-area marketing | Zone-pricing, launch-checklist, campaign analytics, and tracked-link code are in the active release train. | Launch Checklist probe and one public tracked-link/quote smoke test; verify attribution without creating a real customer charge. |
-| Notifications | Job-event routing, Discord/web-push delivery, readiness reporting, and route-wiring tests are in the active release train. | Owner-only or preview-mode test first; confirm recipients and payload before authorizing a crew-wide alert. |
+| Notifications | Job-event routing, Discord/web-push delivery, readiness reporting, route-wiring tests, and automatic complete crew/schedule plan alerts are in the active release train. | Explicitly authorize the JC-87 save, then confirm three assigned-crew delivery records and idempotent retry behavior before any broad update. |
 | Facebook and gift-card pilots | Company Page import controls and private, staged Square gift-card bonus settings are included from production. | Keep both pilots explicitly scoped; prove consent, attribution, and payment/reward audit records before widening access. |
 | Production operations | Railway workflows, public health verifier, and Launch Checklist wording were aligned in this release. | Push `main`, see the exact commit on public readiness, then observe at least one scheduled availability run. |
 

@@ -48,10 +48,16 @@ Booked-job economics outrank raw transaction volume. A verified $25 referral or 
 ### Stage 1 — Close the real-business loop
 
 - Keep Square as the only public card/invoice processor.
+- Use `/book` as the canonical phone-first customer and authorized-worker request engine: choose the work, resolve the address, select a shared Central-time hourly window, review the server quote, submit, and receive a request receipt. The receipt is not a final price, crew assignment, dispatch, or guaranteed appointment.
+- Keep one Confirmed Job Date in Job Setup (`confirmedDate`, with historical `moveDate` fallback), preserve saved legacy arrival windows, and require new selections to use the shared 7:00–8:00 AM through 4:00–5:00 PM list or Flexible/TBD.
+- Keep location and pricing authority on the server. Verified Ironwood/Bessemer work is local; unmatched/outside-zone work is global. `LOCAL3X2` is a code-required September 2026 labor-only $450 base package for exactly three movers/two hours with customer/no JC equipment, while extras and the pre-promo JCMOVES basis remain intact.
+- Keep driver premiums in Finance and keep crew/schedule alerts automatic only when a complete assigned plan changes. Contact-only and quote-only edits remain audit-only.
 - Use one canonical server-side payment confirmation event to close a job and issue JCMOVES.
 - Make payment, reward, webhook, payout, and notification writes idempotent and auditable.
 - Keep automatic public gift-card rewards, payout approval, treasury movement, and price exceptions owner-gated until their live tests pass.
 - Measure the funnel daily: lead, quote, scheduled job, payment link, paid/dispatch, completed job, payout approved, reward issued, rebooked job.
+
+**Current Stage 1 decision:** scheduling/local pricing is deployed (`8c9a06c4`) and the unified booking foundation is deployed (`5b2aadfc`). JC-87 has not been mutated or notified. Mass customer/crew updates remain paused until the owner explicitly authorizes the JC-87 save, all three assigned-crew deliveries are recorded without duplicates, and the test proves it did not send a customer quote or create a Square invoice. Square/JCMOVES closeout plus backup/alerting drills remain separate launch-readiness gates.
 
 **Exit gate:** an owner-controlled job travels from quote through completed payment, payout review, and one correct JCMOVES issuance with no duplicate side effects.
 

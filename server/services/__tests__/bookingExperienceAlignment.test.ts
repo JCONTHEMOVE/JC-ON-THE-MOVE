@@ -28,6 +28,13 @@ assert.match(bookSource, /workerModeRequested && \["admin", "employee", "busines
 assert.match(bookSource, /sendConfirmationEmail: isWorker \? workerSendCustomerEmail : true/);
 assert.match(bookSource, /Email the customer a request receipt/);
 assert.match(bookSource, /Service Request Submitted/);
+assert.match(bookSource, /setStep\(items\.length === 0 \? "services" : step\)/);
+assert.match(bookSource, /\{isWorker && step !== "review" && \(/);
+const startBuilderSource = bookSource.slice(
+  bookSource.indexOf("function startBuilder"),
+  bookSource.indexOf("function removeService"),
+);
+assert.doesNotMatch(startBuilderSource, /setItems\(/);
 
 const routeSource = readFileSync(resolve(process.cwd(), "server/routes/bookings.ts"), "utf8");
 assert.match(routeSource, /notifyCustomerBookingRequestReceived/);
