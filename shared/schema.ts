@@ -3679,6 +3679,9 @@ export const bookingCreateRequestSchema = bookingQuoteRequestSchema.extend({
   customerPhone: z.string().min(7),
   serviceAddress: z.string().optional(),
   notes: z.string().optional(),
+  // Customer self-service requests receive a transactional receipt. Worker
+  // entries only send it when the staff member explicitly opts in.
+  sendConfirmationEmail: z.boolean().optional(),
   marketingCampaignId: z.string().trim().max(120).optional(),
   marketingTracking: z.record(z.any()).optional(),
   // Task #175 — Customer chose "Pay from JCMOVES wallet" on the review

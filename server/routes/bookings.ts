@@ -13,7 +13,7 @@ import crypto from "crypto";
 import { eq, and, asc, desc, or, inArray, ilike, gte, lte, sql } from "drizzle-orm";
 import { disburseBookingTokens, loadBookingRewardSettings } from "../services/disburseBookingTokens";
 import { computeBookingReward } from "../services/bookingPricing";
-import { notifyAdminNewQuote } from "../services/email";
+import { notifyAdminNewQuote, notifyCustomerBookingRequestReceived } from "../services/email";
 import { smsService } from "../services/sms";
 import { ZodError, z } from "zod";
 import { db, pool } from "../db";
@@ -64,7 +64,7 @@ import {
   type FlooringAnswers,
 } from "../services/pricingEngine";
 import { quoteByLaborHours, LABOR_RATE_PER_HOUR, quoteMovingFromTable } from "@shared/pricingTables";
-import { quoteLocalCrewPackage } from "@shared/jcOperations";
+import { jobScheduleLabelForStart, quoteLocalCrewPackage } from "@shared/jcOperations";
 import {
   getMarketplaceRequestShape,
   getMarketplaceShapeForServiceCode,
@@ -2927,6 +2927,7 @@ router.post("/bookings", async (req: Request, res: Response) => {
       }
     }
 
+    let confirmationEmailSent = false;
     try {
       const primaryService = persistInputs[0]?.serviceLabel || persistInputs[0]?.serviceCode || "Multi-service booking";
       const serviceSummary = persistInputs
@@ -2934,27 +2935,48 @@ router.post("/bookings", async (req: Request, res: Response) => {
         .filter(Boolean)
         .join(", ");
       const customerName = body.customerName || "Customer";
-      const moveDate = persistInputs
-        .map((item) => (item.details as any)?.date || (item.details as any)?.moveDate)
-        .find(Boolean);
+      const moveDate = firstDetailValue(persistInputs, ["requestedDate", "moveDate", "date"]);
+      const requestedStartTime = firstDetailValue(persistInputs, ["requestedStartTime", "startTime"]);
+      const arrivalWindow = requestedStartTime === "flexible"
+        ? "Flexible / TBD"
+        : requestedStartTime
+          ? jobScheduleLabelForStart(requestedStartTime)
+          : null;
+      const shouldSendCustomerConfirmation = Boolean(body.customerEmail) && (
+        !isWorkerCreated || body.sendConfirmationEmail === true
+      );
+      const bookingReference = `JOB-${booking.id.slice(0, 8).toUpperCase()}`;
 
-      await Promise.allSettled([
+      const [, , customerEmailResult] = await Promise.allSettled([
         notifyAdminNewQuote({
           customerName,
           serviceType: serviceSummary || primaryService,
           phone: body.customerPhone,
           email: body.customerEmail || undefined,
-          moveDate,
+          moveDate: moveDate || undefined,
         }),
         smsService.notifyNewQuote({
           customerName,
           serviceType: serviceSummary || primaryService,
           phone: body.customerPhone,
-          moveDate,
+          moveDate: moveDate || undefined,
         }),
+        shouldSendCustomerConfirmation
+          ? notifyCustomerBookingRequestReceived({
+              to: body.customerEmail!,
+              customerName,
+              bookingReference,
+              serviceSummary: serviceSummary || primaryService,
+              serviceAddress: body.serviceAddress || null,
+              requestedDate: moveDate || null,
+              arrivalWindow,
+              estimatedTotal: quote.finalTotal,
+            })
+          : Promise.resolve(false),
       ]);
+      confirmationEmailSent = customerEmailResult.status === "fulfilled" && customerEmailResult.value === true;
     } catch (notifyErr) {
-      console.error("[bookings] admin notification failed:", notifyErr instanceof Error ? notifyErr.message : notifyErr);
+      console.error("[bookings] notification setup failed:", notifyErr instanceof Error ? notifyErr.message : notifyErr);
     }
 
     return res.status(201).json({
@@ -2968,6 +2990,7 @@ router.post("/bookings", async (req: Request, res: Response) => {
       walletPay,
       lead: linkedLead,
       quoteRevision,
+      confirmationEmailSent,
     });
   } catch (err) {
     if (err instanceof ZodError) {

@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
+import { JOB_SCHEDULE_OPTIONS, jobScheduleLabelForStart } from "@shared/jcOperations";
 import { PlacesAutocomplete } from "@/components/places-autocomplete";
 import {
   BUNDLE_SCHEDULING_MODE,
@@ -411,23 +412,11 @@ export function formatMovingFlowSummary(item: SelectedItem): string[] {
   return bits;
 }
 
-const START_TIME_OPTIONS = [
-  { value: "07:00", label: "7 AM" },
-  { value: "08:00", label: "8 AM" },
-  { value: "09:00", label: "9 AM" },
-  { value: "10:00", label: "10 AM" },
-  { value: "11:00", label: "11 AM" },
-  { value: "12:00", label: "Noon" },
-  { value: "13:00", label: "1 PM" },
-  { value: "14:00", label: "2 PM" },
-  { value: "15:00", label: "3 PM" },
-  { value: "16:00", label: "4 PM" },
-  { value: "flexible", label: "Flexible" },
-];
-
 export function formatStartTime(value?: string): string {
   if (!value) return "";
-  if (value === "flexible") return "Flexible start";
+  if (value === "flexible") return "Flexible / TBD";
+  const sharedLabel = jobScheduleLabelForStart(value);
+  if (sharedLabel !== value) return sharedLabel;
   const [hourRaw, minuteRaw = "00"] = value.split(":");
   const hour = Number(hourRaw);
   if (!Number.isFinite(hour)) return value;
@@ -475,39 +464,36 @@ function PreferredScheduleFields({
         <Label className="text-xs flex items-center gap-1.5">
           <Clock className="h-3 w-3" /> {timeLabel}
         </Label>
-        <div className="mt-1 grid grid-cols-4 sm:grid-cols-6 gap-1.5" data-testid={timeTestId ? `${timeTestId}-chips` : undefined}>
-          {START_TIME_OPTIONS.map((opt) => {
-            const active = startTime === opt.value;
+        <div className="mt-1 grid grid-cols-2 sm:grid-cols-3 gap-1.5" data-testid={timeTestId ? `${timeTestId}-chips` : undefined}>
+          {JOB_SCHEDULE_OPTIONS.map((opt) => {
+            const value = opt.start || "flexible";
+            const active = startTime === value;
             return (
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => onChange({ requestedDate: date, requestedStartTime: opt.value })}
+                onClick={() => onChange({ requestedDate: date, requestedStartTime: value })}
                 className={cn(
-                  "h-8 rounded-md border text-[11px] font-semibold transition-all",
+                  "min-h-11 rounded-lg border px-2 py-2 text-[11px] font-semibold leading-tight transition-all",
                   active
                     ? "border-sky-400 bg-sky-500/20 text-sky-200"
                     : "border-border bg-background hover:border-sky-500/50",
                 )}
-                data-testid={timeTestId ? `${timeTestId}-${opt.value}` : undefined}
+                aria-pressed={active}
+                data-testid={timeTestId ? `${timeTestId}-${value}` : undefined}
               >
                 {opt.label}
               </button>
             );
           })}
         </div>
-        <div className="mt-2 flex items-center gap-2">
-          <Input
-            type="time"
-            value={startTime && startTime !== "flexible" ? startTime : ""}
-            onChange={(e) => onChange({ requestedDate: date, requestedStartTime: e.target.value || undefined })}
-            className="h-9"
-            data-testid={timeTestId}
-          />
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <p className="text-[11px] text-muted-foreground">One-hour Central-time arrival windows</p>
           <button
             type="button"
             onClick={() => onChange({ requestedDate: date, requestedStartTime: undefined })}
-            className="h-9 px-3 rounded-md border border-border text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted"
+            className="min-h-9 px-3 rounded-md border border-border text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted"
+            data-testid={timeTestId}
           >
             Clear
           </button>

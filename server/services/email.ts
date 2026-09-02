@@ -117,6 +117,66 @@ export async function notifyAdminNewQuote(data: {
   return sendEmail({ to: ADMIN_EMAIL, from: FROM_EMAIL, subject: `New Quote Request — ${data.customerName} (${data.serviceType})`, html, text });
 }
 
+export type BookingRequestReceiptData = {
+  to: string;
+  customerName: string;
+  bookingReference: string;
+  serviceSummary: string;
+  serviceAddress?: string | null;
+  requestedDate?: string | null;
+  arrivalWindow?: string | null;
+  estimatedTotal: number;
+};
+
+function escapeEmailHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+export function generateBookingRequestReceipt(data: BookingRequestReceiptData): { html: string; text: string } {
+  const safeName = escapeEmailHtml(data.customerName || "Customer");
+  const safeReference = escapeEmailHtml(data.bookingReference);
+  const safeServices = escapeEmailHtml(data.serviceSummary || "Service request");
+  const safeAddress = data.serviceAddress ? escapeEmailHtml(data.serviceAddress) : "";
+  const safeDate = data.requestedDate ? escapeEmailHtml(data.requestedDate) : "";
+  const safeWindow = data.arrivalWindow ? escapeEmailHtml(data.arrivalWindow) : "";
+  const estimate = Number.isFinite(data.estimatedTotal) ? Math.max(0, data.estimatedTotal) : 0;
+  const estimateLabel = `$${estimate.toFixed(2)}`;
+  const scheduleText = [data.requestedDate, data.arrivalWindow].filter(Boolean).join(" · ") || "Coordinator confirmation needed";
+
+  const html = `
+    <h2>We received your JC ON THE MOVE request</h2>
+    <p>Hi ${safeName},</p>
+    <p>Your request is saved. A crew coordinator will review the details and contact you to confirm the price and schedule.</p>
+    <p><strong>Reference:</strong> ${safeReference}</p>
+    <p><strong>Service:</strong> ${safeServices}</p>
+    ${safeAddress ? `<p><strong>Service address:</strong> ${safeAddress}</p>` : ""}
+    ${safeDate ? `<p><strong>Preferred date:</strong> ${safeDate}</p>` : ""}
+    ${safeWindow ? `<p><strong>Preferred arrival window:</strong> ${safeWindow} Central</p>` : ""}
+    <p><strong>Saved estimate:</strong> ${estimateLabel}</p>
+    <p><em>This receipt confirms that we received your request. It is not a final price, crew assignment, or guaranteed appointment until a coordinator confirms it.</em></p>
+    <p>Questions? Call or text (906) 285-9312 and mention ${safeReference}.</p>
+  `;
+  const text = `JC ON THE MOVE REQUEST RECEIVED\n\nHi ${data.customerName || "Customer"},\n\nYour request is saved. A crew coordinator will review it and contact you to confirm the price and schedule.\n\nReference: ${data.bookingReference}\nService: ${data.serviceSummary || "Service request"}${data.serviceAddress ? `\nService address: ${data.serviceAddress}` : ""}\nPreferred schedule: ${scheduleText}\nSaved estimate: ${estimateLabel}\n\nThis is a request receipt, not a final price, crew assignment, or guaranteed appointment.\n\nQuestions? Call or text (906) 285-9312 and mention ${data.bookingReference}.`;
+  return { html, text };
+}
+
+export async function notifyCustomerBookingRequestReceived(data: BookingRequestReceiptData): Promise<boolean> {
+  const { html, text } = generateBookingRequestReceipt(data);
+  return sendEmail({
+    to: data.to,
+    from: FROM_EMAIL,
+    replyTo: ADMIN_EMAIL,
+    subject: `Request received — ${data.bookingReference}`,
+    html,
+    text,
+  });
+}
+
 export async function notifyAdminNewLead(data: {
   customerName: string;
   serviceType: string;

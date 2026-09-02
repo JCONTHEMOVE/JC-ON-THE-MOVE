@@ -356,6 +356,7 @@ function makeItem(svc: CatalogService): SelectedItem {
 
 interface CreateBookingResponse {
   success: true;
+  confirmationEmailSent: boolean;
   booking: {
     id: string;
     customerName: string;
@@ -1190,15 +1191,14 @@ export default function MultiServiceBookPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Task #169 — `?worker=1` opts the page into worker mode (used by crew
-  // posting a job on behalf of a customer). Right now this changes the
-  // banner + post-confirmation routing; the form fields are identical so
-  // workers and customers stay in lock-step on pricing.
-  const isWorker = useMemo(() => {
+  // Worker mode is a convenience entry point for authenticated staff, not a
+  // client-side authority signal. The server still verifies quote authority.
+  const workerModeRequested = useMemo(() => {
     if (typeof window === "undefined") return false;
     const sp = new URLSearchParams(window.location.search);
     return sp.get("worker") === "1" || sp.get("mode") === "worker";
   }, []);
+  const isWorker = workerModeRequested && ["admin", "employee", "business_owner"].includes(user?.role || "");
 
   // Task #207 — URL prefill contract. Read once on mount so the chat-intake
   // overlay (and the existing single-service homepage tiles) can hand the
@@ -1336,6 +1336,7 @@ export default function MultiServiceBookPage() {
     leadSource: "",       // door-knock, referral, repeat, walkup, other
     internalNotes: "",    // crew-only notes invisible to the customer
   });
+  const [workerSendCustomerEmail, setWorkerSendCustomerEmail] = useState(false);
   const [quote, setQuote] = useState<QuoteResult | null>(null);
   // Task #181 — wallet payment / token redemption state
   const [payFromWallet, setPayFromWallet] = useState(false);
@@ -1348,7 +1349,7 @@ export default function MultiServiceBookPage() {
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   const [confirmation, setConfirmation] = useState<
-    CreateBookingResponse["booking"] & { items: SelectedItem[]; quote: QuoteResult } | null
+    CreateBookingResponse["booking"] & { items: SelectedItem[]; quote: QuoteResult; confirmationEmailSent: boolean } | null
   >(null);
   const stepIndex = (s: Step) => STEPS.indexOf(s);
   const hasMovingService = useMemo(() => items.some((item) => item.serviceCode === "moving"), [items]);
@@ -1471,7 +1472,7 @@ export default function MultiServiceBookPage() {
     const sp = new URLSearchParams(window.location.search);
     const rawMode = sp.get("mode");
     if (rawMode === "quick") return "quick";
-    if (rawMode === "builder" || rawMode === "worker") return "builder";
+    if (rawMode === "builder" || rawMode === "worker" || sp.get("worker") === "1") return "builder";
     return "choose";
   });
 
@@ -2501,6 +2502,7 @@ export default function MultiServiceBookPage() {
         serviceAddress: serviceAddress.trim() || undefined,
         notes: combinedNotes || undefined,
         source: isWorker ? "crew_add_job" : "web_multi_book",
+        sendConfirmationEmail: isWorker ? workerSendCustomerEmail : true,
         promoCode: attribution.promoCode || undefined,
         referralSlug: attribution.referralSlug || undefined,
         marketingCampaignId: attribution.marketingCampaignId || undefined,
@@ -2521,7 +2523,12 @@ export default function MultiServiceBookPage() {
     },
     onSuccess: (data) => {
       if (data?.booking) {
-        setConfirmation({ ...data.booking, items: [...items], quote: data.quote });
+        setConfirmation({
+          ...data.booking,
+          items: [...items],
+          quote: data.quote,
+          confirmationEmailSent: data.confirmationEmailSent,
+        });
         trackBookingFunnel("submit_success", {
           bookingId: data.booking.id,
           leadId: data.lead?.id || null,
@@ -2605,7 +2612,7 @@ export default function MultiServiceBookPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // ── Confirmation screen (unchanged)
+  // ── Confirmation screen
   if (confirmation) {
     const c = confirmation;
     const finalTotal = Number(c.quote?.finalTotal ?? c.finalTotal ?? 0);
@@ -2630,9 +2637,14 @@ export default function MultiServiceBookPage() {
               <CheckCircle2 className="h-9 w-9 text-emerald-500" />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-black">Service Request Locked In</h1>
+              <h1 className="text-2xl sm:text-3xl font-black">Service Request Submitted</h1>
               <p className="text-sm text-muted-foreground mt-2">
-                Your crew coordinator will contact you shortly at {c.customerPhone}.
+                {c.confirmationEmailSent
+                  ? `A request receipt was emailed to ${c.customerEmail}.`
+                  : "Your request is saved. A crew coordinator will review it next."}
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Your crew coordinator will contact you shortly at {c.customerPhone} to confirm price and scheduling.
               </p>
               <p className="text-xs text-muted-foreground mt-2">
                 Fast scheduling • Local crew • Rewards earned automatically
@@ -2742,7 +2754,9 @@ export default function MultiServiceBookPage() {
               className="text-left"
             />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <Button className="w-full" onClick={() => setLocation(trackUrl)}>Track My Job</Button>
+              <Button className="w-full" onClick={() => setLocation(isWorker ? "/crew" : trackUrl)}>
+                {isWorker ? "Return to Crew Planner" : "Track My Job"}
+              </Button>
               <Button className="w-full" variant="outline" onClick={() => setLocation("/book")}>Book Another Service</Button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -2891,7 +2905,7 @@ export default function MultiServiceBookPage() {
           >
             {submitMutation.isPending
               ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Booking…</>
-              : "Confirm & book"}
+              : "Send booking request"}
           </Button>
         ) : (
           <Button
@@ -3125,7 +3139,11 @@ export default function MultiServiceBookPage() {
             <section data-testid="step-contact">
               <header className="mb-3">
                 <h2 className="text-xl font-black">How do we reach you?</h2>
-                <p className="text-sm text-muted-foreground">We'll text you to confirm scheduling.</p>
+                <p className="text-sm text-muted-foreground">
+                  {isWorker
+                    ? "Add the customer's contact information for scheduling and follow-up."
+                    : "We'll email your request receipt, then call or text to confirm scheduling."}
+                </p>
               </header>
               <div className="space-y-3">
                 <div>
@@ -3203,6 +3221,17 @@ export default function MultiServiceBookPage() {
                         data-testid="worker-internal-notes"
                       />
                     </div>
+                    <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-blue-500/20 bg-background/50 p-3">
+                      <Checkbox
+                        checked={workerSendCustomerEmail}
+                        onCheckedChange={(checked) => setWorkerSendCustomerEmail(checked === true)}
+                        data-testid="worker-send-confirmation-email"
+                      />
+                      <span className="text-xs leading-relaxed">
+                        <strong className="block text-foreground">Email the customer a request receipt</strong>
+                        <span className="text-muted-foreground">Sends the job summary and explains that price and scheduling still need coordinator confirmation.</span>
+                      </span>
+                    </label>
                   </div>
                 )}
               </div>
@@ -3303,6 +3332,11 @@ export default function MultiServiceBookPage() {
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Contact</p>
                   <p className="text-sm leading-relaxed break-words [overflow-wrap:anywhere]">{contact.customerName} · {contact.customerPhone} · {contact.customerEmail}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {isWorker
+                      ? workerSendCustomerEmail ? "Customer request receipt will be emailed." : "Customer email is saved; no receipt will be sent."
+                      : "Request receipt will be emailed after submission."}
+                  </p>
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Job shape</p>

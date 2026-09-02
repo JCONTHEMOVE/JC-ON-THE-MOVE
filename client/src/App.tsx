@@ -30,9 +30,9 @@ const SplashPage = lazy(() => import("@/pages/splash"));
 const OnboardingPage = lazy(() => import("@/pages/onboarding"));
 const CustomerHomePage = lazy(() => import("@/pages/customer-home"));
 const MyJobsPage = lazy(() => import("@/pages/my-jobs"));
-// Task #169 — PostJobPage retired (route redirects to /book?worker=1)
-const CustomerBookPage = lazy(() => import("@/pages/customer/book"));
-const InstantBookingPage = lazy(() => import("@/pages/instant-booking"));
+// Canonical customer + worker booking engine. The same mobile wizard owns
+// address resolution, scheduling, quote review, and submission on /book.
+const MultiServiceBookPage = lazy(() => import("@/pages/book"));
 const JobCloseoutPage = lazy(() => import("@/pages/job-closeout"));
 const ScheduleRequestPage = lazy(() => import("@/pages/schedule-request"));
 const CustomerWalletPage = lazy(() => import("@/pages/customer/wallet"));
@@ -402,10 +402,10 @@ function CustomerApp() {
             <MyJobsPage />
           </Route>
           <Route path="/book">
-            <InstantBookingPage />
+            <MultiServiceBookPage />
           </Route>
           <Route path="/book/chat">
-            <CustomerBookPage />
+            <MultiServiceBookPage />
           </Route>
           <Route path="/schedule-request/:token">
             <ScheduleRequestPage />
@@ -909,8 +909,8 @@ function Router() {
       <Route path="/schedule-request/:token" component={ScheduleRequestPage} />
       
       {/* Book page - accessible to all users, authenticated or not */}
-      <Route path="/book" component={InstantBookingPage} />
-      <Route path="/book/chat" component={CustomerBookPage} />
+      <Route path="/book" component={MultiServiceBookPage} />
+      <Route path="/book/chat" component={MultiServiceBookPage} />
       <Route path="/offers/:code" component={OffersPage} />
       <Route path="/offers" component={OffersPage} />
       <Route path="/uhaul/:slug" component={UhaulMarketPage} />
