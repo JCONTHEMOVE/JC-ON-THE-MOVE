@@ -19,6 +19,7 @@ _Authoritative snapshot: September 2, 2026 (America/Chicago)._ This is the singl
 - The combined release is preserved in Git and includes the current production Facebook Page pilot and private Square gift-card bonus controls. It is not approved for `main` until every gate below passes on the combined commit.
 - An official portable Node 20 runtime is available locally. The original worktree dependency folder became partial during clean-install recovery, so release validation must use an isolated checkout and a fresh `npm ci`.
 - Before the production merge, all 39 discovered server test files passed. Types, the post-merge server suite, build, and browser checks remain open gates and must not be inferred from that earlier result.
+- The September 2 production-only dependency audit has no critical findings after targeted Node 20-compatible overrides. Seventy lower-severity findings remain a tracked remediation backlog; broad `npm audit fix` output is not safe because it proposes Node 22 and breaking Solana/Drizzle changes.
 - The release train groups roughly eight connected streams: staff Job Brief, job lifecycle/crew/payout, quote and Square delivery, marketing/zone pricing, notifications, Facebook Page pilot, private gift-card rewards, and production operations.
 - The August 31 Ironwood test-job time has passed. No stale job alert should be created or sent; a fresh date, time, recipient scope, and owner approval are required for any live notification test.
 
@@ -88,6 +89,7 @@ Do not merge data cleanup, external messaging, or calendar mutations into the cu
 2. **Database recovery objective:** set backup retention and the maximum acceptable data loss/recovery time, then document the restore drill.
 3. **Release authority:** name the person who approves payment, payout, and production releases after the Launch Checklist is green.
 4. **Funnel expectation:** decide whether every qualified lead should become a parent booking or whether lead-only intake is an intentional business path.
+5. **Dependency remediation:** schedule compatibility-tested upgrades for the remaining high/moderate findings, especially Drizzle, upload/image processing, Express middleware, and Solana mobile transitive packages. Do not use `npm audit fix --force` on production.
 
 ## Definition of production-ready
 
