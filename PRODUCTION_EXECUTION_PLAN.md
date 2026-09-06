@@ -81,7 +81,8 @@ Do not merge data cleanup, external messaging, or calendar mutations into the cu
 
 The September 6 operational review and the owner's alert-routing/recovery
 decisions are recorded in [`docs/operations/production-readiness.md`](./docs/operations/production-readiness.md).
-The workflow cadence correction and synthetic alert drill are prepared, but
+The workflow cadence correction, external heartbeat reporter, and isolated
+fail/resolve alert drill are prepared, but
 neither the recipient/escalation gate nor the backup/restore gate is closed.
 Observed scheduled-run gaps must be resolved or covered by independent monitoring.
 
@@ -89,7 +90,7 @@ Observed scheduled-run gaps must be resolved or covered by independent monitorin
 | --- | --- | --- |
 | Process recovery | Railway manages the web process; `/health` is its liveness probe. | Confirm Railway service is set to deploy from `main` and has its native health check enabled. |
 | Readiness and deploy freshness | `scripts/check-production-deploy.mjs` verifies readiness, provider, DB state, and public commit. | Set GitHub variable `EXPECTED_HOSTING_PROVIDER=railway` (the workflow defaults to it) and keep the canonical health URL if it changes. |
-| Continuous availability | `Production Availability` requests a 10-minute cadence; GitHub scheduling is best effort. The September 6 review found 106–297-minute gaps in the latest 20 scheduled runs. | Verify actual coverage and a separate missed-check alert. Route failures to Darrell first, then the verified technical contact at 15/30/60 minutes; document receipt and escalation drill results. |
+| Continuous availability | `Production Availability` requests a 10-minute cadence and reports results to an external heartbeat when configured. GitHub scheduling is best effort; the September 6 review found 106–297-minute gaps in the latest 20 scheduled runs. | Activate an independent uptime probe and missed-check alert. Darrell is both owner and technical responder: email first, Discord and repeated unacknowledged alerts at 15/30/60 minutes, with provider-support checkpoints if unresolved. Document actual receipt and drill results. |
 | Release verification | `Production Build and Deploy Verification` validates Node 20 install, types, server tests, build, and exact public commit. | Keep Railway Git integration enabled; a delayed/missing deployment must fail this workflow. |
 | Business-health monitoring | Daily lead/booking funnel review. | Choose the responsible owner and threshold for investigation. |
 | Backup and recovery | No verified backup/restore evidence is in this repository. | Confirm the database provider's backup retention and perform one documented restore drill before claiming disaster-recovery readiness. |
@@ -97,7 +98,7 @@ Observed scheduled-run gaps must be resolved or covered by independent monitorin
 
 ## Outstanding decisions that require an owner
 
-1. **Alert destination and escalation:** Darrell confirmed his primary email and requested Discord alerts, with his technical contact next in the escalation path. Keep the exact email in private incident configuration. The Discord server/channel, technical contact identity, timed escalation configuration, and actual delivery proof remain outstanding. Existing in-app notices are readable through the website without a native app download; outage alert delivery must work independently of the production app/database. GitHub checks alone do not guarantee a human wake-up path.
+1. **Alert configuration and proof:** Darrell explicitly confirmed that he is both owner and technical responder. His primary email is confirmed; the exact Discord server/channel, independent incident-service configuration, and live delivery/escalation evidence remain outstanding. Keep addresses and webhook credentials in private settings. Existing in-app notices are readable through the website without a native app download; outage alert delivery must work independently of the production app/database. The draft reporter and isolated fail/resolve drill do not by themselves prove receipt.
 2. **Database recovery objective:** Darrell chose to measure current protection first, then receive a recommendation. Verify active production retention and recovery points, execute the isolated restore drill, and measure its results before setting retention/RPO/RTO targets.
 3. **Release authority:** name the person who approves payment, payout, and production releases after the Launch Checklist is green.
 4. **Funnel expectation:** decide whether every qualified lead should become a parent booking or whether lead-only intake is an intentional business path.

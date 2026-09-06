@@ -1,162 +1,189 @@
 # Production alerting and database recovery evidence
 
 Evidence date: 2026-09-06 (UTC). Scope: the two operational readiness gates in
-`PRODUCTION_EXECUTION_PLAN.md`. This document is a preparation record, not a
-completed drill certificate. Both gates remain **OPEN**.
+`PRODUCTION_EXECUTION_PLAN.md`. Both gates remain **OPEN** until live evidence
+is recorded. The preparation below does not certify delivery or recovery.
 
-## Owner decisions
+## Confirmed ownership
 
-- Darrell Jackson receives availability alerts first. He explicitly confirmed
-  the primary email address in the September 6 session; keep that exact address
-  in private incident configuration, not this public repository. Confirmation
-  of the address is complete; configuration and actual receipt are not proven.
-- Darrell also requested Discord alerts. The exact server/channel and its
-  operational webhook have not been verified. His technical contact remains
-  the next human escalation recipient; that person's identity and delivery
-  destination have not been established.
-- Existing in-app notices are available in the signed-in website and do not
-  require downloading a native app. Treat them as supplemental visibility:
-  availability alert delivery must work when the website or database is down.
-- Measure existing database protection before recommending or changing
-  retention, maximum acceptable data loss (RPO), or recovery time (RTO).
-- Customer-facing behavior is preserved. No booking, quote, invoice, payment,
-  crew broadcast, payout, or reward is part of these drills.
+**Darrell Jackson is both the business owner and the technical responder.** He
+explicitly confirmed this and his primary email in the September 6 session.
+There is no separate technical-contact identity to obtain. Escalation means
+reaching Darrell through another verified channel, repeating an unacknowledged
+page, and having him engage the affected provider if an incident persists.
 
-## Evidence already obtained
-
-| Control | Observed evidence | What it proves |
+| Destination | Decision | Live configuration and proof |
 | --- | --- | --- |
-| Live readiness | At `2026-09-06T14:33:30.636Z`, the public `/api/health` endpoint returned HTTP 200, application `ready`, database `ready`, and commit `25b985e4a8369bed94144421a8e2908fa15abd97`. | A healthy point-in-time observation, not backup or notification proof. |
-| Current source | `main` is `25b985e4a8369bed94144421a8e2908fa15abd97`. | The source and live commit matched when inspected. |
-| Configured cadence before this change | `7,27,47 * * * *` in the availability workflow. | The configured interval was 20 minutes, despite the plan saying 10. |
-| Proposed cadence | `7,17,27,37,47,57 * * * *`. | A requested 10-minute cadence only after this branch is merged; GitHub scheduling is best effort. |
-| Observed execution | The latest 20 scheduled availability runs returned by the repository runs API span September 4, 01:03:21 UTC through September 6, 13:08:47 UTC. All 20 succeeded, but adjacent starts are 106.25 to 297.47 minutes apart. See `availability-runs-2026-09-06.json`. | Successful probes with large observed monitoring gaps; these gaps are not evidence of a site outage. |
-| Latest checked workflow | [Run 34035201876](https://github.com/JCONTHEMOVE/JCONTHEMOVE.COM/actions/runs/34035201876), readiness job `101491880224`, succeeded. | Checkout, Node setup, and the verifier succeeded. There is no explicit notification-delivery step. |
-| Owner account | Authenticated GitHub login and scheduled-run actor are `JCONTHEMOVE`. | An account identity, not its email configuration or receipt of an alert. |
-| Primary recipient decision | Darrell explicitly confirmed his primary email in the September 6 session. | An approved real destination; delivery configuration and receipt still need evidence. |
-| Discord and in-app implementation | `server/services/jobEventBus.ts` supports job-event Discord webhooks. The admin layout includes `notification-bell.tsx` and `notification-list.tsx`, which read the website's notification API. | Existing job/crew capabilities, not proof that availability failures reach Discord or the website. The exact operational Discord destination remains unverified. |
-| Database implementation | `server/db.ts` uses the Neon serverless PostgreSQL driver with `DATABASE_URL`. | A provider clue; the active production project/branch and its retention settings are not yet verified. |
-| Recovery evidence | No verified retention setting, recovery-point inventory, or completed restore drill was found in the current production plan or repository search. No authenticated database access was available in this review. | Recovery readiness remains unverified. This does not establish that backups are absent. |
+| Email | Darrell's directly confirmed primary address; store the exact address in private incident configuration. | Not verified; a successful test must reach that inbox. |
+| Discord | Requested operational alert channel. | Exact server/channel link and Darrell's notification settings are unresolved. |
+| Website notification bell | Existing signed-in in-app notices need no native app download. | Supplemental only; outage alerting must work when the app/database is unavailable. Phone/browser push remains unproven following the September 3 missing-VAPID result. |
+| Provider support | Darrell engages Railway for hosting or the verified database provider for data issues. | Record the account's actual support entitlement and case reference during an incident; no response-time guarantee has been verified. |
 
-Neon was connected during this review, and its installed state was confirmed.
-However, project/branch/SQL actions were not exposed in this session and there
-was no authenticated CLI, so no database account data or retention settings
-could be inspected. Continue from the connected account when those actions are
-available; no new account or database is required.
+Measure existing database protection before recommending retention, maximum
+acceptable data loss (RPO), or recovery time (RTO). These operational changes
+do not alter booking, pricing, customer messages, payments, rewards, or crew
+notification behavior.
 
-The repository is public. Keep full recipient addresses, customer data,
-database connection strings, backups, and private provider screenshots in a
-restricted operations record. Commit only sanitized outcomes and references.
+This repository is public. Keep full alert addresses, secret URLs, database
+credentials, backups, customer data, and private provider evidence outside it.
+Commit sanitized results and restricted-record references only.
+
+## Evidence obtained
+
+| Control | Observation | Meaning |
+| --- | --- | --- |
+| Live readiness | At `2026-09-06T14:33:30.636Z`, `/api/health` returned HTTP 200, application/database `ready`, and commit `25b985e4a8369bed94144421a8e2908fa15abd97`. | A healthy point-in-time observation. |
+| Readiness contract | `server/index.ts` calculates readiness from completed boot, database connectivity, and required environment values, then returns 200 or 503. `/health` is a separate liveness response. | The independent monitor must use `/api/health`. |
+| Prior cadence | Main configured `7,27,47 * * * *`. | Twenty minutes, despite the plan's ten-minute requirement. |
+| Draft cadence | `7,17,27,37,47,57 * * * *`. | Ten-minute requests after merge; GitHub scheduling remains best effort. |
+| Actual execution | The latest 20 retrieved scheduled runs span September 4, 01:03:21 UTC to September 6, 13:08:47 UTC. All succeeded, with adjacent start gaps of 106.25–297.47 minutes. | Large monitoring gaps, not evidence of website outages. See `availability-runs-2026-09-06.json`. |
+| Last inspected run | [34035201876](https://github.com/JCONTHEMOVE/JCONTHEMOVE.COM/actions/runs/34035201876), readiness job `101491880224`, succeeded. | Existing verifier works; main had no explicit alert sender. |
+| Draft reporting | `scripts/report-availability.mjs` sends automatic main-run results to an independent heartbeat and isolates fail/resolve drills. | Implemented and tested locally; no live heartbeat or delivery is configured or proven. |
+| GitHub identity | Authenticated owner and observed scheduled actor are `JCONTHEMOVE`. | Does not prove notification settings or email receipt. |
+| Existing notifications | The admin layout uses `notification-bell.tsx` and `notification-list.tsx`; `jobEventBus.ts` supports job-event Discord webhooks. | Does not establish an operational outage route or its Discord audience. |
+| Database | `server/db.ts` uses the Neon PostgreSQL driver and `DATABASE_URL`. No authenticated production mapping, retention evidence, or restore result was available. | Provider clue only; backup protection remains unverified. |
+
+Neon is connected, but project/branch/SQL actions were not exposed in this
+session and no authenticated CLI was available. Railway access was requested
+to inspect the live host configuration and verify the production database
+mapping. Neither retention settings nor production data have been changed.
 
 ## Alerting gate
 
-### Configuration to complete
+### Recommended monitoring arrangement
 
-1. Use Darrell's directly confirmed primary email in the private incident
-   configuration. Resolve the named technical contact and the exact Discord
-   server/channel link before enabling escalation or sending a drill. Do not
-   infer either destination from marketing contacts, crew membership, a shared
-   invite, or a webhook environment-variable name.
-2. In the owner's GitHub notification settings, verify Actions email delivery,
-   failure notifications, and the intended destination. GitHub's scheduled-run
-   notification recipient follows the user who created/last changed the cron,
-   or re-enabled the workflow. Verify the actor after the cron correction;
-   being a repository owner alone does not establish delivery.
-3. Configure and verify the escalation policy below in the selected incident
-   delivery system. GitHub failure email alone has no acknowledgement or timed
-   escalation mechanism. Until such a system is connected, the timeline is a
-   required policy, not implemented automation.
-4. Investigate the observed execution gaps and verify ongoing coverage.
-   GitHub documents that scheduled runs can be delayed or dropped. An
-   independent monitor must detect both a bad readiness response and absence
-   of expected checks; use a separate scheduler/delivery path for a true
-   10-minute operational control. A second workflow on the same scheduler does
-   not remove the observed failure mode. Prefer an existing incident service
-   if one is already available; account, destination, and any cost remain to be
-   resolved before provisioning one.
-5. Use the same real failure route for the synthetic drill and normal failures.
-   Do not add a test-only email that bypasses the actual failure route. Check
-   for cancelled, timed-out, and missing monitor runs as well as explicit
-   verifier failures. Preserve all current verifier checks.
+Use an external uptime/incident service for the following three records. Better
+Stack is the reference integration implemented in this draft; no account,
+subscription, or monitor has been provisioned. Reuse an existing suitable
+service if the account inventory identifies one, and adapt the reporter before
+activation. Confirm any plan cost before subscribing.
 
-### Delivery decisions recorded on September 6
-
-| Destination | Confirmed decision | Remaining proof |
+| Record | Configuration to apply | Incident meaning |
 | --- | --- | --- |
-| Primary email | Darrell's explicitly confirmed email is the first destination; use the exact private address from the session. | Configure it in the actual incident service and record real receipt and acknowledgement. GitHub account identity alone is insufficient. |
-| Discord | The owner requested Discord alerts. No exact server/channel has been verified. | Resolve the channel link and intended audience, configure its operational webhook privately, then record receipt. A shared crew invite or existing job-event webhook is insufficient. |
-| Technical escalation | The owner's technical contact is next after Darrell. | Obtain the person's name and approved email, phone, or Discord handle; verify the destination and 15/30/60-minute route. A channel name alone does not identify the responsible person. |
-| In-app notices | The website already provides an authenticated notification drawer; a native app download is unnecessary for reading those notices. | No operational outage route has been demonstrated. The September 3 plan separately recorded missing VAPID keys, so phone/browser push is not proven. |
+| `JC production readiness` | External HTTPS GET of `https://www.jconthemove.com/api/health`; expected HTTP 200; interval no longer than 10 minutes; timeout 15 seconds; record the service's failure-confirmation/recovery settings. | Production readiness failure, including database/required-env failure. It continues probing if GitHub stops running. |
+| `JC availability verifier` | Expect a successful heartbeat every 10 minutes with 5 minutes of grace; attach Darrell's incident policy. | Verifier failure or missing check. The fifteen-minute missing-check threshold is not a fifteen-minute uptime-check cadence. |
+| `JC availability DRILL` | A distinct heartbeat, clearly labeled drill, with the same recipients and escalation settings as the verifier heartbeat. | Safe delivery/escalation rehearsal; never marks production recovered. |
 
-Keep the availability monitor and its delivery system independent of the
-production application/database. The existing `DISCORD_JOB_WEBHOOK_URL` and
-`DISCORD_WEBHOOK_URL` code paths serve job events; do not redirect or reuse them
-for operational alerts without verifying their destination and audience.
-Store any new operational webhook in the selected monitor's secret settings;
-do not paste webhook credentials into a public issue, workflow, or drill log.
-No email, Discord message, in-app notice, or push was sent during this review.
+The separate uptime probe provides coverage while GitHub's observed long gaps
+are investigated. Heartbeat-only monitoring would detect those gaps but would
+not restore ten-minute checks of the website.
 
-### Required escalation policy (not yet configured)
+The reporter uses Better Stack's documented success URL and `/fail` endpoint.
+The service can open incidents when heartbeat requests fail to arrive. A new
+heartbeat remains pending until its first request: verify activation, then
+deliberately withhold a test heartbeat to prove missing-check alerting.
+[Heartbeat documentation](https://betterstack.com/docs/uptime/cron-and-heartbeat-monitor/).
 
-The clock starts at the monitoring system's first detected failure, **T0**.
-Record receipt and acknowledgement separately; delivery is not acknowledgement.
+### Delivery configuration
 
-| Elapsed time | Required action | Recipient |
+1. Set Darrell as the named responder and verify his already approved email in
+   the incident service. Native GitHub Actions email can remain an additional
+   signal, but scheduled recipients depend on cron ownership/settings and need
+   separate receipt evidence.
+2. Resolve the exact Discord server/channel. Create a dedicated operational
+   webhook there and store it privately in the incident service. Do not redirect
+   `DISCORD_JOB_WEBHOOK_URL`, `DISCORD_WEBHOOK_URL`, or the shared crew invite.
+3. Configure email and the Discord outgoing webhook on the same incident policy.
+   Discord payloads must contain `content` or embeds and must not ping an entire
+   server. Resolve Darrell's Discord user ID before enabling a targeted mention.
+   Better Stack supports customized outgoing incident-webhook templates;
+   verify the rendered payload and channel receipt before activation.
+   [Outgoing webhooks](https://betterstack.com/docs/uptime/webhooks/).
+4. Put the two distinct canonical heartbeat URLs in GitHub Actions secrets:
+   `OPS_HEARTBEAT_URL` and `OPS_DRILL_HEARTBEAT_URL`. They are operational
+   credentials, not application environment variables. The draft rejects
+   missing destinations, redirects, noncanonical URLs, and a drill URL that
+   equals the production URL.
+5. Attach the incident policy to the uptime monitor and both heartbeats.
+   Creating a policy alone does not apply it to existing monitors.
+   [Escalation policy assignment](https://betterstack.com/docs/uptime/escalation-policies/).
+
+No email, Discord message, in-app notice, or push has been sent in this review.
+The exact Discord channel, service account, secrets, and live policy remain
+unverified. App downloads and production VAPID changes are not prerequisites
+for email/Discord outage delivery.
+
+### Single-responder escalation policy
+
+T0 is the first detected failure or missing-check incident, not each retry.
+Repeated failures stay attached to that open incident. Keep readiness and
+missing-verifier incidents distinguishable; never label a missed run as a
+confirmed website outage.
+
+Configure successive delays of 15, 15, and 30 minutes to reach T0+15,
+T0+30, and T0+60.
+
+| Time | Automated notification to configure | Darrell's response |
 | --- | --- | --- |
-| T0 | Open one incident and send the readiness failure or missing-check alert. | Darrell Jackson |
-| 15 minutes | If unresolved or unacknowledged, notify the technical contact; retain Darrell on the incident. An acknowledgement must not suppress escalation of an unresolved failure. | Verified technical contact |
-| 30 minutes | If unresolved, repeat the escalation and have the technical contact engage the affected hosting/database provider's support path. | Darrell and technical contact |
-| 60 minutes | Owner reviews diagnosis, incident impact, and recovery/containment options. Record the decision and next update time. | Darrell, with the technical contact |
-| Recovery | Require a fresh successful readiness check, send a recovery notice, stop pending escalation, and retain the incident timeline. | The incident recipients |
+| T0 | Email Darrell first and record the incident in the verified Discord alert channel. | Open the incident and check its evidence; acknowledge ownership. |
+| 15 minutes | If unacknowledged, repeat email and send an urgent Discord notification to Darrell. | Inspect Railway deployment/logs and the strict readiness result; record diagnosis and next update. |
+| 30 minutes | If still unacknowledged, repeat both channels with provider-support instructions. | If still unresolved, contact the affected provider using the account's available support route and record the case reference. |
+| 60 minutes | If still unacknowledged, repeat both channels and request an incident decision. | Review impact and recovery/containment options; record a decision and next update time. |
+| Recovery | Send one recovery notice for the affected monitor and stop its pending escalation. | Confirm a fresh successful check; retain the incident timeline. |
 
-Group repeated failed probes into the same open incident. Preserve its original
-T0; do not reset escalation timers on every retry. New incidents may open after
-a verified recovery. Changing customer behavior, rolling back, or restoring
-production requires a separate concrete owner decision.
+Acknowledgement records Darrell's ownership and may stop automated wake-up
+messages; it does **not** mean recovery. Better Stack explicitly stops escalation
+on acknowledgement. Once acknowledged, Darrell owns the unresolved-incident
+checkpoints above and records the next update in the incident. No separate
+automated post-acknowledgement reminder has been implemented or claimed.
+[Acknowledgement behavior](https://betterstack.com/docs/uptime/api/acknowledge-an-ongoing-incident/).
 
-### Safe alert drill
+Provider support paths: [Railway support](https://docs.railway.com/platform/support)
+and, if the production database mapping confirms Neon,
+[Neon support](https://neon.com/docs/introduction/support). Check account access
+and support entitlement; community support is not a guaranteed on-call engineer.
+There is one named human responder. No separate backup person is configured.
 
-Status: **NOT RUN**. The workflow adds an `alert_drill` manual input, defaulting
-to false. In drill mode it intentionally fails before checkout, Node setup, or
-the verifier; no production URL is contacted. The final summary is evidence
-of the signal, not evidence that a person received it.
+For each alert, include the business name, `OPEN`/`REMINDER`/`RECOVERED`/`DRILL`,
+affected check, first-detected UTC time, elapsed duration, incident link, the
+safe workflow-run link when relevant, and the next action. Do not include raw
+health JSON, private customer information, or connection strings. Routine
+successful checks should remain quiet except for recovery transitions.
 
-After destinations are resolved and the route is configured:
+### Activation and drill evidence
 
-1. Record the owner, technical contact, private destination reference, expected
-   escalation timing, and drill identifier in the restricted incident record.
-2. Dispatch `Production Availability` using `alert_drill=true` from the owner
-   account. The run title must say `intentional failure`. The existing manual
-   workflow can target the reviewed branch; scheduled runs use the default
-   branch. Explicitly record which ref was tested.
-3. Confirm the synthetic step failed and all production steps were skipped.
-4. Record actual first-recipient receipt and acknowledgement timestamps, then
-   test the unacknowledged and unresolved escalation routes to the named
-   technical contact. Verify the 15/30/60-minute timings. A compressed routing
-   rehearsal alone does not prove the configured timing.
-5. Verify acknowledgement, recovery, duplicate suppression, and cancellation
-   of pending escalations. A drill with no real endpoint failure needs a
-   clearly identified test-incident resolution, not a fabricated recovery.
-6. Record a normal successful readiness run and scheduled-run recipient proof
-   after the cron update. A manual-run receipt alone does not prove scheduled
-   GitHub notification routing. Verify the independent missed-check alert too.
+Status: **NOT RUN LIVE**. The reporter has automated tests with fake HTTP
+responses; these are not email, Discord, timing, or recovery evidence.
 
-Optional CLI dispatch, after the above prerequisites are met:
+1. Complete the private account/destination/secret configuration above. Verify
+   Darrell can receive the email and that the Discord channel is visible with
+   the intended notification settings.
+2. Run `Production Availability` on this reviewed branch with
+   `alert_drill=true`, `alert_drill_phase=fail`. The readiness job intentionally
+   fails before its checkout, Node setup, or production verifier. The separate
+   reporting job checks out only to execute the operational reporter; it never
+   runs the app or the production verifier.
+3. Verify the provider created a **drill** incident and record Darrell's actual
+   email/Discord receipt times. Leave this rehearsal unacknowledged to verify
+   the configured 15/30/60-minute wake-up sequence. Test acknowledgement in a
+   separate rehearsal and verify that it stops paging without resolving it.
+4. Resolve the synthetic incident with `alert_drill=true`,
+   `alert_drill_phase=resolve`. Record the drill recovery notice and stopped
+   escalation; production monitoring must remain unaffected. Pause the drill
+   heartbeat after evidence is complete so it cannot create forgotten-test
+   missing-heartbeat alerts.
+5. For a missed-check rehearsal, enable only the drill heartbeat, send its first
+   signal, then withhold further pings for its interval plus grace. Verify the
+   missing-check incident and real receipt. Resolve and pause the drill again.
+6. After configuration and review, merge the operational change and verify the
+   first automatic main run activates the production heartbeat. Record that
+   the independent uptime monitor is actively probing the strict endpoint.
+   Observe delivery on the normal route and measured check intervals before
+   closing the gate. Account for any platform confirmation/grace delay.
 
-```bash
-gh workflow run production-availability.yml --repo JCONTHEMOVE/JCONTHEMOVE.COM --ref main -f alert_drill=true
-```
+Ordinary manual health verification does not send production heartbeats, so it
+cannot hide a missing scheduled run or resolve the production incident using
+an alternate health URL. Automatic workflows are serialized; reporting handles
+success, failure, cancellation, and skipped readiness jobs. If GitHub never
+starts the workflow or its reporting job, the independent service must alert
+on the absent heartbeat. Missing secrets cause a visible reporting failure.
 
-### Alert evidence fields
-
-The primary owner email has been confirmed directly. Keep these **pending**
-until observed: configured monitor and incident service; configured owner
-destination; named technical contact; verified Discord destination; private
-destination references; run URL and tested
-ref; scheduled actor; failure T0; owner delivery/acknowledgement timestamps;
-15/30/60-minute escalation delivery/acknowledgement timestamps; recovery and
-deduplication results; missed-check test; post-change schedule observations;
-reviewer and date. A provider's accepted-send response is not human receipt.
+Record: private destination references; service/monitor/policy IDs; tested ref
+and run; first failure time; accepted-send responses; actual email/Discord
+receipt and acknowledgement times; timed escalation results; acknowledged but
+unresolved handling; recovery/deduplication results; missed-check test; actual
+ongoing coverage; reviewer/date. An HTTP accepted-send result is not proof that
+Darrell received or read the alert.
 
 ## Database recovery gate
 
@@ -280,7 +307,7 @@ is claimed by these checks.
 
 | Gate | Status | Required to close |
 | --- | --- | --- |
-| Recipient and escalation | OPEN | Owner email is confirmed. Still need configured delivery, exact Discord destination, a named technical contact, verified receipt/acknowledgement/escalation/recovery, and adequate measured monitoring coverage including missed checks. |
+| Recipient and escalation | OPEN | Darrell is confirmed as owner and technical responder, and his email is confirmed. The tested reporting code still needs an incident-service account, exact Discord destination, private secrets/policy configuration, actual receipt/escalation/recovery evidence, and measured external monitoring coverage. |
 | Backup retention and restore | OPEN | Authenticated production retention/recovery-point evidence and one successfully validated, documented isolated restore. |
 
 This operational work does not approve other payment, payout, notification,
