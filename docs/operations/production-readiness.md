@@ -6,9 +6,17 @@ completed drill certificate. Both gates remain **OPEN**.
 
 ## Owner decisions
 
-- Darrell Jackson receives availability alerts first; his technical contact is
-  the next escalation recipient. The technical contact's identity and delivery
+- Darrell Jackson receives availability alerts first. He explicitly confirmed
+  the primary email address in the September 6 session; keep that exact address
+  in private incident configuration, not this public repository. Confirmation
+  of the address is complete; configuration and actual receipt are not proven.
+- Darrell also requested Discord alerts. The exact server/channel and its
+  operational webhook have not been verified. His technical contact remains
+  the next human escalation recipient; that person's identity and delivery
   destination have not been established.
+- Existing in-app notices are available in the signed-in website and do not
+  require downloading a native app. Treat them as supplemental visibility:
+  availability alert delivery must work when the website or database is down.
 - Measure existing database protection before recommending or changing
   retention, maximum acceptable data loss (RPO), or recovery time (RTO).
 - Customer-facing behavior is preserved. No booking, quote, invoice, payment,
@@ -25,6 +33,8 @@ completed drill certificate. Both gates remain **OPEN**.
 | Observed execution | The latest 20 scheduled availability runs returned by the repository runs API span September 4, 01:03:21 UTC through September 6, 13:08:47 UTC. All 20 succeeded, but adjacent starts are 106.25 to 297.47 minutes apart. See `availability-runs-2026-09-06.json`. | Successful probes with large observed monitoring gaps; these gaps are not evidence of a site outage. |
 | Latest checked workflow | [Run 34035201876](https://github.com/JCONTHEMOVE/JCONTHEMOVE.COM/actions/runs/34035201876), readiness job `101491880224`, succeeded. | Checkout, Node setup, and the verifier succeeded. There is no explicit notification-delivery step. |
 | Owner account | Authenticated GitHub login and scheduled-run actor are `JCONTHEMOVE`. | An account identity, not its email configuration or receipt of an alert. |
+| Primary recipient decision | Darrell explicitly confirmed his primary email in the September 6 session. | An approved real destination; delivery configuration and receipt still need evidence. |
+| Discord and in-app implementation | `server/services/jobEventBus.ts` supports job-event Discord webhooks. The admin layout includes `notification-bell.tsx` and `notification-list.tsx`, which read the website's notification API. | Existing job/crew capabilities, not proof that availability failures reach Discord or the website. The exact operational Discord destination remains unverified. |
 | Database implementation | `server/db.ts` uses the Neon serverless PostgreSQL driver with `DATABASE_URL`. | A provider clue; the active production project/branch and its retention settings are not yet verified. |
 | Recovery evidence | No verified retention setting, recovery-point inventory, or completed restore drill was found in the current production plan or repository search. No authenticated database access was available in this review. | Recovery readiness remains unverified. This does not establish that backups are absent. |
 
@@ -42,9 +52,11 @@ restricted operations record. Commit only sanitized outcomes and references.
 
 ### Configuration to complete
 
-1. Verify Darrell's intended alert email or phone and the named technical
-   contact's channel. Do not infer alert destinations from commit-author email,
-   marketing contacts, crew membership, or a generic company mailbox.
+1. Use Darrell's directly confirmed primary email in the private incident
+   configuration. Resolve the named technical contact and the exact Discord
+   server/channel link before enabling escalation or sending a drill. Do not
+   infer either destination from marketing contacts, crew membership, a shared
+   invite, or a webhook environment-variable name.
 2. In the owner's GitHub notification settings, verify Actions email delivery,
    failure notifications, and the intended destination. GitHub's scheduled-run
    notification recipient follows the user who created/last changed the cron,
@@ -66,6 +78,23 @@ restricted operations record. Commit only sanitized outcomes and references.
    Do not add a test-only email that bypasses the actual failure route. Check
    for cancelled, timed-out, and missing monitor runs as well as explicit
    verifier failures. Preserve all current verifier checks.
+
+### Delivery decisions recorded on September 6
+
+| Destination | Confirmed decision | Remaining proof |
+| --- | --- | --- |
+| Primary email | Darrell's explicitly confirmed email is the first destination; use the exact private address from the session. | Configure it in the actual incident service and record real receipt and acknowledgement. GitHub account identity alone is insufficient. |
+| Discord | The owner requested Discord alerts. No exact server/channel has been verified. | Resolve the channel link and intended audience, configure its operational webhook privately, then record receipt. A shared crew invite or existing job-event webhook is insufficient. |
+| Technical escalation | The owner's technical contact is next after Darrell. | Obtain the person's name and approved email, phone, or Discord handle; verify the destination and 15/30/60-minute route. A channel name alone does not identify the responsible person. |
+| In-app notices | The website already provides an authenticated notification drawer; a native app download is unnecessary for reading those notices. | No operational outage route has been demonstrated. The September 3 plan separately recorded missing VAPID keys, so phone/browser push is not proven. |
+
+Keep the availability monitor and its delivery system independent of the
+production application/database. The existing `DISCORD_JOB_WEBHOOK_URL` and
+`DISCORD_WEBHOOK_URL` code paths serve job events; do not redirect or reuse them
+for operational alerts without verifying their destination and audience.
+Store any new operational webhook in the selected monitor's secret settings;
+do not paste webhook credentials into a public issue, workflow, or drill log.
+No email, Discord message, in-app notice, or push was sent during this review.
 
 ### Required escalation policy (not yet configured)
 
@@ -120,8 +149,10 @@ gh workflow run production-availability.yml --repo JCONTHEMOVE/JCONTHEMOVE.COM -
 
 ### Alert evidence fields
 
-Keep these **pending** until observed: configured monitor and incident service;
-owner and technical contact; private destination references; run URL and tested
+The primary owner email has been confirmed directly. Keep these **pending**
+until observed: configured monitor and incident service; configured owner
+destination; named technical contact; verified Discord destination; private
+destination references; run URL and tested
 ref; scheduled actor; failure T0; owner delivery/acknowledgement timestamps;
 15/30/60-minute escalation delivery/acknowledgement timestamps; recovery and
 deduplication results; missed-check test; post-change schedule observations;
@@ -249,7 +280,7 @@ is claimed by these checks.
 
 | Gate | Status | Required to close |
 | --- | --- | --- |
-| Recipient and escalation | OPEN | Real owner and technical-contact destinations, verified delivery/acknowledgement/escalation/recovery, and adequate measured monitoring coverage including missed checks. |
+| Recipient and escalation | OPEN | Owner email is confirmed. Still need configured delivery, exact Discord destination, a named technical contact, verified receipt/acknowledgement/escalation/recovery, and adequate measured monitoring coverage including missed checks. |
 | Backup retention and restore | OPEN | Authenticated production retention/recovery-point evidence and one successfully validated, documented isolated restore. |
 
 This operational work does not approve other payment, payout, notification,

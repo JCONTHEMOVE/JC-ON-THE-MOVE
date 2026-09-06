@@ -97,7 +97,7 @@ Observed scheduled-run gaps must be resolved or covered by independent monitorin
 
 ## Outstanding decisions that require an owner
 
-1. **Alert destination and escalation:** Darrell chose owner-first delivery, then escalation to his technical contact. The destination, contact identity, timed escalation configuration, and actual delivery proof remain outstanding. GitHub checks alone do not guarantee a human wake-up path.
+1. **Alert destination and escalation:** Darrell confirmed his primary email and requested Discord alerts, with his technical contact next in the escalation path. Keep the exact email in private incident configuration. The Discord server/channel, technical contact identity, timed escalation configuration, and actual delivery proof remain outstanding. Existing in-app notices are readable through the website without a native app download; outage alert delivery must work independently of the production app/database. GitHub checks alone do not guarantee a human wake-up path.
 2. **Database recovery objective:** Darrell chose to measure current protection first, then receive a recommendation. Verify active production retention and recovery points, execute the isolated restore drill, and measure its results before setting retention/RPO/RTO targets.
 3. **Release authority:** name the person who approves payment, payout, and production releases after the Launch Checklist is green.
 4. **Funnel expectation:** decide whether every qualified lead should become a parent booking or whether lead-only intake is an intentional business path.
