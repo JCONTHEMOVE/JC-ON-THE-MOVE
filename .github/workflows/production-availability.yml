@@ -1,4 +1,5 @@
 name: Production Availability
+run-name: ${{ inputs.alert_drill && 'Availability alert drill (intentional failure)' || 'Production Availability' }}
 
 on:
   push:
@@ -10,9 +11,14 @@ on:
   schedule:
     # GitHub scheduled workflows can be delayed during high load, especially
     # near the top of the hour. Offset the check to avoid peak scheduling.
-    - cron: "7,27,47 * * * *"
+    - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch:
     inputs:
+      alert_drill:
+        description: Intentional failure to test alerts; skips all production requests
+        type: boolean
+        required: false
+        default: false
       health_url:
         description: Public readiness URL to verify
         required: false
@@ -38,13 +44,47 @@ jobs:
       EXPECTED_HOSTING_PROVIDER: ${{ vars.EXPECTED_HOSTING_PROVIDER || 'railway' }}
       DEPLOY_CHECK_TIMEOUT_MS: ${{ vars.DEPLOY_CHECK_TIMEOUT_MS || '15000' }}
     steps:
+      - name: Exercise the alert path without contacting production
+        id: alert_drill
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.alert_drill }}
+        run: |
+          echo "::error::INTENTIONAL ALERT DRILL. Production was not queried or changed. Record actual recipient receipt and escalation acknowledgements before closing the alerting gate."
+          exit 1
+
       - name: Checkout readiness verifier
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.alert_drill) }}
         uses: actions/checkout@v4
 
       - name: Use Node 20
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.alert_drill) }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Verify public readiness
+        id: readiness
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.alert_drill) }}
         run: node scripts/check-production-deploy.mjs "$PUBLIC_HEALTH_URL"
+
+      - name: Record the monitoring evidence
+        if: ${{ always() }}
+        env:
+          ALERT_DRILL: ${{ github.event_name == 'workflow_dispatch' && inputs.alert_drill }}
+          DRILL_OUTCOME: ${{ steps.alert_drill.outcome }}
+          READINESS_OUTCOME: ${{ steps.readiness.outcome }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Availability evidence
+          - Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          - Trigger: $GITHUB_EVENT_NAME
+          - Actor: $GITHUB_ACTOR
+          - Workflow ref: $GITHUB_REF
+          - Workflow commit: $GITHUB_SHA
+          - Synthetic alert drill: $ALERT_DRILL
+          - Drill step: $DRILL_OUTCOME
+          - Production verifier: $READINESS_OUTCOME
+
+          A failed drill proves the failure signal only. Actual owner receipt,
+          escalation acknowledgement, and measured schedule coverage must be
+          recorded separately in docs/operations/production-readiness.md.
+          EOF

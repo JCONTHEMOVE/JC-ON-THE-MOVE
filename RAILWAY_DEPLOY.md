@@ -25,9 +25,10 @@ Set the required database, session, Square, messaging, and wallet environment va
 
 ## 24/7 operations
 
-- `Production Availability` runs every 10 minutes against the public readiness endpoint.
-- Assign a human recipient and escalation path for failed GitHub workflow notifications.
-- Confirm database backup retention and document a restore drill.
+- `Production Availability` requests a 10-minute cadence against the public readiness endpoint. Verify actual run intervals; GitHub can delay or drop scheduled runs.
+- Darrell receives availability alerts first, followed by his verified technical contact. Configure and prove delivery plus 15/30/60-minute escalation.
+- Measure existing database retention and recovery points, then document an isolated restore drill before recommending recovery targets.
+- Keep the evidence and open items in [`docs/operations/production-readiness.md`](./docs/operations/production-readiness.md). The synthetic `alert_drill` input exercises failure notification without contacting production; its failed result alone is not delivery proof.
 - Treat a readiness failure, missing public commit marker, failed payment/payout probe, or unexpected funnel conversion drop as a release/operations incident.
 
 ## Local development note
